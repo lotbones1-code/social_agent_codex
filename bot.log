@@ -1,0 +1,42 @@
+[2025-11-06 02:40:14] Launching Social Agent (persistent Chrome profile)…
+[2025-11-06 02:40:18] Login required: please log in ONCE in this Chromium window, then leave it open.
+Traceback (most recent call last):
+  File "/Users/shamil/social_agent/social_agent.py", line 259, in <module>
+    main_loop()
+    ~~~~~~~~~^^
+  File "/Users/shamil/social_agent/social_agent.py", line 207, in main_loop
+    page.wait_for_url("**/home", timeout=120000)
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/shamil/social_agent/venv/lib/python3.14/site-packages/playwright/sync_api/_generated.py", line 9162, in wait_for_url
+    self._sync(
+    ~~~~~~~~~~^
+        self._impl_obj.wait_for_url(
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+            url=self._wrap_handler(url), waitUntil=wait_until, timeout=timeout
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        )
+        ^
+    )
+    ^
+  File "/Users/shamil/social_agent/venv/lib/python3.14/site-packages/playwright/_impl/_sync_base.py", line 115, in _sync
+    return task.result()
+           ~~~~~~~~~~~^^
+  File "/Users/shamil/social_agent/venv/lib/python3.14/site-packages/playwright/_impl/_page.py", line 584, in wait_for_url
+    return await self._main_frame.wait_for_url(**locals_to_params(locals()))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/shamil/social_agent/venv/lib/python3.14/site-packages/playwright/_impl/_frame.py", line 263, in wait_for_url
+    async with self.expect_navigation(
+               ~~~~~~~~~~~~~~~~~~~~~~^
+        url=url, waitUntil=waitUntil, timeout=timeout
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ):
+    ^
+  File "/Users/shamil/social_agent/venv/lib/python3.14/site-packages/playwright/_impl/_event_context_manager.py", line 33, in __aexit__
+    await self._future
+  File "/Users/shamil/social_agent/venv/lib/python3.14/site-packages/playwright/_impl/_frame.py", line 239, in continuation
+    event = await waiter.result()
+            ^^^^^^^^^^^^^^^^^^^^^
+playwright._impl._errors.Error: Target page, context or browser has been closed
+=========================== logs ===========================
+waiting for navigation to "**/home" until 'load'
+============================================================
