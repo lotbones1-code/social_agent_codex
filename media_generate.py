@@ -1,67 +1,117 @@
-# ===== media_generate.py (Replicate helper) =====
-from __future__ import annotations
-from pathlib import Path
-import os, time, json, shutil, requests
+# ===== BEGIN media_generate.py =====
+"""
+Optional helper for Replicate image/video generation.
 
-API = "https://api.replicate.com/v1/predictions"
-TOKEN = os.getenv("REPLICATE_API_TOKEN", "")
-IMG_MODEL = os.getenv("REPLICATE_IMAGE_MODEL", "")   # e.g. black-forest-labs/FLUX.1-schnell
-VID_MODEL = os.getenv("REPLICATE_VIDEO_MODEL", "")   # e.g. pika-labs/pika-1-5
+Env vars:
+  REPLICATE_API_TOKEN
+  REPLICATE_IMAGE_MODEL
+  REPLICATE_VIDEO_MODEL
+
+Outputs:
+  media/images/*.png
+  media/videos/*.mp4
+
+If not configured, functions just return None.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import time
+from pathlib import Path
+from typing import Optional
+
+import requests
 
 BASE = Path(__file__).resolve().parent
-IMG_DIR = BASE / "media" / "images"
-VID_DIR = BASE / "media" / "videos"
-for p in (IMG_DIR, VID_DIR): p.mkdir(parents=True, exist_ok=True)
+MEDIA = BASE / "media"
+IMG_DIR = MEDIA / "images"
+VID_DIR = MEDIA / "videos"
+for d in (MEDIA, IMG_DIR, VID_DIR):
+    d.mkdir(parents=True, exist_ok=True)
 
-HDRS = {"Authorization": f"Token {TOKEN}", "Content-Type": "application/json"}
+API = "https://api.replicate.com/v1/predictions"
+TOKEN = os.getenv("REPLICATE_API_TOKEN", "").strip()
+IMG_MODEL = os.getenv("REPLICATE_IMAGE_MODEL", "").strip()
+VID_MODEL = os.getenv("REPLICATE_VIDEO_MODEL", "").strip()
+
+HDRS = {
+    "Authorization": f"Token {TOKEN}",
+    "Content-Type": "application/json",
+}
+
 
 def _slug(s: str) -> str:
-    return "".join(c for c in s if c.isalnum() or c in "-_ ").strip().replace(" ", "_")[:80] or "media"
+    s = "".join(c for c in s if c.isalnum() or c in " _-")[:60]
+    return s.strip().replace(" ", "_").lower() or "media"
 
-def _start(model: str, payload: dict) -> str | None:
-    r = requests.post(API, headers=HDRS, data=json.dumps({"model": model, "input": payload}))
-    if r.status_code >= 400: return None
+
+def _start(model: str, payload: dict) -> Optional[str]:
+    if not TOKEN or not model:
+        return None
+    r = requests.post(API, headers=HDRS, data=json.dumps({"model": model, "input": payload}), timeout=30)
+    r.raise_for_status()
     return r.json().get("id")
 
-def _poll(pid: str, timeout = 900) -> str | None:
+
+def _poll(pred_id: str, timeout: int = 900) -> Optional[str]:
     t0 = time.time()
     while time.time() - t0 < timeout:
-        r = requests.get(f"{API}/{pid}", headers=HDRS)
-        if r.status_code >= 400: return None
-        j = r.json()
-        st = j.get("status","")
-        if st in ("succeeded", "failed", "canceled"):
-            out = j.get("output","")
-            # normalize: some models return a list
-            if isinstance(out, list) and out: out = out[0]
-            return out if st=="succeeded" and isinstance(out, str) else None
-        time.sleep(3)
+        r = requests.get(f"{API}/{pred_id}", headers=HDRS, timeout=15)
+        r.raise_for_status()
+        js = r.json()
+        status = js.get("status")
+        if status in ("failed", "canceled"):
+            return None
+        if status == "succeeded":
+            out = js.get("output")
+            if isinstance(out, list) and out:
+                return out[-1]
+            if isinstance(out, str):
+                return out
+            return None
+        time.sleep(5)
     return None
 
-def _download(url: str, outpath: Path) -> Path | None:
-    try:
-        with requests.get(url, stream=True) as r:
-            r.raise_for_status()
-            with open(outpath, "wb") as f:
-                shutil.copyfileobj(r.raw, f)
-        return outpath
-    except Exception:
+
+def _download(url: str, out_path: Path) -> Optional[Path]:
+    if not url:
         return None
+    with requests.get(url, stream=True, timeout=60) as r:
+        r.raise_for_status()
+        with out_path.open("wb") as f:
+            for chunk in r.iter_content(8192):
+                if chunk:
+                    f.write(chunk)
+    return out_path
 
-def generate_image(prompt: str) -> Path | None:
-    if not (TOKEN and IMG_MODEL): return None
-    pid = _start(IMG_MODEL, {"prompt": prompt})
-    if not pid: return None
-    url = _poll(pid)
-    if not url: return None
-    return _download(url, IMG_DIR / f"{_slug(prompt)}.png")
 
-def generate_video(prompt: str) -> Path | None:
-    if not (TOKEN and VID_MODEL): return None
-    pid = _start(VID_MODEL, {"prompt": prompt})
-    if not pid: return None
-    url = _poll(pid, timeout=1200)
-    if not url: return None
-    return _download(url, VID_DIR / f"{_slug(prompt)}.mp4")
+def generate_image(prompt: str) -> Optional[Path]:
+    if not (TOKEN and IMG_MODEL and prompt):
+        return None
+    pred_id = _start(IMG_MODEL, {"prompt": prompt})
+    if not pred_id:
+        return None
+    url = _poll(pred_id)
+    if not url:
+        return None
+    out = IMG_DIR / f"{_slug(prompt)}.png"
+    return _download(url, out)
+
+
+def generate_video(prompt: str) -> Optional[Path]:
+    if not (TOKEN and VID_MODEL and prompt):
+        return None
+    pred_id = _start(VID_MODEL, {"prompt": prompt})
+    if not pred_id:
+        return None
+    url = _poll(pred_id, timeout=1800)
+    if not url:
+        return None
+    out = VID_DIR / f"{_slug(prompt)}.mp4"
+    return _download(url, out)
+
+
 # ===== END media_generate.py =====
 

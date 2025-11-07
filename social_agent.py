@@ -1,261 +1,390 @@
-# ===== social_agent.py (fully integrated) =====
-from __future__ import annotations
+#!/usr/bin/env python3
+# social_agent.py — Chrome persistent login + anti-duplicate posting + image/video generator hooks
+
+from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout, Error as PWError
 from pathlib import Path
-import os, sys, json, time, random, datetime as dt
-from typing import Optional
-from playwright.sync_api import sync_playwright, TimeoutError as PTimeoutError
+import time, sys, json, random, re, subprocess, hashlib
+from datetime import datetime
 
-# --- paths & env ---
-BASE = Path(__file__).resolve().parent
-MEDIA = BASE / "media"
-IMG_DIR = MEDIA / "images"
-VID_DIR = MEDIA / "videos"
-USED_POSTS = BASE / "used_posts.json"
-COPY_BANK = BASE / "copy_bank.json"
-ACTIVITY_LOG = BASE / "activity_log.txt"
-PROFILE_DIR = BASE / ".chrome_profile"  # persistent profile to stay logged-in
-for p in (IMG_DIR, VID_DIR): p.mkdir(parents=True, exist_ok=True)
+# ====================== CONFIG ======================
 
-# cadence / options (can override with .env)
-REF_LINK = os.getenv("REF_LINK", "").strip()
-MIN_WAIT = int(os.getenv("MIN_WAIT", "180"))      # seconds
-MAX_WAIT = int(os.getenv("MAX_WAIT", "480"))      # seconds
-LINK_RATE = float(os.getenv("LINK_RATE", "0.12")) # probability to include your link
-IMAGE_RATE = float(os.getenv("IMAGE_RATE", "0.08"))
-VIDEO_RATE = float(os.getenv("VIDEO_RATE", "0.10"))
-MEDIA_MIN_GAP_MIN = int(os.getenv("MEDIA_MIN_GAP_MIN", "45"))
+REFERRAL_LINK = "https://pplx.ai/ssj4shamil93949"
 
-# media gen (Replicate) – only used if folders are empty
-try:
-    from media_generate import generate_image, generate_video
-except Exception:
-    def generate_image(_): return None
-    def generate_video(_): return None
-
-# --- content (you can edit later) ---
-POST_TEMPLATES = [
-    "🔍 Discovering how AI browsers can save hours every day. Legit next level.",
-    "💡 Automating my routine with Comet + Perplexity. Wild productivity gains.",
-    "🧩 Found a hidden gem for automation lovers — pairing AI browser + agents.",
-    "⚡️ 10x output with Perplexity + Comet combo. Not hype — actual time saved.",
+SEARCH_TERMS = [
+    "AI browser automation",
+    "productivity browser",
+    "perplexity browser",
+    "comet browser automation",
+    "automate my workflow",
+    "research workflow browser",
+    "best browser for ai",
 ]
+
 REPLY_TEMPLATES = [
-    "If you're exploring AI browsers/automation, try this — free to start.",
-    "I did exactly this with Perplexity Browser + Comet — halved my routine work.",
-    "If Zapier/Make are your vibe, pairing them with an AI browser is wild.",
+    "If you want a browser that actually helps with research + small automations, try this. It’s free to start and the automation features are simple to use: {link}",
+    "For light automation and quick research, this is what I recommend. No heavy setup, just works in the browser: {link}",
+    "I’ve used this for repetitive tasks + research summaries inside the browser. Worth a look: {link}",
+    "Not a sales pitch—just something useful when juggling tasks and research: {link}",
 ]
-HASHTAGS = ["#AI", "#automation", "#Perplexity", "#CometBrowser", "#Productivity", "#AITools"]
 
-# --- utils ---
-def _now():
-    return dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+# pacing (anti-spam)
+REPLIES_PER_TERM      = (1, 2)
+DELAY_BETWEEN_REPLIES = (45, 90)
+DELAY_BETWEEN_TERMS   = (20, 45)
+MAX_ARTICLES_SCAN     = 20
+MAX_RUN_HOURS         = 0  # 0 = run until Ctrl+C
 
-def _load_json(path: Path, default):
+# media toggles
+ENABLE_IMAGES       = True
+ENABLE_VIDEOS       = False   # turn True after your video wrapper test passes
+MEDIA_ATTACH_RATE   = 0.30
+IMAGES_DIR          = Path("media/images")
+VIDEOS_DIR          = Path("media/videos")
+
+# generator hooks (we call these wrappers; they load your old funcs from social_agent.backup.py)
+IMAGE_WRAPPER = Path("generators/image_gen.py")
+VIDEO_WRAPPER = Path("generators/video_gen.py")
+GENERATE_IMAGE_EVERY_N_REPLIES = 4
+GENERATE_VIDEO_EVERY_N_REPLIES = 10
+
+# ====================================================
+
+PROFILE_DIR  = Path.home() / ".pw-chrome-referral"
+STORAGE_PATH = Path("storage/x.json")
+DEDUP_TWEETS = Path("storage/replied.json")
+DEDUP_TEXTS  = Path("storage/text_hashes.json")   # avoid posting the exact same sentence back to back
+LOG_PATH     = Path("logs/run.log")
+
+HOME_URL   = "https://x.com/home"
+LOGIN_URL  = "https://x.com/login"
+SEARCH_URL = "https://x.com/search?q={q}&src=typed_query&f=live"
+
+USER_AGENT = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/121.0.0.0 Safari/537.36"
+)
+
+def log(msg: str):
+    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    line = f"[{ts}] {msg}"
+    print(line)
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return default
-
-def _save_json(path: Path, data):
-    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-
-def _log(msg: str):
-    line = f"[{_now()}] {msg}\n"
-    ACTIVITY_LOG.write_text(ACTIVITY_LOG.read_text(encoding="utf-8") + line if ACTIVITY_LOG.exists() else line, encoding="utf-8")
-    print(line, end="")
-
-def _pick_post() -> str:
-    bank = _load_json(COPY_BANK, {})
-    base = random.choice(POST_TEMPLATES)
-    if random.random() < 0.5 and bank.get("extra"):
-        base += " " + random.choice(bank["extra"])
-    if REF_LINK and random.random() < LINK_RATE:
-        base += f"\n{REF_LINK}"
-    # tastefully add 1–3 hashtags
-    tags = " ".join(random.sample(HASHTAGS, k=random.randint(1,3)))
-    return f"{base}\n{tags}".strip()
-
-def _choose_file(dir: Path, accepts: tuple[str,...]) -> Optional[Path]:
-    files = [p for p in dir.glob("*") if p.suffix.lower() in accepts]
-    return random.choice(files) if files else None
-
-def _minutes_since(path: Path) -> float:
-    if not path.exists(): return 9999.0
-    return (time.time() - path.stat().st_mtime) / 60.0
-
-def _maybe_autogen_assets() -> None:
-    """Generate a quick image/video once if folders are empty."""
-    if not any(IMG_DIR.iterdir()):
-        try:
-            p = generate_image("clean tech banner about AI browsers + automation")
-            if p: _log(f"Auto-generated image: {p.name}")
-        except Exception as e:
-            _log(f"Image gen skipped: {e}")
-    if not any(VID_DIR.iterdir()):
-        try:
-            p = generate_video("minimal looped tech animation about AI browsers + automation")
-            if p: _log(f"Auto-generated video: {p.name}")
-        except Exception as e:
-            _log(f"Video gen skipped: {e}")
-
-# --- X helpers ---
-def _goto_home(page):
-    try:
-        page.goto("https://x.com/home", timeout=30000)
-    except Exception:
-        try:
-            page.goto("https://x.com/compose/post", timeout=30000)
-        except Exception:
-            pass
-
-def _close_center_modals(page):
-    # dismiss any pop-up dialog that can steal the composer focus
-    try:
-        if page.locator("div[role='dialog']").count() > 0:
-            # try an obvious close button
-            for sel in ['div[aria-label="Close"]', 'div[data-testid="app-bar-close"]', 'div[role="button"][aria-label*="Close"]']:
-                loc = page.locator(sel)
-                if loc.count() > 0:
-                    loc.first.click(timeout=1000)
-                    time.sleep(0.5)
+        LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        LOG_PATH.open("a", encoding="utf-8").write(line + "\n")
     except Exception:
         pass
 
-def _composer_inline(page):
-    """
-    Prefer the inline composer in the primary column, not the pop-up dialog.
-    """
-    # newest UI: a single contenteditable div
-    c = (page.locator("div[role='textbox']")
-            .filter(has=page.locator('[data-testid="primaryColumn"]'))
-            .filter(has_not=page.locator('div[role="dialog"]'))
-            .first)
-    return c
-
-def _attach_media(page) -> bool:
-    """
-    Attach image or video occasionally (respecting MEDIA_MIN_GAP_MIN).
-    Returns True if something was attached.
-    """
-    stamp = BASE / ".last_media_stamp"
-    if _minutes_since(stamp) < MEDIA_MIN_GAP_MIN:
-        return False
-
-    attach_type = None
-    pick_video = random.random() < VIDEO_RATE
-    if pick_video:
-        _maybe_autogen_assets()
-        f = _choose_file(VID_DIR, (".mp4", ".mov"))
-        attach_type = "video"
-    else:
-        _maybe_autogen_assets()
-        f = _choose_file(IMG_DIR, (".png", ".jpg", ".jpeg", ".webp"))
-        attach_type = "image"
-
-    if not f: 
-        return False
-
-    ok = False
+def load_json(path: Path, default):
     try:
-        # Twitter/X usually keeps a hidden file input for media:
-        selector_candidates = [
-            'input[type="file"][data-testid="fileInput"]',
-            'input[type="file"][accept*="image"], input[type="file"][accept*="video"]'
-        ]
-        for sel in selector_candidates:
-            if page.locator(sel).count() > 0:
-                page.locator(sel).first.set_input_files(str(f))
-                ok = True
-                break
-        if ok:
-            stamp.write_text(_now(), encoding="utf-8")
-            _log(f"Attached {attach_type}: {f.name}")
-    except Exception as e:
-        _log(f"Attach failed: {e}")
-        ok = False
-    return ok
+        if path.exists():
+            return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        pass
+    return default
 
-def _click_post(page) -> bool:
-    # common selectors for the inline "Post" button
-    for sel in ['div[data-testid="tweetButtonInline"]', 'div[data-testid="tweetButton"]', 'button[data-testid="tweetButtonInline"]']:
+def save_json(path: Path, data):
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception as e:
+        log(f"Could not write {path}: {e}")
+
+def human_pause(a: float, b: float):
+    time.sleep(random.uniform(a, b))
+
+def sanitize(text: str) -> str:
+    text = re.sub(r"[^\S\r\n]+", " ", text).strip()
+    return text.replace("\u200b", "").replace("\u2060", "")
+
+def sha(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+def launch_ctx(p):
+    ctx = p.chromium.launch_persistent_context(
+        user_data_dir=str(PROFILE_DIR),
+        channel="chrome",
+        headless=False,
+        viewport=None,
+        user_agent=USER_AGENT,
+        args=[
+            "--disable-blink-features=AutomationControlled",
+            "--no-sandbox",
+            "--disable-dev-shm-usage",
+            "--disable-features=IsolateOrigins,site-per-process",
+            "--no-first-run",
+            "--no-default-browser-check",
+        ],
+    )
+    page = ctx.pages[0] if ctx.pages else ctx.new_page()
+    page.add_init_script("Object.defineProperty(navigator, 'webdriver', { get: () => undefined });")
+    page.add_init_script("window.chrome = window.chrome || {};")
+    return ctx, page
+
+def stable_goto(page, url, timeout=120_000):
+    try:
+        page.goto(url, wait_until="domcontentloaded", timeout=timeout)
+    except (PWTimeout, PWError):
+        pass
+
+def on_home(page):
+    try:
+        if page.url.startswith(HOME_URL):
+            return True
+        for s in ('[data-testid="SideNav_NewTweet_Button"]','[aria-label="Post"]','a[href="/home"][aria-current="page"]'):
+            if page.locator(s).first.is_visible(timeout=0):
+                return True
+    except Exception:
+        return False
+    return False
+
+def wait_until_home(page, max_seconds=600):
+    start = time.time()
+    while time.time() - start < max_seconds:
+        if on_home(page):
+            return True
+        time.sleep(1.5)
+    return False
+
+def ensure_login(page, ctx):
+    stable_goto(page, HOME_URL)
+    if on_home(page):
+        return True
+    stable_goto(page, LOGIN_URL)
+    log("👉 Login required. Sign in in the Chrome window; I’ll auto-detect Home.")
+    if not wait_until_home(page, max_seconds=600):
+        log("⚠️ Still not on Home. Try: rm -rf ~/.pw-chrome-referral  and run again.")
+        return False
+    try:
+        STORAGE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        ctx.storage_state(path=str(STORAGE_PATH))
+        log(f"✅ Saved cookies to {STORAGE_PATH}")
+    except Exception as e:
+        log(f"⚠️ Could not save storage: {e}")
+    return True
+
+def search_live(page, query: str):
+    url = SEARCH_URL.format(q=query.replace(" ", "%20"))
+    stable_goto(page, url)
+    human_pause(1.0, 2.0)
+    for _ in range(30):
+        if page.locator('article[data-testid="tweet"]').count() > 0:
+            break
+        human_pause(0.3, 0.6)
+
+def collect_articles(page, limit=20):
+    cards = page.locator('article[data-testid="tweet"]')
+    n = min(cards.count(), limit)
+    return [cards.nth(i) for i in range(n)]
+
+def extract_tweet_id(card):
+    try:
+        a = card.locator('a[href*="/status/"]').first
+        href = a.get_attribute("href") or ""
+        m = re.search(r"/status/(\d+)", href)
+        return m.group(1) if m else None
+    except Exception:
+        return None
+
+def compose_reply_text() -> str:
+    return sanitize(random.choice(REPLY_TEMPLATES).format(link=REFERRAL_LINK))
+
+def find_file_input(page):
+    for sel in ("input[data-testid='fileInput']", "input[type='file']"):
         try:
-            loc = page.locator(sel)
-            if loc.count() > 0 and loc.first.is_enabled():
-                loc.first.click(timeout=3000)
+            el = page.locator(sel).first
+            if el.count():
+                return el
+        except Exception:
+            continue
+    return None
+
+def run_wrapper(wrapper: Path, out_path: Path, topic: str, timeout_sec=300) -> bool:
+    """Run generator wrapper with the venv python."""
+    if not wrapper.exists():
+        return False
+    cmd = [sys.executable, str(wrapper), "--out", str(out_path), "--topic", topic]
+    try:
+        log(f"🎨 Running generator: {' '.join(cmd)}")
+        subprocess.run(cmd, timeout=timeout_sec, check=True)
+        ok = out_path.exists() and out_path.stat().st_size > 0
+        log("✅ Generator output ready" if ok else "⚠️ Generator ran but no output")
+        return ok
+    except Exception as e:
+        log(f"⚠️ Generator failed: {e}")
+        return False
+
+def maybe_generate_media(topic: str, reply_idx: int):
+    generated = False
+    if ENABLE_IMAGES and reply_idx % max(1, GENERATE_IMAGE_EVERY_N_REPLIES) == 0:
+        out = IMAGES_DIR / f"auto_{int(time.time())}.png"
+        IMAGES_DIR.mkdir(parents=True, exist_ok=True)
+        generated |= run_wrapper(IMAGE_WRAPPER, out, topic)
+    if ENABLE_VIDEOS and reply_idx % max(1, GENERATE_VIDEO_EVERY_N_REPLIES) == 0:
+        out = VIDEOS_DIR / f"auto_{int(time.time())}.mp4"
+        VIDEOS_DIR.mkdir(parents=True, exist_ok=True)
+        generated |= run_wrapper(VIDEO_WRAPPER, out, topic)
+    return generated
+
+def maybe_attach_media(page, topic: str, reply_idx: int):
+    if random.random() > MEDIA_ATTACH_RATE:
+        return
+    # optional fresh generation
+    maybe_generate_media(topic, reply_idx)
+
+    try:
+        if ENABLE_IMAGES:
+            imgs = [p for p in IMAGES_DIR.glob("*") if p.suffix.lower() in {".png",".jpg",".jpeg"}]
+            if imgs:
+                file_input = find_file_input(page)
+                if file_input:
+                    file_input.set_input_files(str(random.choice(imgs)))
+                    human_pause(0.9, 1.6)
+                    return
+        if ENABLE_VIDEOS:
+            vids = [p for p in VIDEOS_DIR.glob("*") if p.suffix.lower() in {".mp4",".mov"}]
+            if vids:
+                file_input = find_file_input(page)
+                if file_input:
+                    file_input.set_input_files(str(random.choice(vids)))
+                    human_pause(1.5, 3.0)
+                    return
+    except Exception as e:
+        log(f"Media attach skipped: {e}")
+
+def click_post_once(page) -> bool:
+    """Click a single button if present; only use keyboard if no button is clickable."""
+    selectors = [
+        "button[data-testid='tweetButtonInline']",
+        "div[data-testid='tweetButtonInline']",
+        "button[data-testid='tweetButton']",
+        "div[data-testid='tweetButton']",
+    ]
+    for sel in selectors:
+        try:
+            btn = page.locator(sel).first
+            if btn.count() and btn.is_enabled():
+                btn.click()
+                try:
+                    btn.wait_for(state="detached", timeout=4000)
+                except Exception:
+                    pass
                 return True
         except Exception:
             continue
-    return False
+    # fallback: keyboard only if no clickable button
+    try:
+        page.keyboard.press("Meta+Enter")  # macOS
+        return True
+    except Exception:
+        try:
+            page.keyboard.press("Control+Enter")
+            return True
+        except Exception:
+            return False
 
-def main_loop():
-    used = _load_json(USED_POSTS, [])
-    with sync_playwright() as p:
-        browser = p.chromium.launch_persistent_context(
-            user_data_dir=str(PROFILE_DIR),
-            headless=False,
-            args=["--no-sandbox", "--disable-dev-shm-usage"],
-        )
-        page = browser.new_page()
-        _goto_home(page)
-        time.sleep(2)
+def reply_to_card(page, card, topic: str, recent_text_hashes: set, reply_idx: int) -> bool:
+    # open composer
+    try:
+        card.locator('[data-testid="reply"]').first.click()
+    except Exception:
+        return False
+    human_pause(0.8, 1.4)
 
-        # First-run login helper
-        if page.url.startswith("https://x.com/i/flow/login") or "login" in page.url:
-            _log("Login required: please log in ONCE in this Chromium window, then leave it open.")
-            # give user a minute to complete login
-            try:
-                page.wait_for_url("**/home", timeout=120000)
-            except TimeoutError:
-                pass
+    # text (avoid repeating the exact same sentence)
+    text = compose_reply_text()
+    thash = sha(text)
+    if thash in recent_text_hashes:
+        page.keyboard.press("Escape")
+        return False
+    recent_text_hashes.add(thash)
 
-        while True:
-            try:
-                _close_center_modals(page)
-                _goto_home(page)
-
-                comp = _composer_inline(page)
-                if comp.count() == 0:
-                    _log("Composer not found (modal?). If a center pop-up is open, close it once.")
-                    time.sleep(10)
-                    continue
-
-                text = _pick_post()
-                if text in used:
-                    # simple anti-repeat; repick
-                    tries = 0
-                    while text in used and tries < 5:
-                        text = _pick_post(); tries += 1
-
-                comp.click(timeout=5000)
-                page.keyboard.type(text, delay=random.randint(1,20))  # human-ish typing
-
-                # media (occasionally)
-                _attach_media(page)
-
-                posted = _click_post(page)
-                if posted:
-                    _log(f"Posted: {text[:90].replace('\n',' ')}{'...' if len(text)>90 else ''}")
-                    used.append(text)
-                    used = used[-400:]  # keep last N
-                    _save_json(USED_POSTS, used)
-                else:
-                    _log("Post failed; will retry next cycle.")
-
-                wait_s = random.randint(MIN_WAIT, MAX_WAIT)
-                _log(f"Waiting {wait_s//60}m {wait_s%60:02d}s before next cycle…")
-                time.sleep(wait_s)
-            except KeyboardInterrupt:
-                _log("Stopped by user.")
+    box_selectors = [
+        "div[role='textbox'][data-testid='tweetTextarea_0']",
+        "div[role='textbox'][data-testid='tweetTextarea_1']",
+        "div[role='textbox']",
+    ]
+    typed = False
+    for sel in box_selectors:
+        try:
+            if page.locator(sel).first.is_visible(timeout=1500):
+                page.locator(sel).first.click()
+                for ch in text:
+                    page.keyboard.type(ch, delay=random.randint(20,55))
+                typed = True
                 break
-            except PTimeoutError:
-                _log("Timeout; retry next cycle.")
-                time.sleep(30)
-            except Exception as e:
-                _log(f"Error: {e}")
-                time.sleep(30)
+        except Exception:
+            continue
+    if not typed:
+        page.keyboard.press("Escape")
+        return False
+
+    # optional media
+    maybe_attach_media(page, topic, reply_idx)
+
+    # single-shot post
+    posted = click_post_once(page)
+
+    # close composer if still open
+    try:
+        page.keyboard.press("Escape")
+    except Exception:
+        pass
+    return posted
+
+def bot_loop(page):
+    dedup_tweets = load_json(DEDUP_TWEETS, {})
+    recent_text_hashes = set(load_json(DEDUP_TEXTS, []))
+
+    start_time = time.time()
+    reply_counter = 0
+    log("✅ Logged in & ready. Starting smart reply loop…")
+
+    while True:
+        if MAX_RUN_HOURS and (time.time() - start_time) > MAX_RUN_HOURS * 3600:
+            log("⏱️ Max runtime reached—exiting.")
+            break
+
+        term = random.choice(SEARCH_TERMS)
+        log(f"🔎 Searching live for: {term}")
+        search_live(page, term)
+
+        cards = collect_articles(page, limit=MAX_ARTICLES_SCAN)
+        random.shuffle(cards)
+        target = random.randint(*REPLIES_PER_TERM)
+        sent = 0
+
+        for card in cards:
+            if sent >= target:
+                break
+            tid = extract_tweet_id(card)
+            if not tid or tid in dedup_tweets:
+                continue
+
+            ok = reply_to_card(page, card, topic=term, recent_text_hashes=recent_text_hashes, reply_idx=reply_counter + 1)
+            if ok:
+                reply_counter += 1
+                dedup_tweets[tid] = datetime.utcnow().isoformat() + "Z"
+                save_json(DEDUP_TWEETS, dedup_tweets)
+                save_json(DEDUP_TEXTS, list(recent_text_hashes))
+                log(f"💬 Replied to tweet {tid}")
+                human_pause(*DELAY_BETWEEN_REPLIES)
+                sent += 1
+            else:
+                log("…couldn’t post—skipping.")
+        human_pause(*DELAY_BETWEEN_TERMS)
+
+def main():
+    with sync_playwright() as p:
+        ctx = page = None
+        try:
+            ctx, page = launch_ctx(p)
+            if not ensure_login(page, ctx):
+                sys.exit(1)
+            bot_loop(page)
+        finally:
+            pass
 
 if __name__ == "__main__":
-    _log("Launching Social Agent (persistent Chrome profile)…")
-    main_loop()
-# ===== END social_agent.py =====
+    main()
 
