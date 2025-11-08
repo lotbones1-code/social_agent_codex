@@ -3,6 +3,7 @@
 
 import asyncio
 from playwright.async_api import async_playwright, TimeoutError as PWTimeout, Error as PWError
+from playwright.sync_api import sync_playwright, Error as SyncPWError
 from pathlib import Path
 import time, sys, json, random, re, subprocess, hashlib, os
 from datetime import datetime
@@ -128,9 +129,8 @@ def sanitize(text: str) -> str:
 def sha(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
-async def launch_ctx(p):
-    PROFILE_DIR.mkdir(parents=True, exist_ok=True)
-    launch_kwargs = dict(
+def _build_launch_kwargs():
+    return dict(
         headless=False,
         viewport=None,
         user_agent=USER_AGENT,
@@ -143,6 +143,11 @@ async def launch_ctx(p):
             "--no-default-browser-check",
         ],
     )
+
+
+async def launch_ctx(p):
+    PROFILE_DIR.mkdir(parents=True, exist_ok=True)
+    launch_kwargs = _build_launch_kwargs()
     user_data_dir = os.environ["PW_PROFILE_DIR"]
     try:
         ctx = await p.chromium.launch_persistent_context(user_data_dir, channel="chrome", **launch_kwargs)
@@ -153,6 +158,25 @@ async def launch_ctx(p):
     await page.add_init_script("Object.defineProperty(navigator, 'webdriver', { get: () => undefined });")
     await page.add_init_script("window.chrome = window.chrome || {};")
     return ctx, page
+
+
+def ensure_manual_login():
+    PROFILE_DIR.mkdir(parents=True, exist_ok=True)
+    launch_kwargs = _build_launch_kwargs()
+    user_data_dir = os.environ["PW_PROFILE_DIR"]
+    with sync_playwright() as sp:
+        ctx = None
+        try:
+            try:
+                ctx = sp.chromium.launch_persistent_context(user_data_dir, channel="chrome", **launch_kwargs)
+            except SyncPWError:
+                ctx = sp.chromium.launch_persistent_context(user_data_dir, **launch_kwargs)
+            pages = ctx.pages
+            page = pages[0] if pages else ctx.new_page()
+            ensure_x_logged_in(page)
+        finally:
+            if ctx is not None:
+                ctx.close()
 
 async def stable_goto(page, url, timeout=120_000):
     try:
@@ -442,15 +466,15 @@ async def main():
     if MOCK_LOGIN:
         await run_mock_cycle()
         return
+    try:
+        ensure_manual_login()
+    except XLoginError as exc:
+        log(str(exc))
+        raise
     async with async_playwright() as p:
         ctx = None
         try:
             ctx, page = await launch_ctx(p)
-            try:
-                await ensure_x_logged_in(page)
-            except XLoginError as exc:
-                log(str(exc))
-                raise
             log("Logged in & ready")
             if not await ensure_login(page, ctx):
                 main_sync_exit(1)
