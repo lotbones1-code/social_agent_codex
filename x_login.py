@@ -1,203 +1,82 @@
-"""Automated X login helper."""
+"""Manual X login helper using Playwright async API."""
 from __future__ import annotations
 
+import asyncio
 import time
-from datetime import datetime
-from pathlib import Path
-from typing import Optional
+from typing import Iterable
 
-from playwright.sync_api import Page, TimeoutError as PlaywrightTimeout, Error as PlaywrightError
-
-LOGIN_URL = "https://x.com/login"
-SUCCESS_SELECTORS = (
-    "[data-testid=\"SideNav_NewTweet_Button\"]",
-    "a[aria-label=\"Profile\"]",
+from playwright.async_api import (
+    Error as PlaywrightError,
+    Page,
+    TimeoutError as PlaywrightTimeout,
 )
-SCREEN_DIR = Path("logs/screens")
+
+HOME_URL = "https://x.com/home"
+LOGIN_URL = "https://x.com/login"
+SUCCESS_SELECTORS: Iterable[str] = (
+    "div[data-testid=\"SideNav_AccountSwitcher_Button\"]",
+    "a[data-testid=\"SideNav_NewTweet_Button\"]",
+    "a[href=\"/compose/tweet\"]",
+)
+POLL_INTERVAL_SECONDS = 2.0
+DEFAULT_TIMEOUT_SECONDS = 300
 
 
-class XLoginError(RuntimeError):
-    """Raised when automated X login fails."""
+class XLoginError(Exception):
+    """Raised when X login state cannot be confirmed."""
 
 
-def ensure_x_logged_in(page: Page, user: str, pwd: str, alt_id: Optional[str] = None) -> None:
-    """Ensure the provided page is authenticated on X."""
+async def is_logged_in(page: Page) -> bool:
+    """Return True if the provided page appears to be logged in to X."""
 
-    if not user or not pwd:
-        raise XLoginError("X_USERNAME and X_PASSWORD are required for automated login")
-
-    if _is_signed_in(page):
-        return
-
-    alt_value = alt_id or user
-
-    last_error: Optional[Exception] = None
-    for attempt in range(2):
-        try:
-            _perform_login(page, user, pwd, alt_value)
-            return
-        except PlaywrightTimeout as exc:
-            last_error = exc
-            if attempt == 0:
-                try:
-                    page.reload(wait_until="domcontentloaded", timeout=45000)
-                except PlaywrightError:
-                    pass
-                if _is_signed_in(page):
-                    return
-                continue
-            break
-        except Exception as exc:  # pragma: no cover - defensive guard
-            last_error = exc
-            break
-
-    _capture_and_raise(page, last_error)
-
-
-def _perform_login(page: Page, user: str, pwd: str, alt_value: str) -> None:
-    page.goto(LOGIN_URL, wait_until="domcontentloaded", timeout=60000)
-
-    if _is_signed_in(page):
-        return
-
-    if _is_signed_in(page):
-        return
-
-    username_input = _wait_for_input(
-        page,
-        preferred_labels=("Phone, email, or username",),
-        fallback_selector="input[name=\"text\"]",
-    )
-    _type_slow(username_input, user)
-    _click_button(page, "Next")
-
-    if _needs_identity_confirmation(page):
-        confirm_input = _wait_for_input(
-            page,
-            preferred_labels=(
-                "Enter your phone number or email address",
-                "Enter your phone number or username",
-                "Phone, email, or username",
-            ),
-            fallback_selector="input[name=\"text\"]",
-        )
-        _type_slow(confirm_input, alt_value)
-        _click_button(page, "Next")
-
-    password_input = _wait_for_input(
-        page,
-        preferred_labels=("Password",),
-        fallback_selector="input[name=\"password\"]",
-    )
-    _type_slow(password_input, pwd)
-    _click_button(page, "Log in")
-
-    for selector in SUCCESS_SELECTORS:
-        try:
-            page.wait_for_selector(selector, state="visible", timeout=30000)
-            return
-        except PlaywrightTimeout:
-            continue
-
-    raise PlaywrightTimeout("Login did not reach a signed-in state")
-
-
-def _is_signed_in(page: Page) -> bool:
     try:
-        if page.url.startswith("https://x.com/home"):
+        if page.url.startswith(HOME_URL):
             return True
     except PlaywrightError:
+        # Ignore transient navigation issues when checking the URL.
         pass
 
     for selector in SUCCESS_SELECTORS:
         try:
             locator = page.locator(selector)
-            if locator.count() and locator.first.is_visible():
-                return True
+            if await locator.count():
+                first = locator.first
+                if await first.is_visible(timeout=0):
+                    return True
         except PlaywrightTimeout:
             continue
         except PlaywrightError:
-            continue
-        except Exception:
             continue
     return False
 
 
-def _wait_for_input(
-    page: Page,
-    preferred_labels: tuple[str, ...],
-    fallback_selector: str,
-    timeout: float = 20000,
-):
-    for label in preferred_labels:
-        try:
-            locator = page.get_by_label(label)
-            locator.wait_for(state="visible", timeout=timeout)
-            return locator
-        except Exception:
-            continue
-    locator = page.locator(fallback_selector).first
-    locator.wait_for(state="visible", timeout=timeout)
-    return locator
+async def ensure_x_logged_in(page: Page, timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS) -> None:
+    """Ensure the given page is logged in, prompting for manual login if needed."""
 
-
-def _click_button(page: Page, name: str) -> None:
-    button = page.get_by_role("button", name=name)
-    button.wait_for(state="visible", timeout=20000)
-    button.click()
-    time.sleep(0.5)
-
-
-def _needs_identity_confirmation(page: Page) -> bool:
-    hints = (
-        "Enter your phone number or email address",
-        "Enter your phone number or username",
-    )
-    for hint in hints:
-        try:
-            locator = page.get_by_text(hint, exact=False).first
-            locator.wait_for(state="visible", timeout=1000)
-            return True
-        except PlaywrightTimeout:
-            continue
-        except PlaywrightError:
-            continue
-        except Exception:
-            continue
     try:
-        confirm_locator = page.locator("input[name=\"text\"]").nth(0)
-        confirm_locator.wait_for(state="visible", timeout=1000)
-        autocomplete = confirm_locator.get_attribute("autocomplete") or ""
-        if "username" not in autocomplete.lower():
-            return True
+        await page.goto(HOME_URL, wait_until="domcontentloaded", timeout=60000)
     except PlaywrightTimeout:
         pass
     except PlaywrightError:
         pass
-    except Exception:
-        pass
-    return False
 
+    if await is_logged_in(page):
+        print("[X] Already logged in.")
+        return
 
-def _type_slow(locator, text: str, delay: float = 80) -> None:
-    locator.click()
+    print("[X] Manual login required. Waiting for you to sign in…")
     try:
-        locator.fill("")
+        await page.goto(LOGIN_URL, wait_until="domcontentloaded", timeout=60000)
+    except PlaywrightTimeout:
+        pass
     except PlaywrightError:
         pass
-    locator.type(text, delay=delay)
-    time.sleep(0.3)
 
+    start = time.time()
+    while time.time() - start < timeout_seconds:
+        if await is_logged_in(page):
+            print("[X] Manual login detected. Continuing automation.")
+            return
+        await asyncio.sleep(POLL_INTERVAL_SECONDS)
 
-def _capture_and_raise(page: Page, exc: Optional[Exception]) -> None:
-    SCREEN_DIR.mkdir(parents=True, exist_ok=True)
-    stamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
-    path = SCREEN_DIR / f"{stamp}.png"
-    try:
-        page.screenshot(path=str(path))
-    except PlaywrightError:
-        pass
-    message = "Automated X login failed"
-    if exc is not None:
-        message = f"{message}: {exc}"
-    raise XLoginError(message)
+    raise XLoginError("[X] Manual login not detected. Please run again and finish logging in.")
