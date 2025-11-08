@@ -3,7 +3,7 @@ PYTHON ?= python3
 VENV ?= .venv
 VENVPY := $(VENV)/bin/python
 
-.PHONY: deps kill start tail restart clean_profile
+.PHONY: deps kill start tail restart clean_profile x-login-test
 
 deps:
 	@if [ ! -d "$(VENV)" ]; then \
@@ -52,4 +52,30 @@ tail:
 restart: kill start
 
 clean_profile:
-	@rm -rf .pwprofile .pwprofile_* "$$HOME/.pw-chrome-referral"
+        @rm -rf .pwprofile .pwprofile_* "$$HOME/.pw-chrome-referral"
+
+x-login-test: deps
+        @PW_PROFILE_DIR="$$PWD/.pwprofile_login_test" "$(VENVPY)" - <<'PY'
+import os
+from playwright.sync_api import sync_playwright
+from social_agent import launch_ctx, log
+from x_login import ensure_x_logged_in
+
+username = os.getenv("X_USERNAME")
+password = os.getenv("X_PASSWORD")
+alt_identifier = os.getenv("X_ALT_ID") or os.getenv("X_EMAIL")
+
+if not username or not password:
+    raise SystemExit("X_USERNAME and X_PASSWORD must be set for x-login-test")
+
+with sync_playwright() as p:
+    ctx, page = launch_ctx(p)
+    try:
+        ensure_x_logged_in(page, username, password, alt_identifier)
+        log("Logged in & ready")
+    finally:
+        try:
+            ctx.close()
+        except Exception:
+            pass
+PY

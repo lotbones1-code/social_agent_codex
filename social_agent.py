@@ -6,6 +6,8 @@ from pathlib import Path
 import time, sys, json, random, re, subprocess, hashlib, os
 from datetime import datetime
 
+from x_login import ensure_x_logged_in, XLoginError
+
 # ====================== CONFIG ======================
 
 REFERRAL_LINK = "https://pplx.ai/ssj4shamil93949"
@@ -418,6 +420,14 @@ def main():
         ctx = page = None
         try:
             ctx, page = launch_ctx(p)
+            username = os.getenv("X_USERNAME")
+            password = os.getenv("X_PASSWORD")
+            alt_identifier = os.getenv("X_ALT_ID") or os.getenv("X_EMAIL")
+            try:
+                ensure_x_logged_in(page, username, password, alt_identifier)
+            except XLoginError as exc:
+                log(str(exc))
+                raise
             if not ensure_login(page, ctx):
                 sys.exit(1)
             log("Logged in & ready")
