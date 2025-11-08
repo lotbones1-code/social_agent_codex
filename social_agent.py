@@ -461,30 +461,52 @@ async def run_mock_cycle():
 def main_sync_exit(code: int):
     sys.exit(code)
 
-async def main():
+def main():
     log(f"Using profile directory: {PROFILE_DIR}")
     if MOCK_LOGIN:
-        await run_mock_cycle()
+        asyncio.run(run_mock_cycle())
         return
-    try:
-        ensure_manual_login()
-    except XLoginError as exc:
-        log(str(exc))
-        raise
-    async with async_playwright() as p:
+
+    PROFILE_DIR.mkdir(parents=True, exist_ok=True)
+    launch_kwargs = _build_launch_kwargs()
+    user_data_dir = os.environ["PW_PROFILE_DIR"]
+
+    def _launch_persistent(p):
+        try:
+            return p.chromium.launch_persistent_context(user_data_dir, channel="chrome", **launch_kwargs)
+        except SyncPWError:
+            return p.chromium.launch_persistent_context(user_data_dir, **launch_kwargs)
+
+    with sync_playwright() as p:
         ctx = None
         try:
-            ctx, page = await launch_ctx(p)
-            log("Logged in & ready")
-            if not await ensure_login(page, ctx):
-                main_sync_exit(1)
-            await bot_loop(page)
+            ctx = _launch_persistent(p)
+            pages = ctx.pages
+            page = pages[0] if pages else ctx.new_page()
+            ensure_x_logged_in(page)
         finally:
+            if ctx is not None:
+                try:
+                    ctx.close()
+                except Exception:
+                    pass
+
+    async def _run_bot_loop():
+        async with async_playwright() as ap:
+            ctx = None
             try:
+                ctx, page = await launch_ctx(ap)
+                log("Logged in & ready")
+                await bot_loop(page)
+            finally:
                 if ctx is not None:
-                    await ctx.close()
-            except Exception:
-                pass
+                    try:
+                        await ctx.close()
+                    except Exception:
+                        pass
+
+    asyncio.run(_run_bot_loop())
+
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
