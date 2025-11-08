@@ -104,6 +104,11 @@ def log(msg: str):
     except Exception:
         pass
 
+
+def debug_log(stage: str, **fields):
+    details = " ".join(f"{k}={v}" for k, v in fields.items() if v is not None)
+    log(f"[debug] stage={stage} {details}".rstrip())
+
 def load_json(path: Path, default):
     try:
         if path.exists():
@@ -227,17 +232,20 @@ async def ensure_login(page, ctx):
         log(f"⚠️ Could not save storage: {e}")
     return True
 
-async def search_live(page, query: str):
+async def search_live(page, query: str, max_wait_seconds: float = 12.0):
     url = SEARCH_URL.format(q=query.replace(" ", "%20"))
     await stable_goto(page, url)
-    await human_pause(1.0, 2.0)
-    for _ in range(30):
+    await human_pause(0.4, 0.8)
+    start = time.time()
+    while True:
         try:
             if await page.locator('article[data-testid="tweet"]').count() > 0:
                 break
         except Exception:
             pass
-        await human_pause(0.3, 0.6)
+        if time.time() - start >= max_wait_seconds:
+            break
+        await human_pause(0.25, 0.45)
 
 async def collect_articles(page, limit=20):
     cards = page.locator('article[data-testid="tweet"]')
@@ -355,7 +363,7 @@ async def click_post_once(page) -> bool:
         except Exception:
             return False
 
-async def reply_to_card(page, card, topic: str, recent_text_hashes: set, reply_idx: int) -> bool:
+async def reply_to_card(page, card, tid: str, topic: str, recent_text_hashes: set, reply_idx: int) -> bool:
     # open composer
     reply_button = card.locator("[data-testid='reply']").first
     if not await reply_button.count():
@@ -399,9 +407,13 @@ async def reply_to_card(page, card, topic: str, recent_text_hashes: set, reply_i
         await page.keyboard.press("Escape")
         return False
 
+    debug_log("queue", tid=tid, topic=topic, reply_idx=reply_idx)
+
     await maybe_attach_media(page, topic, reply_idx)
 
     posted = await click_post_once(page)
+
+    debug_log("post", tid=tid, status="success" if posted else "failed", reply_idx=reply_idx)
 
     try:
         await page.keyboard.press("Escape")
@@ -409,14 +421,16 @@ async def reply_to_card(page, card, topic: str, recent_text_hashes: set, reply_i
         pass
     return posted
 
-async def bot_loop(page):
+async def bot_loop(page, startup_ts: float):
     dedup_tweets = load_json(DEDUP_TWEETS, {})
     recent_text_hashes = set(load_json(DEDUP_TEXTS, []))
 
     start_time = time.time()
+    initial_deadline = startup_ts + 10
     reply_counter = 0
     log("Starting smart reply loop")
 
+    first_attempt_done = False
     while True:
         if MAX_RUN_HOURS and (time.time() - start_time) > MAX_RUN_HOURS * 3600:
             log("⏱️ Max runtime reached—exiting.")
@@ -424,12 +438,24 @@ async def bot_loop(page):
 
         term = random.choice(SEARCH_TERMS)
         log(f"Searching live for … {term}")
-        await search_live(page, term)
+        if not first_attempt_done:
+            remaining = max(0.0, initial_deadline - time.time())
+            if remaining:
+                search_wait = max(0.1, min(4.0, remaining))
+            else:
+                search_wait = 0.1
+            await search_live(page, term, max_wait_seconds=search_wait)
+        else:
+            await search_live(page, term)
 
         cards = await collect_articles(page, limit=MAX_ARTICLES_SCAN)
         random.shuffle(cards)
         target = random.randint(*REPLIES_PER_TERM)
         sent = 0
+
+        if not cards and not first_attempt_done and time.time() < initial_deadline:
+            log("[debug] stage=queue no-cards yet; retrying search immediately to meet startup deadline")
+            continue
 
         for card in cards:
             if sent >= target:
@@ -438,7 +464,18 @@ async def bot_loop(page):
             if not tid or tid in dedup_tweets:
                 continue
 
-            ok = await reply_to_card(page, card, topic=term, recent_text_hashes=recent_text_hashes, reply_idx=reply_counter + 1)
+            if not first_attempt_done:
+                if time.time() - startup_ts > 10:
+                    debug_log("queue", tid=tid, topic=term, warning="startup-deadline-missed")
+                first_attempt_done = True
+            ok = await reply_to_card(
+                page,
+                card,
+                tid=tid,
+                topic=term,
+                recent_text_hashes=recent_text_hashes,
+                reply_idx=reply_counter + 1,
+            )
             if ok:
                 reply_counter += 1
                 dedup_tweets[tid] = datetime.utcnow().isoformat() + "Z"
@@ -454,9 +491,12 @@ async def bot_loop(page):
 async def run_mock_cycle():
     log("Mock login mode enabled; skipping browser automation.")
     log("Logged in & ready")
+    debug_log("login", status="complete", mode="mock")
     sample_term = SEARCH_TERMS[0] if SEARCH_TERMS else "perplexity"
     log(f"Searching live for … {sample_term}")
+    debug_log("queue", tid="mock", topic=sample_term, reply_idx=1, mode="mock")
     log("Posted: mock-post-id")
+    debug_log("post", tid="mock", status="success", reply_idx=1, mode="mock")
 
 def main_sync_exit(code: int):
     sys.exit(code)
@@ -504,7 +544,9 @@ def main():
             try:
                 ctx, page = await launch_ctx(playwright_async)
                 log("Logged in & ready")
-                await bot_loop(page)
+                debug_log("login", status="complete", mode="live")
+                live_ts = time.time()
+                await bot_loop(page, startup_ts=live_ts)
             finally:
                 if ctx is not None:
                     try:
