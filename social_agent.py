@@ -3,7 +3,7 @@
 
 from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout, Error as PWError
 from pathlib import Path
-import time, sys, json, random, re, subprocess, hashlib
+import time, sys, json, random, re, subprocess, hashlib, os
 from datetime import datetime
 
 # ====================== CONFIG ======================
@@ -60,7 +60,7 @@ GENERATE_VIDEO_EVERY_N_REPLIES = 10
 
 # ====================================================
 
-PROFILE_DIR  = Path.home() / ".pw-chrome-referral"
+PROFILE_DIR  = Path(os.getenv("PW_PROFILE_DIR", ".pw-profile")).resolve()
 STORAGE_PATH = Path("storage/x.json")
 DEDUP_TWEETS = Path("storage/replied.json")
 DEDUP_TEXTS  = Path("storage/text_hashes.json")   # avoid posting the exact same sentence back to back
@@ -164,7 +164,7 @@ def ensure_login(page, ctx):
     stable_goto(page, LOGIN_URL)
     log("👉 Login required. Sign in in the Chrome window; I’ll auto-detect Home.")
     if not wait_until_home(page, max_seconds=600):
-        log("⚠️ Still not on Home. Try: rm -rf ~/.pw-chrome-referral  and run again.")
+        log(f"⚠️ Still not on Home. Try removing the profile at {PROFILE_DIR} and run again.")
         return False
     try:
         STORAGE_PATH.parent.mkdir(parents=True, exist_ok=True)
