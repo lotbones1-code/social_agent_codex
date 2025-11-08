@@ -1,4 +1,15 @@
+import os
+
+from dotenv import load_dotenv
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+
+load_dotenv()
+
+X_USERNAME = os.getenv("X_USERNAME")
+X_PASSWORD = os.getenv("X_PASSWORD")
+
+if not X_USERNAME or not X_PASSWORD:
+    raise ValueError("X_USERNAME and X_PASSWORD must be set in the .env file.")
 
 
 class XLoginError(Exception):

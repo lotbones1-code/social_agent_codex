@@ -15,13 +15,13 @@ This repository hosts the automation agent for posting via Playwright and Chrome
    ```bash
    make kill
    ```
-3. Export your X credentials before launching the agent:
+3. Export your X credentials before launching the agent **or** place them in a `.env` file in the project root:
    ```bash
    export X_USERNAME="your_handle"
    export X_PASSWORD="your_password"
    export X_ALT_ID="email_or_phone_optional"  # optional; falls back to X_EMAIL then X_USERNAME
    ```
-   `X_ALT_ID` is used when X asks for an additional identity prompt. If it is unset, the helper will fall back to `X_EMAIL` and finally `X_USERNAME`.
+   `X_ALT_ID` is used when X asks for an additional identity prompt. If it is unset, the helper will fall back to `X_EMAIL` and finally `X_USERNAME`. When using a `.env` file, be sure to set `X_USERNAME` and `X_PASSWORD`; the automation will raise a helpful error if either is missing.
 4. Validate the login flow independently (headful) with:
    ```bash
    make x-login-test
