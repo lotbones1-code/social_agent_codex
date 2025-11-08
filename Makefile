@@ -2,64 +2,34 @@ SHELL := /bin/bash
 PYTHON ?= python3
 VENV ?= .venv
 VENVPY := $(VENV)/bin/python
+PW_PROFILE_DIR ?= .pwprofile_live
 
-.PHONY: deps kill start tail restart clean_profile x-login-test
+.PHONY: deps kill x-login-test start
 
-deps:
-	@if [ ! -d "$(VENV)" ]; then \
-	"$(PYTHON)" -m venv "$(VENV)"; \
-	fi
+$(VENVPY):
+	$(PYTHON) -m venv "$(VENV)"
+
+deps: $(VENVPY)
 	@. "$(VENV)/bin/activate" && python -m pip install --upgrade pip
 	@. "$(VENV)/bin/activate" && python -m pip install -r requirements.txt
-	@. "$(VENV)/bin/activate" && python -m pip install playwright==1.49.0
 	@. "$(VENV)/bin/activate" && python -m playwright install chromium
 
 kill:
-	@bash bin/kill_chrome.sh
+	@PW_PROFILE_DIR="$(PW_PROFILE_DIR)" scripts/kill_profile.sh "$(PW_PROFILE_DIR)"
 	@if [ -f .agent.pid ]; then \
-	PID=$$(cat .agent.pid); \
-	if kill $$PID 2>/dev/null; then \
-	echo "Stopped agent PID $$PID"; \
-	fi; \
-	rm -f .agent.pid; \
+		PID=$$(cat .agent.pid); \
+		if kill $$PID 2>/dev/null; then \
+			echo "Stopped agent PID $$PID"; \
+		fi; \
+		rm -f .agent.pid; \
 	fi
-
-start: deps kill
-	@EPOCH_VALUE=$${EPOCHSECONDS:-}; \
-	if [ -z "$$EPOCH_VALUE" ]; then \
-		EPOCH_VALUE=`date +%s`; \
-	fi; \
-	PW_PROFILE_DIR=".pwprofile_$$EPOCH_VALUE"; \
-	mkdir -p "$$PW_PROFILE_DIR"; \
-	rm -f "$$PW_PROFILE_DIR"/Singleton*; \
-	ln -sfn "$$PWD/$$PW_PROFILE_DIR" "$$HOME/.pw-chrome-referral"; \
-	mkdir -p logs; \
-	touch logs/session.log; \
-	nohup env PW_PROFILE_DIR="$$PWD/$$PW_PROFILE_DIR" "$(VENVPY)" social_agent.py >> logs/session.log 2>&1 & \
-	APP_PID=$$!; \
-	echo $$APP_PID > .agent.pid; \
-	echo "Started social_agent.py with PID $$APP_PID using profile $$PW_PROFILE_DIR"; \
-	sleep 2; \
-	tail -n 160 logs/session.log
-
-tail:
-	@if [ -f logs/session.log ]; then \
-		tail -n 160 logs/session.log; \
-	else \
-		echo "logs/session.log not found"; \
-	fi
-
-restart: kill start
-
-clean_profile:
-        @rm -rf .pwprofile .pwprofile_* "$$HOME/.pw-chrome-referral"
 
 x-login-test: deps
-        @PW_PROFILE_DIR="$$PWD/.pwprofile_login_test" "$(VENVPY)" - <<'PY'
+	@PW_PROFILE_DIR="$$PWD/.pwprofile_login_test" "$(VENVPY)" - <<'LOGIN'
 import os
 from playwright.sync_api import sync_playwright
 from social_agent import launch_ctx, log
-from x_login import ensure_x_logged_in
+from x_login import ensure_x_logged_in, XLoginError
 
 username = os.getenv("X_USERNAME")
 password = os.getenv("X_PASSWORD")
@@ -73,9 +43,18 @@ with sync_playwright() as p:
     try:
         ensure_x_logged_in(page, username, password, alt_identifier)
         log("Logged in & ready")
+    except XLoginError as exc:
+        raise SystemExit(str(exc))
     finally:
         try:
             ctx.close()
         except Exception:
             pass
-PY
+LOGIN
+
+start: deps
+	@if [ "${RUN:-}" != "1" ]; then \
+		echo "Refusing to start; set RUN=1"; \
+		exit 1; \
+	fi
+	@PW_PROFILE_DIR="$(PW_PROFILE_DIR)" "$(VENVPY)" social_agent.py

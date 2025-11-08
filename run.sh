@@ -6,6 +6,11 @@ REPO_DIR="$SCRIPT_DIR"
 VENV_DIR="$REPO_DIR/.venv"
 PYTHON_BIN="${PYTHON:-python3}"
 
+if [ "${RUN:-}" != "1" ]; then
+  echo "Refusing to start; set RUN=1"
+  exit 1
+fi
+
 if [ ! -d "$VENV_DIR" ]; then
   "$PYTHON_BIN" -m venv "$VENV_DIR"
 fi
@@ -17,24 +22,26 @@ python -m pip install -r "$REPO_DIR/requirements.txt"
 python -m pip install playwright==1.49.0
 python -m playwright install chromium
 
-"$REPO_DIR/bin/kill_chrome.sh"
+PROFILE_DIR="${PW_PROFILE_DIR:-$REPO_DIR/.pwprofile_live}"
+case "$PROFILE_DIR" in
+  /*) ;;
+  *) PROFILE_DIR="$REPO_DIR/$PROFILE_DIR" ;;
+esac
 
-if [ -z "${EPOCHSECONDS:-}" ]; then
-  EPOCHSECONDS=$(date +%s)
-fi
-PW_PROFILE_DIR="$REPO_DIR/.pwprofile_${EPOCHSECONDS}"
-mkdir -p "$PW_PROFILE_DIR"
-rm -f "$PW_PROFILE_DIR"/Singleton*
+mkdir -p "$(dirname "$PROFILE_DIR")"
+mkdir -p "$PROFILE_DIR"
 
-ln -sfn "$PW_PROFILE_DIR" "$HOME/.pw-chrome-referral"
+"$REPO_DIR/scripts/kill_profile.sh" "$PROFILE_DIR" || true
+
+ln -sfn "$PROFILE_DIR" "$HOME/.pw-chrome-referral"
 
 mkdir -p "$REPO_DIR/logs"
 touch "$REPO_DIR/logs/session.log"
 
-nohup env PW_PROFILE_DIR="$PW_PROFILE_DIR" "$VENV_DIR/bin/python" "$REPO_DIR/social_agent.py" >> "$REPO_DIR/logs/session.log" 2>&1 &
+nohup env PW_PROFILE_DIR="$PROFILE_DIR" "$VENV_DIR/bin/python" "$REPO_DIR/social_agent.py" >> "$REPO_DIR/logs/session.log" 2>&1 &
 APP_PID=$!
 
-echo "Started social_agent.py with PID $APP_PID using profile $PW_PROFILE_DIR"
+echo "Started social_agent.py with PID $APP_PID using profile $PROFILE_DIR"
 echo "$APP_PID" > "$REPO_DIR/.agent.pid"
 
 sleep 2
