@@ -1,82 +1,51 @@
-"""Manual X login helper using Playwright async API."""
-from __future__ import annotations
-
-import asyncio
-import time
-from typing import Iterable
-
-from playwright.async_api import (
-    Error as PlaywrightError,
-    Page,
-    TimeoutError as PlaywrightTimeout,
-)
-
-HOME_URL = "https://x.com/home"
-LOGIN_URL = "https://x.com/login"
-SUCCESS_SELECTORS: Iterable[str] = (
-    "div[data-testid=\"SideNav_AccountSwitcher_Button\"]",
-    "a[data-testid=\"SideNav_NewTweet_Button\"]",
-    "a[href=\"/compose/tweet\"]",
-)
-POLL_INTERVAL_SECONDS = 2.0
-DEFAULT_TIMEOUT_SECONDS = 300
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
 
 class XLoginError(Exception):
-    """Raised when X login state cannot be confirmed."""
+    pass
 
 
-async def is_logged_in(page: Page) -> bool:
-    """Return True if the provided page appears to be logged in to X."""
-
+def is_logged_in(page):
+    """Return True if X appears logged in."""
     try:
-        if page.url.startswith(HOME_URL):
-            return True
-    except PlaywrightError:
-        # Ignore transient navigation issues when checking the URL.
-        pass
-
-    for selector in SUCCESS_SELECTORS:
-        try:
-            locator = page.locator(selector)
-            if await locator.count():
-                first = locator.first
-                if await first.is_visible(timeout=0):
-                    return True
-        except PlaywrightTimeout:
-            continue
-        except PlaywrightError:
-            continue
-    return False
+        el = page.locator(
+            'div[data-testid="SideNav_AccountSwitcher_Button"], '
+            'a[data-testid="SideNav_NewTweet_Button"], '
+            'a[href="/compose/tweet"]'
+        )
+        return el.first.is_visible(timeout=3000)
+    except TimeoutError:
+        return False
+    except PlaywrightTimeoutError:
+        return False
 
 
-async def ensure_x_logged_in(page: Page, timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS) -> None:
-    """Ensure the given page is logged in, prompting for manual login if needed."""
-
-    try:
-        await page.goto(HOME_URL, wait_until="domcontentloaded", timeout=60000)
-    except PlaywrightTimeout:
-        pass
-    except PlaywrightError:
-        pass
-
-    if await is_logged_in(page):
-        print("[X] Already logged in.")
+def ensure_x_logged_in(page):
+    """
+    Manual-login mode:
+    - Uses the existing persistent profile.
+    - If already logged in: print a message and return.
+    - If not: open X login once, let ME log in manually in that window,
+      poll up to 3 minutes for a logged-in state, then continue.
+    - If still not logged in after timeout: raise XLoginError with a clear message.
+    """
+    page.goto("https://x.com/home", wait_until="networkidle")
+    if is_logged_in(page):
+        print("[X] Already logged in with existing session.")
         return
 
-    print("[X] Manual login required. Waiting for you to sign in…")
-    try:
-        await page.goto(LOGIN_URL, wait_until="domcontentloaded", timeout=60000)
-    except PlaywrightTimeout:
-        pass
-    except PlaywrightError:
-        pass
+    print("[X] Not logged in. Opening login flow for manual sign-in.")
+    page.goto("https://x.com/i/flow/login", wait_until="networkidle")
 
-    start = time.time()
-    while time.time() - start < timeout_seconds:
-        if await is_logged_in(page):
-            print("[X] Manual login detected. Continuing automation.")
+    total_wait_ms = 180000
+    step_ms = 5000
+    waited = 0
+
+    while waited < total_wait_ms:
+        if is_logged_in(page):
+            print("[X] Manual login successful. Session saved. Continuing automation.")
             return
-        await asyncio.sleep(POLL_INTERVAL_SECONDS)
+        page.wait_for_timeout(step_ms)
+        waited += step_ms
 
-    raise XLoginError("[X] Manual login not detected. Please run again and finish logging in.")
+    raise XLoginError("[X] Manual login not detected in time. Run again and finish logging in.")
