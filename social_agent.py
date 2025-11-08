@@ -16,10 +16,26 @@ SEARCH_TERMS = [
 ]
 
 REPLY_TEMPLATES = [
-    "If you want a browser that actually helps with research + small automations, try this. It’s free to start and the automation features are simple to use: {link}",
-    "For light automation and quick research, this is what I recommend. No heavy setup, just works in the browser: {link}",
-    "I’ve used this for repetitive tasks + research summaries inside the browser. Worth a look: {link}",
-    "Not a sales pitch—just something useful when juggling tasks and research: {link}",
+    (
+        "When I’m digging into {topic}, I lean on this browser workspace to keep tabs and notes synced. "
+        "If you want the same setup, I saved my invite here: {link}"
+    ),
+    (
+        "Been using this tool for research loops around {topic}; it keeps the context tidy without feeling like an ad. "
+        "Sharing the link I use in case it helps: {link}"
+    ),
+    (
+        "Little productivity boost that’s helped me with {topic} threads—one-click summaries, gentle automations, nothing spammy. "
+        "My sign-up link if you’re curious: {link}"
+    ),
+    (
+        "If you ever need to switch between research and quick automations on {topic}, this has been the smoothest option I found. "
+        "I tucked my referral here (totally optional): {link}"
+    ),
+    (
+        "This isn’t a promo, just the workflow that’s kept my {topic} work from getting messy. "
+        "Here’s the same access link I use: {link}"
+    ),
 ]
 
 # pacing (anti-spam)
@@ -181,8 +197,13 @@ def extract_tweet_id(card):
     except Exception:
         return None
 
-def compose_reply_text() -> str:
-    return sanitize(random.choice(REPLY_TEMPLATES).format(link=REFERRAL_LINK))
+def compose_reply_text(topic: str) -> str:
+    return sanitize(
+        random.choice(REPLY_TEMPLATES).format(
+            link=REFERRAL_LINK,
+            topic=topic,
+        )
+    )
 
 def find_file_input(page):
     for sel in ("input[data-testid='fileInput']", "input[type='file']"):
@@ -287,7 +308,7 @@ def reply_to_card(page, card, topic: str, recent_text_hashes: set, reply_idx: in
     human_pause(0.8, 1.4)
 
     # text (avoid repeating the exact same sentence)
-    text = compose_reply_text()
+    text = compose_reply_text(topic)
     thash = sha(text)
     if thash in recent_text_hashes:
         page.keyboard.press("Escape")
