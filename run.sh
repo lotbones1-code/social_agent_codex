@@ -22,7 +22,28 @@ rm -rf "$PW_PROFILE_DIR/Singlet*" 2>/dev/null || true
 rm -rf "$HOME/Library/Application Support/Chromium/Singleton*" 2>/dev/null || true
 rm -rf "$HOME/.config/chromium/Singleton*" 2>/dev/null || true
 
+# pick the most appropriate Python executable (prefer the venv)
+PYTHON_BIN=""
+if [[ -x "venv/bin/python" ]]; then
+  PYTHON_BIN="venv/bin/python"
+elif [[ -x "venv/bin/python3" ]]; then
+  PYTHON_BIN="venv/bin/python3"
+elif [[ -x "venv/bin/python3.11" ]]; then
+  PYTHON_BIN="venv/bin/python3.11"
+fi
+
+if [[ -z "${PYTHON_BIN}" ]]; then
+  if command -v python3 >/dev/null 2>&1; then
+    PYTHON_BIN="$(command -v python3)"
+  elif command -v python >/dev/null 2>&1; then
+    PYTHON_BIN="$(command -v python)"
+  else
+    echo "Unable to locate a Python interpreter. Run 'make deps' first." >&2
+    exit 1
+  fi
+fi
+
 # start
-nohup venv/bin/python3.11 social_agent.py >> logs/session.log 2>&1 &
+nohup "${PYTHON_BIN}" social_agent.py >> logs/session.log 2>&1 &
 sleep 4
 tail -n 200 -f logs/session.log
