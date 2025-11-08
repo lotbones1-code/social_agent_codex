@@ -43,6 +43,28 @@ if [[ -z "${PYTHON_BIN}" ]]; then
   fi
 fi
 
+# ensure dependencies are installed (covers fresh checkouts where `make deps` was skipped)
+if ! "${PYTHON_BIN}" - <<'PYCHECK' >/dev/null 2>&1
+import importlib.util
+playwright_spec = importlib.util.find_spec("playwright")
+raise SystemExit(0 if playwright_spec is not None else 1)
+PYCHECK
+then
+  echo "[run.sh] Playwright missing — installing python dependencies..." >&2
+  "${PYTHON_BIN}" -m pip install -U pip wheel setuptools
+  if [[ -f requirements.txt ]]; then
+    "${PYTHON_BIN}" -m pip install -r requirements.txt
+  else
+    echo "[run.sh] requirements.txt not found; unable to install dependencies." >&2
+    exit 1
+  fi
+fi
+
+if ! "${PYTHON_BIN}" -m playwright install --check >/dev/null 2>&1; then
+  echo "[run.sh] Ensuring Playwright browsers are installed..." >&2
+  "${PYTHON_BIN}" -m playwright install chromium
+fi
+
 # start
 nohup "${PYTHON_BIN}" social_agent.py >> logs/session.log 2>&1 &
 sleep 4
