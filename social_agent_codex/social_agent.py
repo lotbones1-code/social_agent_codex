@@ -3,12 +3,28 @@
 
 from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout, Error as PWError
 from pathlib import Path
-import time, sys, json, random, re, subprocess, hashlib
+from dataclasses import dataclass
+import os
+import time
+import sys
+import json
+import random
+import re
+import subprocess
+import hashlib
 from datetime import datetime
+from typing import Optional
+
+import requests
+from dotenv import load_dotenv
 
 # ====================== CONFIG ======================
 
-REFERRAL_LINK = "https://pplx.ai/ssj4shamil93949"
+ROOT_DIR = Path(__file__).resolve().parent
+load_dotenv(ROOT_DIR / ".env", override=False)
+load_dotenv(ROOT_DIR / ".env.replicate", override=False)
+
+REFERRAL_LINK = os.getenv("REFERRAL_LINK", "https://pplx.ai/ssj4shamil93949")
 
 SEARCH_TERMS = [
     "AI browser automation",
@@ -35,17 +51,29 @@ MAX_ARTICLES_SCAN     = 20
 MAX_RUN_HOURS         = 0  # 0 = run until Ctrl+C
 
 # media toggles
-ENABLE_IMAGES       = True
-ENABLE_VIDEOS       = False   # turn True after your video wrapper test passes
-MEDIA_ATTACH_RATE   = 0.30
+ENABLE_IMAGES       = os.getenv("ENABLE_IMAGES", "1") not in {"0", "false", "False"}
+ENABLE_VIDEOS       = os.getenv("ENABLE_VIDEOS", "0") not in {"0", "false", "False"}
+MEDIA_ATTACH_RATE   = float(os.getenv("MEDIA_ATTACH_RATE", "0.30"))
 IMAGES_DIR          = Path("media/images")
 VIDEOS_DIR          = Path("media/videos")
 
 # generator hooks (we call these wrappers; they load your old funcs from social_agent.backup.py)
 IMAGE_WRAPPER = Path("generators/image_gen.py")
 VIDEO_WRAPPER = Path("generators/video_gen.py")
-GENERATE_IMAGE_EVERY_N_REPLIES = 4
-GENERATE_VIDEO_EVERY_N_REPLIES = 10
+GENERATE_IMAGE_EVERY_N_REPLIES = max(1, int(os.getenv("GENERATE_IMAGE_EVERY_N_REPLIES", "4")))
+GENERATE_VIDEO_EVERY_N_REPLIES = max(1, int(os.getenv("GENERATE_VIDEO_EVERY_N_REPLIES", "10")))
+
+HEADLESS = os.getenv("HEADLESS", "1") not in {"0", "false", "False"}
+
+STRICT_MODE_DEFAULT = os.getenv("STRICT_MODE", "1") not in {"0", "false", "False"}
+MIN_WORDS_DEFAULT = max(0, int(os.getenv("MIN_WORDS", "6")))
+MIN_CHARACTERS_DEFAULT = max(0, int(os.getenv("MIN_CHARACTERS", "80")))
+DUPLICATE_PROTECT_DEFAULT = os.getenv("DUPLICATE_PROTECT", "1") not in {"0", "false", "False"}
+
+FILTER_LOOSEN_MIN = max(60, int(os.getenv("FILTER_LOOSEN_MIN", "300")))
+FILTER_LOOSEN_MAX = max(FILTER_LOOSEN_MIN + 60, int(os.getenv("FILTER_LOOSEN_MAX", "480")))
+
+REPLY_MODE = os.getenv("REPLY_MODE", "templates").strip().lower()
 
 # ====================================================
 
@@ -64,6 +92,143 @@ USER_AGENT = (
     "AppleWebKit/537.36 (KHTML, like Gecko) "
     "Chrome/121.0.0.0 Safari/537.36"
 )
+
+
+@dataclass
+class FilterSettings:
+    strict_mode: bool
+    min_words: int
+    min_characters: int
+    duplicate_protect: bool
+
+    def allows_text(self, text: str) -> bool:
+        clean = sanitize(text)
+        if self.strict_mode and not clean:
+            return False
+        if self.min_words and len(clean.split()) < self.min_words:
+            return False
+        if self.min_characters and len(clean) < self.min_characters:
+            return False
+        return True
+
+
+class FilterController:
+    def __init__(self) -> None:
+        self.defaults = FilterSettings(
+            strict_mode=STRICT_MODE_DEFAULT,
+            min_words=MIN_WORDS_DEFAULT,
+            min_characters=MIN_CHARACTERS_DEFAULT,
+            duplicate_protect=DUPLICATE_PROTECT_DEFAULT,
+        )
+        self.current = FilterSettings(**vars(self.defaults))
+        self.loosened = False
+        self._restore_pending = False
+        self._reset_deadline()
+
+    def _reset_deadline(self) -> None:
+        span = random.uniform(FILTER_LOOSEN_MIN, FILTER_LOOSEN_MAX)
+        self._loosen_deadline = time.time() + span
+
+    def should_allow_text(self, text: str) -> bool:
+        return self.current.allows_text(text)
+
+    def note_attempt(self) -> None:
+        if not self.loosened and time.time() >= self._loosen_deadline:
+            log("🕒 No replies recently — loosening filters for this cycle (STRICT_MODE=0, MIN_*=0, DUPLICATE_PROTECT=0)")
+            self.current = FilterSettings(strict_mode=False, min_words=0, min_characters=0, duplicate_protect=False)
+            self.loosened = True
+            self._restore_pending = True
+
+    def note_reply(self) -> None:
+        self._reset_deadline()
+        if self.loosened:
+            self.restore()
+
+    def restore(self) -> None:
+        if self.loosened or self._restore_pending:
+            log("🔒 Restoring strict reply filters to defaults")
+        self.current = FilterSettings(**vars(self.defaults))
+        self.loosened = False
+        self._restore_pending = False
+        self._reset_deadline()
+
+    def maybe_restore_after_cycle(self) -> None:
+        if self._restore_pending:
+            self.restore()
+
+
+class ReplyComposer:
+    def __init__(self) -> None:
+        self.mode = REPLY_MODE
+        self._warned = False
+
+    def compose(self, topic: str, tweet_text: str) -> str:
+        if self.mode == "codex":
+            generated = self._codex_reply(topic, tweet_text)
+            if generated:
+                return sanitize(generated)
+        return sanitize(random.choice(REPLY_TEMPLATES).format(link=REFERRAL_LINK))
+
+    def _codex_reply(self, topic: str, tweet_text: str) -> Optional[str]:
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            if not self._warned:
+                log("⚠️ REPLY_MODE=codex but OPENAI_API_KEY is missing — falling back to templates")
+                self._warned = True
+            return None
+        prompt = (
+            "Write a concise, friendly reply (<=280 characters) for an X thread about '{topic}'. "
+            "Reference this talking point: {tweet_text}. Mention this link exactly once: {link}."
+        ).format(topic=topic, tweet_text=tweet_text[:400], link=REFERRAL_LINK)
+        try:
+            response = requests.post(
+                "https://api.openai.com/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": "gpt-5-codex",
+                    "messages": [
+                        {
+                            "role": "system",
+                            "content": (
+                                "You are Codex, a helpful assistant composing social media replies. "
+                                "Keep tone upbeat, avoid hashtags, and stay under 280 characters."
+                            ),
+                        },
+                        {"role": "user", "content": prompt},
+                    ],
+                    "temperature": 0.7,
+                    "max_tokens": 180,
+                },
+                timeout=30,
+            )
+            response.raise_for_status()
+            data = response.json()
+            try:
+                return data["choices"][0]["message"]["content"].strip()
+            except Exception:
+                pass
+            if isinstance(data, dict):
+                for key in ("content", "output"):
+                    chunk = data.get(key)
+                    if isinstance(chunk, str) and chunk.strip():
+                        return chunk.strip()
+                    if isinstance(chunk, list) and chunk:
+                        text = chunk[0]
+                        if isinstance(text, str) and text.strip():
+                            return text.strip()
+                        if isinstance(text, dict):
+                            for inner in ("text", "content"):
+                                val = text.get(inner)
+                                if isinstance(val, str) and val.strip():
+                                    return val.strip()
+        except Exception as e:
+            if not self._warned:
+                log(f"⚠️ Codex reply failed ({e}); using templates instead")
+                self._warned = True
+        return None
 
 def log(msg: str):
     ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -100,21 +265,38 @@ def sanitize(text: str) -> str:
 def sha(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
+def clear_chrome_locks(profile_dir: Path) -> None:
+    locks = ["SingletonLock", "SingletonCookie", "SingletonSocket"]
+    for name in locks:
+        target = profile_dir / name
+        try:
+            if target.exists():
+                target.unlink()
+                log(f"🧹 Removed Chrome singleton file: {target}")
+        except Exception as e:
+            log(f"⚠️ Could not remove {target}: {e}")
+
+
 def launch_ctx(p):
+    PROFILE_DIR.mkdir(parents=True, exist_ok=True)
+    clear_chrome_locks(PROFILE_DIR)
+    args = [
+        "--disable-blink-features=AutomationControlled",
+        "--no-sandbox",
+        "--disable-dev-shm-usage",
+        "--disable-features=IsolateOrigins,site-per-process",
+        "--no-first-run",
+        "--no-default-browser-check",
+    ]
+    if HEADLESS:
+        args.append("--headless=new")
     ctx = p.chromium.launch_persistent_context(
         user_data_dir=str(PROFILE_DIR),
         channel="chrome",
-        headless=False,
+        headless=HEADLESS,
         viewport=None,
         user_agent=USER_AGENT,
-        args=[
-            "--disable-blink-features=AutomationControlled",
-            "--no-sandbox",
-            "--disable-dev-shm-usage",
-            "--disable-features=IsolateOrigins,site-per-process",
-            "--no-first-run",
-            "--no-default-browser-check",
-        ],
+        args=args,
     )
     page = ctx.pages[0] if ctx.pages else ctx.new_page()
     page.add_init_script("Object.defineProperty(navigator, 'webdriver', { get: () => undefined });")
@@ -186,9 +368,6 @@ def extract_tweet_id(card):
     except Exception:
         return None
 
-def compose_reply_text() -> str:
-    return sanitize(random.choice(REPLY_TEMPLATES).format(link=REFERRAL_LINK))
-
 def find_file_input(page):
     for sel in ("input[data-testid='fileInput']", "input[type='file']"):
         try:
@@ -238,16 +417,20 @@ def maybe_attach_media(page, topic: str, reply_idx: int):
             if imgs:
                 file_input = find_file_input(page)
                 if file_input:
-                    file_input.set_input_files(str(random.choice(imgs)))
+                    chosen = random.choice(imgs)
+                    file_input.set_input_files(str(chosen))
                     human_pause(0.9, 1.6)
+                    log(f"📎 Attached media: {chosen}")
                     return
         if ENABLE_VIDEOS:
             vids = [p for p in VIDEOS_DIR.glob("*") if p.suffix.lower() in {".mp4",".mov"}]
             if vids:
                 file_input = find_file_input(page)
                 if file_input:
-                    file_input.set_input_files(str(random.choice(vids)))
+                    chosen = random.choice(vids)
+                    file_input.set_input_files(str(chosen))
                     human_pause(1.5, 3.0)
+                    log(f"📎 Attached media: {chosen}")
                     return
     except Exception as e:
         log(f"Media attach skipped: {e}")
@@ -283,7 +466,24 @@ def click_post_once(page) -> bool:
         except Exception:
             return False
 
-def reply_to_card(page, card, topic: str, recent_text_hashes: set, reply_idx: int) -> bool:
+def extract_card_text(card) -> str:
+    try:
+        texts = card.locator('[data-testid="tweetText"]').all_inner_texts()
+        combined = " ".join(t.strip() for t in texts if t and t.strip())
+        if combined:
+            return combined
+    except Exception:
+        pass
+    try:
+        raw = card.inner_text()
+        if raw:
+            return raw
+    except Exception:
+        pass
+    return ""
+
+
+def reply_to_card(page, card, topic: str, recent_text_hashes: set, reply_idx: int, filters: FilterController, composer: ReplyComposer, tweet_text: str) -> bool:
     # open composer
     try:
         card.locator('[data-testid="reply"]').first.click()
@@ -292,9 +492,9 @@ def reply_to_card(page, card, topic: str, recent_text_hashes: set, reply_idx: in
     human_pause(0.8, 1.4)
 
     # text (avoid repeating the exact same sentence)
-    text = compose_reply_text()
+    text = composer.compose(topic, tweet_text)
     thash = sha(text)
-    if thash in recent_text_hashes:
+    if filters.current.duplicate_protect and thash in recent_text_hashes:
         page.keyboard.press("Escape")
         return False
     recent_text_hashes.add(thash)
@@ -335,6 +535,8 @@ def reply_to_card(page, card, topic: str, recent_text_hashes: set, reply_idx: in
 def bot_loop(page):
     dedup_tweets = load_json(DEDUP_TWEETS, {})
     recent_text_hashes = set(load_json(DEDUP_TEXTS, []))
+    composer = ReplyComposer()
+    filters = FilterController()
 
     start_time = time.time()
     reply_counter = 0
@@ -345,6 +547,7 @@ def bot_loop(page):
             log("⏱️ Max runtime reached—exiting.")
             break
 
+        filters.note_attempt()
         term = random.choice(SEARCH_TERMS)
         log(f"🔎 Searching live for: {term}")
         search_live(page, term)
@@ -361,17 +564,32 @@ def bot_loop(page):
             if not tid or tid in dedup_tweets:
                 continue
 
-            ok = reply_to_card(page, card, topic=term, recent_text_hashes=recent_text_hashes, reply_idx=reply_counter + 1)
+            tweet_text = extract_card_text(card)
+            if not filters.should_allow_text(tweet_text):
+                continue
+
+            ok = reply_to_card(
+                page,
+                card,
+                topic=term,
+                recent_text_hashes=recent_text_hashes,
+                reply_idx=reply_counter + 1,
+                filters=filters,
+                composer=composer,
+                tweet_text=tweet_text,
+            )
             if ok:
                 reply_counter += 1
                 dedup_tweets[tid] = datetime.utcnow().isoformat() + "Z"
                 save_json(DEDUP_TWEETS, dedup_tweets)
                 save_json(DEDUP_TEXTS, list(recent_text_hashes))
                 log(f"💬 Replied to tweet {tid}")
+                filters.note_reply()
                 human_pause(*DELAY_BETWEEN_REPLIES)
                 sent += 1
             else:
                 log("…couldn’t post—skipping.")
+        filters.maybe_restore_after_cycle()
         human_pause(*DELAY_BETWEEN_TERMS)
 
 def main():
