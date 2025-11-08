@@ -11,13 +11,8 @@ from datetime import datetime
 REFERRAL_LINK = "https://pplx.ai/ssj4shamil93949"
 
 SEARCH_TERMS = [
-    "AI browser automation",
-    "productivity browser",
-    "perplexity browser",
-    "comet browser automation",
-    "automate my workflow",
+    "perplexity comet",
     "research workflow browser",
-    "best browser for ai",
 ]
 
 REPLY_TEMPLATES = [
