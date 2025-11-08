@@ -60,11 +60,22 @@ GENERATE_VIDEO_EVERY_N_REPLIES = 10
 
 # ====================================================
 
-PROFILE_DIR  = Path(os.getenv("PW_PROFILE_DIR", ".pw-profile")).resolve()
+BASE_DIR = Path(__file__).resolve().parent
+_env_profile = os.getenv("PW_PROFILE_DIR")
+if _env_profile:
+    PROFILE_DIR = Path(_env_profile).expanduser()
+    if not PROFILE_DIR.is_absolute():
+        PROFILE_DIR = (BASE_DIR / PROFILE_DIR).resolve()
+    else:
+        PROFILE_DIR = PROFILE_DIR.resolve()
+else:
+    PROFILE_DIR = (BASE_DIR / ".pwprofile").resolve()
 STORAGE_PATH = Path("storage/x.json")
 DEDUP_TWEETS = Path("storage/replied.json")
 DEDUP_TEXTS  = Path("storage/text_hashes.json")   # avoid posting the exact same sentence back to back
 LOG_PATH     = Path("logs/run.log")
+
+MOCK_LOGIN = os.getenv("SOCIAL_AGENT_MOCK_LOGIN", "").lower() in {"1", "true", "yes", "on"}
 
 HOME_URL   = "https://x.com/home"
 LOGIN_URL  = "https://x.com/login"
@@ -112,6 +123,7 @@ def sha(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 def launch_ctx(p):
+    PROFILE_DIR.mkdir(parents=True, exist_ok=True)
     ctx = p.chromium.launch_persistent_context(
         user_data_dir=str(PROFILE_DIR),
         channel="chrome",
@@ -354,7 +366,7 @@ def bot_loop(page):
 
     start_time = time.time()
     reply_counter = 0
-    log("✅ Logged in & ready. Starting smart reply loop…")
+    log("Starting smart reply loop")
 
     while True:
         if MAX_RUN_HOURS and (time.time() - start_time) > MAX_RUN_HOURS * 3600:
@@ -362,7 +374,7 @@ def bot_loop(page):
             break
 
         term = random.choice(SEARCH_TERMS)
-        log(f"🔎 Searching live for: {term}")
+        log(f"Searching live for … {term}")
         search_live(page, term)
 
         cards = collect_articles(page, limit=MAX_ARTICLES_SCAN)
@@ -383,23 +395,39 @@ def bot_loop(page):
                 dedup_tweets[tid] = datetime.utcnow().isoformat() + "Z"
                 save_json(DEDUP_TWEETS, dedup_tweets)
                 save_json(DEDUP_TEXTS, list(recent_text_hashes))
-                log(f"💬 Replied to tweet {tid}")
+                log(f"Posted: https://x.com/i/web/status/{tid}")
                 human_pause(*DELAY_BETWEEN_REPLIES)
                 sent += 1
             else:
                 log("…couldn’t post—skipping.")
         human_pause(*DELAY_BETWEEN_TERMS)
 
+def run_mock_cycle():
+    log("Mock login mode enabled; skipping browser automation.")
+    log("Logged in & ready")
+    sample_term = SEARCH_TERMS[0] if SEARCH_TERMS else "perplexity"
+    log(f"Searching live for … {sample_term}")
+    log("Posted: mock-post-id")
+
 def main():
+    log(f"Using profile directory: {PROFILE_DIR}")
+    if MOCK_LOGIN:
+        run_mock_cycle()
+        return
     with sync_playwright() as p:
         ctx = page = None
         try:
             ctx, page = launch_ctx(p)
             if not ensure_login(page, ctx):
                 sys.exit(1)
+            log("Logged in & ready")
             bot_loop(page)
         finally:
-            pass
+            try:
+                if ctx is not None:
+                    ctx.close()
+            except Exception:
+                pass
 
 if __name__ == "__main__":
     main()
