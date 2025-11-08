@@ -471,16 +471,23 @@ def main():
     launch_kwargs = _build_launch_kwargs()
     user_data_dir = os.environ["PW_PROFILE_DIR"]
 
-    def _launch_persistent(p):
+    def _launch_persistent(playwright):
         try:
-            return p.chromium.launch_persistent_context(user_data_dir, channel="chrome", **launch_kwargs)
+            return playwright.chromium.launch_persistent_context(
+                user_data_dir,
+                channel="chrome",
+                **launch_kwargs,
+            )
         except SyncPWError:
-            return p.chromium.launch_persistent_context(user_data_dir, **launch_kwargs)
+            return playwright.chromium.launch_persistent_context(
+                user_data_dir,
+                **launch_kwargs,
+            )
 
-    with sync_playwright() as p:
+    with sync_playwright() as playwright:
         ctx = None
         try:
-            ctx = _launch_persistent(p)
+            ctx = _launch_persistent(playwright)
             pages = ctx.pages
             page = pages[0] if pages else ctx.new_page()
             ensure_x_logged_in(page)
@@ -492,10 +499,10 @@ def main():
                     pass
 
     async def _run_bot_loop():
-        async with async_playwright() as ap:
+        async with async_playwright() as playwright_async:
             ctx = None
             try:
-                ctx, page = await launch_ctx(ap)
+                ctx, page = await launch_ctx(playwright_async)
                 log("Logged in & ready")
                 await bot_loop(page)
             finally:
