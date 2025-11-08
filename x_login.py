@@ -26,6 +26,9 @@ def ensure_x_logged_in(page: Page, user: str, pwd: str, alt_id: Optional[str] = 
     if not user or not pwd:
         raise XLoginError("X_USERNAME and X_PASSWORD are required for automated login")
 
+    if _is_signed_in(page):
+        return
+
     alt_value = alt_id or user
 
     last_error: Optional[Exception] = None
@@ -40,6 +43,8 @@ def ensure_x_logged_in(page: Page, user: str, pwd: str, alt_id: Optional[str] = 
                     page.reload(wait_until="domcontentloaded", timeout=45000)
                 except PlaywrightError:
                     pass
+                if _is_signed_in(page):
+                    return
                 continue
             break
         except Exception as exc:  # pragma: no cover - defensive guard
@@ -51,6 +56,9 @@ def ensure_x_logged_in(page: Page, user: str, pwd: str, alt_id: Optional[str] = 
 
 def _perform_login(page: Page, user: str, pwd: str, alt_value: str) -> None:
     page.goto(LOGIN_FLOW_URL, wait_until="domcontentloaded", timeout=60000)
+
+    if _is_signed_in(page):
+        return
 
     username_input = _wait_for_input(
         page,
@@ -89,6 +97,27 @@ def _perform_login(page: Page, user: str, pwd: str, alt_value: str) -> None:
             continue
 
     raise PlaywrightTimeout("Login did not reach a signed-in state")
+
+
+def _is_signed_in(page: Page) -> bool:
+    try:
+        if page.url.startswith("https://x.com/home"):
+            return True
+    except PlaywrightError:
+        pass
+
+    for selector in SUCCESS_SELECTORS:
+        try:
+            locator = page.locator(selector)
+            if locator.count() and locator.first.is_visible():
+                return True
+        except PlaywrightTimeout:
+            continue
+        except PlaywrightError:
+            continue
+        except Exception:
+            continue
+    return False
 
 
 def _wait_for_input(
