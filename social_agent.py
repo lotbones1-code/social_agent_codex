@@ -441,11 +441,7 @@ async def run_mock_cycle():
 def main_sync_exit(code: int):
     sys.exit(code)
 
-async def main():
-    log(f"Using profile directory: {PROFILE_DIR}")
-    if MOCK_LOGIN:
-        await run_mock_cycle()
-        return
+def _ensure_manual_login_sync():
     PROFILE_DIR.mkdir(parents=True, exist_ok=True)
     launch_kwargs = _build_launch_kwargs()
     user_data_dir = os.environ["PW_PROFILE_DIR"]
@@ -459,12 +455,21 @@ async def main():
             sync_pages = sync_ctx.pages
             sync_page = sync_pages[0] if sync_pages else sync_ctx.new_page()
             ensure_x_logged_in(sync_page)
-        except XLoginError as exc:
-            log(str(exc))
-            raise
         finally:
             if sync_ctx is not None:
                 sync_ctx.close()
+
+
+async def main():
+    log(f"Using profile directory: {PROFILE_DIR}")
+    if MOCK_LOGIN:
+        await run_mock_cycle()
+        return
+    try:
+        _ensure_manual_login_sync()
+    except XLoginError as exc:
+        log(str(exc))
+        main_sync_exit(1)
     async with async_playwright() as p:
         ctx = None
         try:
