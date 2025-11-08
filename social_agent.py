@@ -71,7 +71,7 @@ if _env_profile:
     else:
         PROFILE_DIR = PROFILE_DIR.resolve()
 else:
-    PROFILE_DIR = (BASE_DIR / ".pwprofile").resolve()
+    PROFILE_DIR = (BASE_DIR / ".pwprofile_live").resolve()
 STORAGE_PATH = Path("storage/x.json")
 DEDUP_TWEETS = Path("storage/replied.json")
 DEDUP_TEXTS  = Path("storage/text_hashes.json")   # avoid posting the exact same sentence back to back
@@ -126,9 +126,8 @@ def sha(text: str) -> str:
 
 def launch_ctx(p):
     PROFILE_DIR.mkdir(parents=True, exist_ok=True)
-    ctx = p.chromium.launch_persistent_context(
+    launch_kwargs = dict(
         user_data_dir=str(PROFILE_DIR),
-        channel="chrome",
         headless=False,
         viewport=None,
         user_agent=USER_AGENT,
@@ -141,6 +140,10 @@ def launch_ctx(p):
             "--no-default-browser-check",
         ],
     )
+    try:
+        ctx = p.chromium.launch_persistent_context(channel="chrome", **launch_kwargs)
+    except PWError:
+        ctx = p.chromium.launch_persistent_context(**launch_kwargs)
     page = ctx.pages[0] if ctx.pages else ctx.new_page()
     page.add_init_script("Object.defineProperty(navigator, 'webdriver', { get: () => undefined });")
     page.add_init_script("window.chrome = window.chrome || {};")
@@ -428,9 +431,9 @@ def main():
             except XLoginError as exc:
                 log(str(exc))
                 raise
+            log("Logged in & ready")
             if not ensure_login(page, ctx):
                 sys.exit(1)
-            log("Logged in & ready")
             bot_loop(page)
         finally:
             try:

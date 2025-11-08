@@ -8,7 +8,7 @@ from typing import Optional
 
 from playwright.sync_api import Page, TimeoutError as PlaywrightTimeout, Error as PlaywrightError
 
-LOGIN_FLOW_URL = "https://x.com/i/flow/login"
+LOGIN_URL = "https://x.com/login"
 SUCCESS_SELECTORS = (
     "[data-testid=\"SideNav_NewTweet_Button\"]",
     "a[aria-label=\"Profile\"]",
@@ -55,7 +55,10 @@ def ensure_x_logged_in(page: Page, user: str, pwd: str, alt_id: Optional[str] = 
 
 
 def _perform_login(page: Page, user: str, pwd: str, alt_value: str) -> None:
-    page.goto(LOGIN_FLOW_URL, wait_until="domcontentloaded", timeout=60000)
+    page.goto(LOGIN_URL, wait_until="domcontentloaded", timeout=60000)
+
+    if _is_signed_in(page):
+        return
 
     if _is_signed_in(page):
         return
@@ -189,7 +192,7 @@ def _type_slow(locator, text: str, delay: float = 80) -> None:
 def _capture_and_raise(page: Page, exc: Optional[Exception]) -> None:
     SCREEN_DIR.mkdir(parents=True, exist_ok=True)
     stamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
-    path = SCREEN_DIR / f"login_fail_{stamp}.png"
+    path = SCREEN_DIR / f"{stamp}.png"
     try:
         page.screenshot(path=str(path))
     except PlaywrightError:
