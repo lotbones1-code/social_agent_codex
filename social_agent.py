@@ -445,19 +445,31 @@ def _ensure_manual_login_sync():
     PROFILE_DIR.mkdir(parents=True, exist_ok=True)
     launch_kwargs = _build_launch_kwargs()
     user_data_dir = os.environ["PW_PROFILE_DIR"]
+    log("[X] Opening Chrome to verify login state…")
     with sync_playwright() as sp:
         sync_ctx = None
         try:
             try:
-                sync_ctx = sp.chromium.launch_persistent_context(user_data_dir, channel="chrome", **launch_kwargs)
+                sync_ctx = sp.chromium.launch_persistent_context(
+                    user_data_dir,
+                    channel="chrome",
+                    **launch_kwargs,
+                )
             except SyncPWError:
-                sync_ctx = sp.chromium.launch_persistent_context(user_data_dir, **launch_kwargs)
+                sync_ctx = sp.chromium.launch_persistent_context(
+                    user_data_dir,
+                    **launch_kwargs,
+                )
             sync_pages = sync_ctx.pages
             sync_page = sync_pages[0] if sync_pages else sync_ctx.new_page()
             ensure_x_logged_in(sync_page)
+            log("[X] Login confirmed. Closing bootstrap browser window.")
         finally:
             if sync_ctx is not None:
-                sync_ctx.close()
+                try:
+                    sync_ctx.close()
+                except Exception as exc:
+                    log(f"[X] Warning: could not close sync context cleanly: {exc}")
 
 
 async def main():
