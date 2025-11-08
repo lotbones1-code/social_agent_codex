@@ -72,6 +72,7 @@ if _env_profile:
         PROFILE_DIR = PROFILE_DIR.resolve()
 else:
     PROFILE_DIR = (BASE_DIR / ".pwprofile_live").resolve()
+os.environ.setdefault("PW_PROFILE_DIR", str(PROFILE_DIR))
 STORAGE_PATH = Path("storage/x.json")
 DEDUP_TWEETS = Path("storage/replied.json")
 DEDUP_TEXTS  = Path("storage/text_hashes.json")   # avoid posting the exact same sentence back to back
@@ -88,6 +89,8 @@ USER_AGENT = (
     "AppleWebKit/537.36 (KHTML, like Gecko) "
     "Chrome/121.0.0.0 Safari/537.36"
 )
+
+FORCE_ONE_REPLY = bool(int(os.getenv("FORCE_ONE_REPLY", "0")))
 
 def log(msg: str):
     ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -127,7 +130,6 @@ def sha(text: str) -> str:
 def launch_ctx(p):
     PROFILE_DIR.mkdir(parents=True, exist_ok=True)
     launch_kwargs = dict(
-        user_data_dir=str(PROFILE_DIR),
         headless=False,
         viewport=None,
         user_agent=USER_AGENT,
@@ -140,10 +142,11 @@ def launch_ctx(p):
             "--no-default-browser-check",
         ],
     )
+    user_data_dir = os.environ["PW_PROFILE_DIR"]
     try:
-        ctx = p.chromium.launch_persistent_context(channel="chrome", **launch_kwargs)
+        ctx = p.chromium.launch_persistent_context(user_data_dir, channel="chrome", **launch_kwargs)
     except PWError:
-        ctx = p.chromium.launch_persistent_context(**launch_kwargs)
+        ctx = p.chromium.launch_persistent_context(user_data_dir, **launch_kwargs)
     page = ctx.pages[0] if ctx.pages else ctx.new_page()
     page.add_init_script("Object.defineProperty(navigator, 'webdriver', { get: () => undefined });")
     page.add_init_script("window.chrome = window.chrome || {};")
@@ -287,24 +290,25 @@ def maybe_attach_media(page, topic: str, reply_idx: int):
 
 def click_post_once(page) -> bool:
     """Click a single button if present; only use keyboard if no button is clickable."""
-    selectors = [
-        "button[data-testid='tweetButtonInline']",
-        "div[data-testid='tweetButtonInline']",
-        "button[data-testid='tweetButton']",
-        "div[data-testid='tweetButton']",
-    ]
-    for sel in selectors:
+    send_btn = page.locator("[data-testid='tweetButtonInline']").first
+    if not send_btn.count():
+        send_btn = page.locator("div[data-testid='tweetButtonInline']").first
+    if not send_btn.count():
+        send_btn = page.locator("[data-testid='tweetButton']").first
+    if not send_btn.count():
+        send_btn = page.locator("div[data-testid='tweetButton']").first
+    if not send_btn.count():
+        send_btn = page.locator("div[role='button']:has-text('Reply')").first
+    if send_btn.count():
         try:
-            btn = page.locator(sel).first
-            if btn.count() and btn.is_enabled():
-                btn.click()
-                try:
-                    btn.wait_for(state="detached", timeout=4000)
-                except Exception:
-                    pass
-                return True
+            send_btn.click()
+            try:
+                send_btn.wait_for(state="detached", timeout=4000)
+            except Exception:
+                pass
+            return True
         except Exception:
-            continue
+            pass
     # fallback: keyboard only if no clickable button
     try:
         page.keyboard.press("Meta+Enter")  # macOS
@@ -318,8 +322,15 @@ def click_post_once(page) -> bool:
 
 def reply_to_card(page, card, topic: str, recent_text_hashes: set, reply_idx: int) -> bool:
     # open composer
+    reply_button = card.locator("[data-testid='reply']").first
+    if not reply_button.count():
+        reply_button = card.locator("button[aria-label*='Reply']").first
+    if not reply_button.count():
+        reply_button = card.locator("button:has-text('Reply')").first
+    if not reply_button.count():
+        return False
     try:
-        card.locator('[data-testid="reply"]').first.click()
+        reply_button.click()
     except Exception:
         return False
     human_pause(0.8, 1.4)
@@ -327,7 +338,7 @@ def reply_to_card(page, card, topic: str, recent_text_hashes: set, reply_idx: in
     # text (avoid repeating the exact same sentence)
     text = compose_reply_text(topic)
     thash = sha(text)
-    if thash in recent_text_hashes:
+    if thash in recent_text_hashes and not FORCE_ONE_REPLY:
         page.keyboard.press("Escape")
         return False
     recent_text_hashes.add(thash)
