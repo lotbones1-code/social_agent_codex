@@ -33,10 +33,55 @@ PROFILE_DIR = Path(os.getenv("PW_PROFILE_DIR", ".pwprofile")).expanduser()
 PROFILE_DIR.mkdir(parents=True, exist_ok=True)
 
 DEFAULT_MESSAGE = (
-    "Appreciate the thoughts on {topic}! If you're exploring this too, I'm"
-    " always up for chatting more."
+    "Love the insights on {topic}! I'm building AI-driven automation plays and"
+    " always keen to swap ideas. Shoot me a DM or grab my favorite toolkit here:"
+    " {ref_link}"
 )
 REPLY_MESSAGE = os.getenv("REPLY_MESSAGE", DEFAULT_MESSAGE)
+REFERRAL_LINK = os.getenv("REFERRAL_LINK", "https://example.com/referral")
+MAX_REPLIES_PER_TOPIC = int(os.getenv("MAX_REPLIES_PER_TOPIC", "3"))
+MIN_TWEET_LENGTH = int(os.getenv("MIN_TWEET_LENGTH", "40"))
+
+
+def _split_keywords(raw: str) -> List[str]:
+    return [part.strip().lower() for part in raw.replace("\n", ",").split(",") if part.strip()]
+
+
+DEFAULT_RELEVANT_KEYWORDS = [
+    "ai",
+    "artificial intelligence",
+    "automation",
+    "autonomous",
+    "chatgpt",
+    "gpt",
+    "openai",
+    "crypto",
+    "cryptocurrency",
+    "blockchain",
+    "defi",
+    "web3",
+    "trading",
+    "algorithmic trading",
+    "quant",
+    "quantitative",
+    "machine learning",
+]
+DEFAULT_SPAM_KEYWORDS = [
+    "giveaway",
+    "airdrop",
+    "free nft",
+    "pump",
+    "casino",
+    "xxx",
+    "sex",
+    "nsfw",
+    "follow for follow",
+]
+
+RELEVANT_KEYWORDS = _split_keywords(
+    os.getenv("RELEVANT_KEYWORDS", ",".join(DEFAULT_RELEVANT_KEYWORDS))
+)
+SPAM_KEYWORDS = _split_keywords(os.getenv("SPAM_KEYWORDS", ",".join(DEFAULT_SPAM_KEYWORDS)))
 LOOP_DELAY_SECONDS = int(os.getenv("LOOP_DELAY_SECONDS", str(15 * 60)))
 
 
@@ -124,6 +169,36 @@ async def close_composer_if_open(page) -> None:
         await page.wait_for_timeout(250)
 
 
+async def extract_tweet_text(tweet_locator) -> str:
+    text_locator = tweet_locator.locator("div[data-testid='tweetText']").first
+    if not await text_locator.count():
+        return ""
+    try:
+        raw_text = await text_locator.inner_text()
+    except PlaywrightError as exc:
+        log(f"Failed to extract tweet text: {exc}", level="debug")
+        return ""
+    cleaned = " ".join(raw_text.split())
+    return cleaned.strip()
+
+
+def is_tweet_relevant(tweet_text: str) -> bool:
+    if not tweet_text:
+        return False
+
+    normalized = tweet_text.lower()
+    if len(normalized) < MIN_TWEET_LENGTH:
+        return False
+
+    if any(keyword in normalized for keyword in SPAM_KEYWORDS):
+        return False
+
+    if RELEVANT_KEYWORDS and any(keyword in normalized for keyword in RELEVANT_KEYWORDS):
+        return True
+
+    return False
+
+
 async def reply_to_tweet(page, tweet_locator, topic: str, index: int) -> bool:
     log(f"Replying to tweet #{index + 1} for '{topic}'.", level="debug")
     try:
@@ -143,7 +218,10 @@ async def reply_to_tweet(page, tweet_locator, topic: str, index: int) -> bool:
             return False
 
         await textbox.click()
-        message = REPLY_MESSAGE.format(topic=topic)
+        try:
+            message = REPLY_MESSAGE.format(topic=topic, ref_link=REFERRAL_LINK)
+        except KeyError:
+            message = REPLY_MESSAGE.format(topic=topic)
         await page.keyboard.type(message, delay=20)
         await page.wait_for_timeout(200)
         await page.keyboard.press("Meta+Enter")
@@ -170,8 +248,23 @@ async def process_topic(page, topic: str) -> None:
         return
 
     replies_sent = 0
-    for idx in range(min(3, count)):
+    for idx in range(count):
+        if replies_sent >= MAX_REPLIES_PER_TOPIC:
+            break
+
         tweet = tweets.nth(idx)
+        tweet_text = await extract_tweet_text(tweet)
+        if not tweet_text:
+            log(f"Skipped tweet #{idx + 1} for '{topic}' (no readable text).", level="debug")
+            continue
+
+        if not is_tweet_relevant(tweet_text):
+            log(
+                f"Skipped tweet #{idx + 1} for '{topic}' (irrelevant content).",
+                level="debug",
+            )
+            continue
+
         success = await reply_to_tweet(page, tweet, topic, idx)
         if success:
             replies_sent += 1
