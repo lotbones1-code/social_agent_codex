@@ -1,24 +1,28 @@
 #!/usr/bin/env python3
-"""Refined X auto-reply bot with modular filtering and messaging logic."""
+"""Ultra-human modular social agent for X interactions."""
 
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import json
 import os
 import random
+import re
 import sys
-from collections import deque
-from contextlib import suppress
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Deque, Iterable, List, Optional, Sequence, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 from urllib.parse import quote_plus
 
+import httpx
 from dotenv import load_dotenv
+from openai import OpenAI
 from playwright.async_api import Error as PlaywrightError
 from playwright.async_api import TimeoutError as PlaywrightTimeout
 from playwright.async_api import async_playwright
+from replicate import Client as ReplicateClient
 
 from configurator import (
     DEFAULT_DM_TEMPLATES,
@@ -29,22 +33,62 @@ from configurator import (
     update_env,
 )
 
-# --- Environment ----------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Environment bootstrapping
+# ---------------------------------------------------------------------------
 
 ROOT_DIR = Path(__file__).resolve().parent
 ENV_PATH = ensure_env_file(ROOT_DIR)
 load_dotenv(ENV_PATH)
 
 
+# ---------------------------------------------------------------------------
+# Configuration dataclasses
+# ---------------------------------------------------------------------------
+
+
+@dataclass(slots=True)
+class DelayConfig:
+    """Configures randomized delays between visible actions."""
+
+    min_seconds: int = 60
+    max_seconds: int = 600
+
+    def next_delay(self) -> int:
+        return random.randint(self.min_seconds, self.max_seconds)
+
+
+@dataclass(slots=True)
+class MediaConfig:
+    """Holds configuration for AI-generated media."""
+
+    image_provider: str
+    video_provider: str
+    image_model: str
+    video_model: str
+    image_size: str
+    video_duration: int
+
+
+@dataclass(slots=True)
+class HashtagConfig:
+    """Configuration for sourcing trending hashtag data."""
+
+    trending_url: Optional[str]
+    fallback_hashtags: Dict[str, List[str]]
+    refresh_interval_minutes: int = 45
+
+
 @dataclass(slots=True)
 class BotConfig:
+    """Bot wide settings loaded from environment variables."""
+
     debug_enabled: bool
     profile_dir: Path
     search_topics: List[str]
     relevant_keywords: List[str]
     spam_keywords: List[str]
     referral_link: str
-    loop_delay_seconds: int
     max_replies_per_topic: int
     min_tweet_length: int
     min_keyword_matches: int
@@ -52,6 +96,10 @@ class BotConfig:
     dm_trigger_length: int
     dm_question_weight: float
     dm_interest_threshold: float
+    message_registry_path: Path
+    delay_config: DelayConfig
+    media_config: MediaConfig
+    hashtag_config: HashtagConfig
 
     @classmethod
     def from_env(cls) -> "BotConfig":
@@ -66,15 +114,38 @@ class BotConfig:
         relevant_keywords = _split_keywords(os.getenv("RELEVANT_KEYWORDS", ""))
         spam_keywords = _split_keywords(os.getenv("SPAM_KEYWORDS", ""))
 
-        referral_link = os.getenv("REFERRAL_LINK", "https://example.com/referral")
-        loop_delay_seconds = int(os.getenv("LOOP_DELAY_SECONDS", str(15 * 60)))
-        max_replies_per_topic = int(os.getenv("MAX_REPLIES_PER_TOPIC", "3"))
-        min_tweet_length = int(os.getenv("MIN_TWEET_LENGTH", "60"))
+        referral_link = os.getenv("REFERRAL_LINK", "").strip()
+        max_replies_per_topic = int(os.getenv("MAX_REPLIES_PER_TOPIC", "5"))
+        min_tweet_length = int(os.getenv("MIN_TWEET_LENGTH", "50"))
         min_keyword_matches = int(os.getenv("MIN_KEYWORD_MATCHES", "1"))
         dm_enabled = os.getenv("ENABLE_DMS", "true").strip().lower() not in {"", "0", "false", "off"}
-        dm_trigger_length = int(os.getenv("DM_TRIGGER_LENGTH", "180"))
-        dm_question_weight = float(os.getenv("DM_QUESTION_WEIGHT", "0.6"))
-        dm_interest_threshold = float(os.getenv("DM_INTEREST_THRESHOLD", "3.2"))
+        dm_trigger_length = int(os.getenv("DM_TRIGGER_LENGTH", "160"))
+        dm_question_weight = float(os.getenv("DM_QUESTION_WEIGHT", "0.8"))
+        dm_interest_threshold = float(os.getenv("DM_INTEREST_THRESHOLD", "3.0"))
+
+        registry_path = Path(os.getenv("MESSAGE_REGISTRY_PATH", ROOT_DIR / "logs" / "messaged_users.json"))
+        registry_path.parent.mkdir(parents=True, exist_ok=True)
+
+        delay_config = DelayConfig(
+            min_seconds=int(os.getenv("ACTION_DELAY_MIN_SECONDS", "60")),
+            max_seconds=int(os.getenv("ACTION_DELAY_MAX_SECONDS", "600")),
+        )
+
+        media_config = MediaConfig(
+            image_provider=os.getenv("IMAGE_PROVIDER", "openai"),
+            video_provider=os.getenv("VIDEO_PROVIDER", "replicate"),
+            image_model=os.getenv("IMAGE_MODEL", "gpt-image-1"),
+            video_model=os.getenv("VIDEO_MODEL", "pika-labs/pika-1.0"),
+            image_size=os.getenv("IMAGE_SIZE", "1024x1024"),
+            video_duration=int(os.getenv("VIDEO_DURATION_SECONDS", "8")),
+        )
+
+        fallback_hashtags = _build_hashtag_fallback(search_topics)
+        hashtag_config = HashtagConfig(
+            trending_url=os.getenv("TRENDING_HASHTAG_URL", ""),
+            fallback_hashtags=fallback_hashtags,
+            refresh_interval_minutes=int(os.getenv("HASHTAG_REFRESH_MINUTES", "45")),
+        )
 
         return cls(
             debug_enabled=debug_enabled,
@@ -83,7 +154,6 @@ class BotConfig:
             relevant_keywords=relevant_keywords,
             spam_keywords=spam_keywords,
             referral_link=referral_link,
-            loop_delay_seconds=loop_delay_seconds,
             max_replies_per_topic=max_replies_per_topic,
             min_tweet_length=min_tweet_length,
             min_keyword_matches=min_keyword_matches,
@@ -91,7 +161,13 @@ class BotConfig:
             dm_trigger_length=dm_trigger_length,
             dm_question_weight=dm_question_weight,
             dm_interest_threshold=dm_interest_threshold,
+            message_registry_path=registry_path,
+            delay_config=delay_config,
+            media_config=media_config,
+            hashtag_config=hashtag_config,
         )
+
+
 def _split_keywords(raw: str) -> List[str]:
     if not raw:
         return []
@@ -109,17 +185,18 @@ def _split_topics(raw: str) -> List[str]:
     return [topic.strip() for topic in parts if topic.strip()]
 
 
-def _tokenize_phrase(text: str) -> List[str]:
-    sanitized = (
-        text.replace("#", " ")
-        .replace("/", " ")
-        .replace("-", " ")
-        .replace("_", " ")
-    )
-    return [token for token in sanitized.lower().split() if token]
+def _build_hashtag_fallback(topics: Sequence[str]) -> Dict[str, List[str]]:
+    fallback: Dict[str, List[str]] = {}
+    for topic in topics:
+        tokens = [token for token in re.split(r"[^A-Za-z0-9]+", topic) if token]
+        fallback[topic] = [f"#{token.lower()}" for token in tokens]
+    return fallback
 
 
-# --- Logging --------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Logging helpers
+# ---------------------------------------------------------------------------
+
 
 def log(message: str, *, level: str = "info") -> None:
     if level == "debug" and not CONFIG.debug_enabled:
@@ -133,17 +210,19 @@ def log(message: str, *, level: str = "info") -> None:
 CONFIG = BotConfig.from_env()
 
 
-# --- Template Management --------------------------------------------------
+# ---------------------------------------------------------------------------
+# Template management
+# ---------------------------------------------------------------------------
 
 
 class TemplatePool:
-    """Manages rotation of natural-sounding templates without repetition."""
+    """Randomly rotates templates without repeating the same message twice."""
 
     def __init__(self, templates: Sequence[str]):
-        if len(templates) == 0:
-            raise ValueError("At least one template is required.")
+        if not templates:
+            raise ValueError("At least one template is required")
         self.templates = list(templates)
-        self._queue: Deque[str] = deque()
+        self._queue: List[str] = []
         self._last_used: Optional[str] = None
         self._reshuffle()
 
@@ -152,18 +231,18 @@ class TemplatePool:
         random.shuffle(order)
         if self._last_used and order and order[0] == self._last_used:
             order.append(order.pop(0))
-        self._queue = deque(order)
+        self._queue = order
 
-    def next(self, context: dict) -> str:
+    def next(self, context: Dict[str, Any]) -> str:
         if not self._queue:
             self._reshuffle()
-        template = self._queue.popleft()
+        template = self._queue.pop(0)
         self._last_used = template
         return template.format(**context)
 
 
 class TemplateManager:
-    """Manages template collections sourced from the environment file."""
+    """Loads and maintains template sets from the environment file."""
 
     def __init__(
         self,
@@ -172,7 +251,7 @@ class TemplateManager:
         fallback: Sequence[str],
         *,
         min_count: int = 1,
-    ):
+    ) -> None:
         self.env_path = env_path
         self.env_key = env_key
         self.fallback = list(fallback)
@@ -186,9 +265,7 @@ class TemplateManager:
         if len(templates) < self.min_count:
             templates = self._dedupe(self.fallback)
             if len(templates) < self.min_count:
-                raise ValueError(
-                    f"At least {self.min_count} templates are required for {self.env_key}."
-                )
+                raise ValueError(f"At least {self.min_count} templates are required for {self.env_key}.")
             self._persist(templates)
         return templates
 
@@ -207,346 +284,401 @@ class TemplateManager:
                 ordered.append(template)
         return ordered
 
-    def _refresh_pool(self) -> None:
-        if not self.templates:
-            self.templates = self._dedupe(self.fallback)
-        if len(self.templates) < self.min_count:
-            replenished = self._dedupe(self.templates + list(self.fallback))
-            if len(replenished) < self.min_count:
-                raise ValueError(
-                    f"At least {self.min_count} templates are required for {self.env_key}."
-                )
-            self.templates = replenished
-        self._pool = TemplatePool(self.templates)
-
-    def next(self, context: dict) -> str:
+    def next(self, context: Dict[str, Any]) -> str:
         return self._pool.next(context)
 
     def add_template(self, template: str) -> None:
         template = template.strip()
         if not template:
-            raise ValueError("Template content cannot be empty.")
+            raise ValueError("Template content cannot be empty")
         self.templates.append(template)
         self._persist(self.templates)
-        self._refresh_pool()
-
-    def remove_template(self, index: int) -> None:
-        if not (0 <= index < len(self.templates)):
-            raise IndexError("Template index out of range.")
-        del self.templates[index]
-        self._persist(self.templates or self.fallback)
-        self._refresh_pool()
-
-    def edit_template(self, index: int, template: str) -> None:
-        if not (0 <= index < len(self.templates)):
-            raise IndexError("Template index out of range.")
-        template = template.strip()
-        if not template:
-            raise ValueError("Template content cannot be empty.")
-        self.templates[index] = template
-        self._persist(self.templates)
-        self._refresh_pool()
+        self._pool = TemplatePool(self.templates)
 
 
-reply_manager = TemplateManager(
+reply_templates = TemplateManager(
     ENV_PATH,
     "REPLY_TEMPLATES",
     DEFAULT_REPLY_TEMPLATES,
     min_count=10,
 )
-dm_manager = TemplateManager(ENV_PATH, "DM_TEMPLATES", DEFAULT_DM_TEMPLATES)
+dm_templates = TemplateManager(
+    ENV_PATH,
+    "DM_TEMPLATES",
+    DEFAULT_DM_TEMPLATES,
+    min_count=5,
+)
 
 
-def add_reply_template(template: str) -> None:
-    """Add a new public reply template and persist it to the .env file."""
-
-    reply_manager.add_template(template)
-
-
-def remove_reply_template(index: int) -> None:
-    """Remove a reply template by index and persist the change."""
-
-    reply_manager.remove_template(index)
+# ---------------------------------------------------------------------------
+# Delay scheduling and registry management
+# ---------------------------------------------------------------------------
 
 
-def edit_reply_template(index: int, template: str) -> None:
-    """Edit an existing reply template in place and persist it."""
+class ActionScheduler:
+    """Introduces human-like random delays between actions."""
 
-    reply_manager.edit_template(index, template)
+    def __init__(self, config: DelayConfig) -> None:
+        self.config = config
 
-
-def add_dm_template(template: str) -> None:
-    """Add a new DM template and persist it."""
-
-    dm_manager.add_template(template)
-
-
-def remove_dm_template(index: int) -> None:
-    """Remove a DM template by index and persist the change."""
-
-    dm_manager.remove_template(index)
+    async def wait(self, reason: str) -> None:
+        delay_seconds = self.config.next_delay()
+        log(f"Waiting {delay_seconds // 60}m{delay_seconds % 60:02d}s before {reason}.", level="debug")
+        await asyncio.sleep(delay_seconds)
 
 
-def edit_dm_template(index: int, template: str) -> None:
-    """Edit an existing DM template."""
+class MessageRegistry:
+    """Tracks recently messaged users to prevent spamming."""
 
-    dm_manager.edit_template(index, template)
+    def __init__(self, storage_path: Path) -> None:
+        self.storage_path = storage_path
+        self._records: Dict[str, str] = {}
+        self._load()
+
+    def _load(self) -> None:
+        if self.storage_path.exists():
+            with self.storage_path.open("r", encoding="utf-8") as handle:
+                with contextlib.suppress(json.JSONDecodeError):
+                    self._records = json.load(handle)
+
+    def _persist(self) -> None:
+        self.storage_path.parent.mkdir(parents=True, exist_ok=True)
+        with self.storage_path.open("w", encoding="utf-8") as handle:
+            json.dump(self._records, handle, indent=2)
+
+    def prune(self) -> None:
+        now = datetime.utcnow()
+        expiry = now - timedelta(hours=24)
+        updated = {
+            username: timestamp
+            for username, timestamp in self._records.items()
+            if datetime.fromisoformat(timestamp) > expiry
+        }
+        if len(updated) != len(self._records):
+            self._records = updated
+            self._persist()
+
+    def can_contact(self, username: str) -> bool:
+        self.prune()
+        timestamp = self._records.get(username.lower())
+        if not timestamp:
+            return True
+        return datetime.fromisoformat(timestamp) <= datetime.utcnow() - timedelta(hours=24)
+
+    def record(self, username: str) -> None:
+        self.prune()
+        self._records[username.lower()] = datetime.utcnow().isoformat()
+        self._persist()
 
 
-# --- Relevance Engine -----------------------------------------------------
+# ---------------------------------------------------------------------------
+# AI media services
+# ---------------------------------------------------------------------------
+
+
+class AIImageService:
+    """Generates topic-aware images via OpenAI's Images API."""
+
+    def __init__(self, config: MediaConfig) -> None:
+        self.config = config
+        self.api_key = os.getenv("OPENAI_API_KEY", "").strip()
+        self.client: Optional[OpenAI] = None
+        if self.api_key and self.config.image_provider.lower() == "openai":
+            self.client = OpenAI(api_key=self.api_key)
+
+    async def generate(self, prompt: str) -> Optional[str]:
+        if not self.client:
+            log("Image generation skipped (no OpenAI client configured).", level="debug")
+            return None
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, self._sync_generate, prompt)
+
+    def _sync_generate(self, prompt: str) -> Optional[str]:
+        try:
+            response = self.client.images.generate(
+                model=self.config.image_model,
+                prompt=prompt,
+                size=self.config.image_size,
+            )
+            if response.data:
+                return response.data[0].url
+        except Exception as exc:  # noqa: BLE001
+            log(f"Image generation failed: {exc}", level="warning")
+        return None
+
+
+class AIVideoService:
+    """Generates short topic videos using Replicate."""
+
+    def __init__(self, config: MediaConfig) -> None:
+        self.config = config
+        self.api_token = os.getenv("REPLICATE_API_TOKEN", "").strip()
+        self.client: Optional[ReplicateClient] = None
+        if self.api_token and self.config.video_provider.lower() == "replicate":
+            self.client = ReplicateClient(api_token=self.api_token)
+
+    async def generate(self, prompt: str) -> Optional[str]:
+        if not self.client:
+            log("Video generation skipped (no Replicate client configured).", level="debug")
+            return None
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, self._sync_generate, prompt)
+
+    def _sync_generate(self, prompt: str) -> Optional[str]:
+        try:
+            output = self.client.run(
+                self.config.video_model,
+                input={
+                    "prompt": prompt,
+                    "duration": self.config.video_duration,
+                },
+            )
+            if isinstance(output, str):
+                return output
+            if isinstance(output, Sequence) and output:
+                return str(output[0])
+        except Exception as exc:  # noqa: BLE001
+            log(f"Video generation failed: {exc}", level="warning")
+        return None
+
+
+class MediaOrchestrator:
+    """Coordinates media prompts and generation for replies/DMs."""
+
+    def __init__(self, media_config: MediaConfig) -> None:
+        self.image_service = AIImageService(media_config)
+        self.video_service = AIVideoService(media_config)
+
+    async def build_assets(self, topic: str, focus: str, post_text: str) -> Dict[str, Optional[str]]:
+        prompt = f"{topic} focus: {focus}. Key post insight: {post_text[:200]}"
+        image_url, video_url = await asyncio.gather(
+            self.image_service.generate(prompt),
+            self.video_service.generate(prompt),
+        )
+        return {"image_url": image_url, "video_url": video_url}
+
+
+# ---------------------------------------------------------------------------
+# Hashtag service
+# ---------------------------------------------------------------------------
+
+
+class HashtagService:
+    """Maintains trending hashtags for each topic."""
+
+    def __init__(self, config: HashtagConfig) -> None:
+        self.config = config
+        self._last_refresh: Optional[datetime] = None
+        self._cache: Dict[str, List[str]] = {k: v[:] for k, v in config.fallback_hashtags.items()}
+
+    async def refresh(self) -> None:
+        if not self.config.trending_url:
+            return
+        if self._last_refresh and datetime.utcnow() - self._last_refresh < timedelta(
+            minutes=self.config.refresh_interval_minutes
+        ):
+            return
+        try:
+            async with httpx.AsyncClient(timeout=15) as client:
+                response = await client.get(self.config.trending_url)
+                response.raise_for_status()
+                payload = response.json()
+                if isinstance(payload, dict):
+                    for topic, tags in payload.items():
+                        if isinstance(tags, list):
+                            normalized = [tag if tag.startswith("#") else f"#{tag.strip()}" for tag in tags]
+                            self._cache[topic] = normalized
+            self._last_refresh = datetime.utcnow()
+            log("Refreshed trending hashtag cache.", level="debug")
+        except Exception as exc:  # noqa: BLE001
+            log(f"Failed to refresh hashtags: {exc}", level="warning")
+
+    async def get_hashtags(self, topic: str, focus_tokens: Iterable[str]) -> List[str]:
+        await self.refresh()
+        topic_tags = self._cache.get(topic, [])
+        focus_tags = [f"#{token.lower()}" for token in focus_tokens if token]
+        merged = list(dict.fromkeys([*topic_tags, *focus_tags]))
+        return merged[:6]
+
+
+# ---------------------------------------------------------------------------
+# Relevance and intent scoring
+# ---------------------------------------------------------------------------
+
+
+def _tokenize(text: str) -> List[str]:
+    return [token for token in re.split(r"[^A-Za-z0-9]+", text.lower()) if token]
 
 
 @dataclass(slots=True)
 class TopicProfile:
-    """Representation of a search topic with derived alias information."""
-
     raw: str
-    raw_lower: str = field(init=False)
     tokens: List[str] = field(init=False)
-    pretty: str = field(init=False)
     key: str = field(init=False)
-    aliases: List[str] = field(init=False)
-    hashtags: set[str] = field(init=False)
 
     def __post_init__(self) -> None:
-        self.raw = self.raw.strip()
-        self.raw_lower = self.raw.lower()
-        self.tokens = _tokenize_phrase(self.raw)
-        self.pretty = _prettify_focus(self.raw)
-        self.key = " ".join(self.tokens) if self.tokens else self.raw_lower
-        self.aliases = self._build_aliases()
-        self.hashtags = {f"#{token}" for token in self.tokens if token}
+        self.tokens = _tokenize(self.raw)
+        self.key = " ".join(self.tokens)
 
-    def _build_aliases(self) -> List[str]:
-        aliases = {self.raw_lower}
-        if len(self.tokens) > 1:
-            joined = " ".join(self.tokens)
-            aliases.add(joined)
-            aliases.add("-".join(self.tokens))
-            aliases.add(joined.replace(" ", ""))
-        for token in self.tokens:
-            aliases.add(token)
-        return sorted(aliases)
-
-    def score(self, normalized_text: str) -> Tuple[float, str]:
+    def score(self, text: str) -> float:
+        normalized = text.lower()
         score = 0.0
-        best_focus = self.pretty
-        best_score = 0.0
-
-        if self.raw_lower in normalized_text:
-            score += 2.8
-            best_focus = self.pretty
-            best_score = 2.8
-
-        for alias in self.aliases:
-            if alias and alias in normalized_text:
-                alias_score = 1.6 if " " in alias else 1.0 + min(len(alias) / 9, 0.8)
-                score += alias_score
-                if alias_score > best_score:
-                    best_score = alias_score
-                    best_focus = _prettify_focus(alias)
-
-        for tag in self.hashtags:
-            if tag in normalized_text:
-                tag_score = 1.4
-                score += tag_score
-                if tag_score > best_score:
-                    best_score = tag_score
-                    best_focus = _prettify_focus(tag.strip("#"))
-
-        coverage = sum(1 for token in self.tokens if token in normalized_text)
-        if self.tokens:
-            score += coverage / len(self.tokens)
-
-        return score, best_focus
+        if self.raw.lower() in normalized:
+            score += 2.5
+        token_matches = sum(1 for token in self.tokens if token in normalized)
+        score += token_matches * 1.2
+        if self.tokens and f"#{self.tokens[0]}" in normalized:
+            score += 1.0
+        return score
 
 
 @dataclass(slots=True)
-class RelevanceResult:
+class AnalysisResult:
     is_relevant: bool
-    topic_label: str
+    topic: str
     focus: str
-    topic_key: str
-    topic_score: float
+    hashtags: List[str]
     keyword_hits: int
     interest_score: float
+    high_intent: bool
+    display_name: str
+    handle: str
+    snippet: str
 
 
 class RelevanceEngine:
-    """Determines whether a tweet is relevant to configured search topics."""
+    """Determines whether posts align with configured topics and DM criteria."""
 
-    def __init__(
-        self,
-        topics: Sequence[str],
-        keywords: Sequence[str],
-        *,
-        min_keyword_matches: int,
-        base_threshold: float = 2.4,
-    ) -> None:
+    QUESTION_PATTERNS = [
+        re.compile(pattern, re.I)
+        for pattern in [
+            r"\?$",
+            r"\bhow\b",
+            r"\bwhat should\b",
+            r"\bany advice\b",
+            r"\bneed (help|advice)\b",
+        ]
+    ]
+
+    REQUEST_PATTERNS = [re.compile(r"\bdm me\b", re.I), re.compile(r"\breach out\b", re.I)]
+
+    def __init__(self, topics: Sequence[str], keywords: Sequence[str], spam_keywords: Sequence[str], *, min_keyword_matches: int) -> None:
         self.profiles = [TopicProfile(topic) for topic in topics]
-        self.keyword_inventory = self._build_keywords(keywords)
+        self.keyword_inventory = {keyword for keyword in keywords if keyword}
+        self.spam_keywords = {keyword.lower() for keyword in spam_keywords if keyword}
         self.min_keyword_matches = max(1, min_keyword_matches)
-        self.base_threshold = base_threshold
+        self.hashtag_service = HashtagService(CONFIG.hashtag_config)
 
-    def _build_keywords(self, keywords: Sequence[str]) -> set[str]:
-        inventory = {keyword.lower() for keyword in keywords if keyword}
-        for profile in self.profiles:
-            inventory.update(profile.tokens)
-        return inventory
+    async def analyze(self, topic: str, display_name: str, handle: str, text: str) -> AnalysisResult:
+        if len(text) < CONFIG.min_tweet_length:
+            return AnalysisResult(False, topic, "", [], 0, 0.0, False, display_name, handle, "")
 
-    def assess(self, text: str) -> RelevanceResult:
         normalized = text.lower()
-        best_profile: Optional[TopicProfile] = None
-        best_focus = ""
-        best_score = 0.0
+        if any(spam in normalized for spam in self.spam_keywords):
+            return AnalysisResult(False, topic, "", [], 0, 0.0, False, display_name, handle, "")
+        profile = max(self.profiles, key=lambda candidate: candidate.score(normalized))
+        keyword_hits = sum(1 for keyword in self.keyword_inventory if keyword in normalized)
+        is_relevant = keyword_hits >= self.min_keyword_matches and profile.score(normalized) >= 2.0
 
-        for profile in self.profiles:
-            score, focus = profile.score(normalized)
-            if score > best_score:
-                best_score = score
-                best_profile = profile
-                best_focus = focus
-
-        keyword_hits = sum(1 for keyword in self.keyword_inventory if keyword and keyword in normalized)
+        focus_tokens = profile.tokens[:2]
+        hashtags = await self.hashtag_service.get_hashtags(topic, focus_tokens)
         interest_score = self._interest_score(text)
+        high_intent = self._is_high_intent(normalized, interest_score, len(text))
+        snippet = self._extract_snippet(text)
 
-        if best_profile is None:
-            return RelevanceResult(False, "", "", "", 0.0, keyword_hits, interest_score)
-
-        threshold = self._topic_threshold(best_profile)
-        is_relevant = best_score >= threshold and keyword_hits >= self.min_keyword_matches
-
-        return RelevanceResult(
+        return AnalysisResult(
             is_relevant,
-            best_profile.raw,
-            best_focus or best_profile.pretty,
-            best_profile.key,
-            best_score,
+            profile.raw,
+            profile.tokens[0] if profile.tokens else topic,
+            hashtags,
             keyword_hits,
             interest_score,
+            high_intent,
+            display_name,
+            handle,
+            snippet,
         )
-
-    def _topic_threshold(self, profile: TopicProfile) -> float:
-        adjustment = 0.0
-        token_count = len(profile.tokens)
-        if token_count <= 1:
-            adjustment -= 0.4
-        elif token_count >= 3:
-            adjustment += 0.3
-        return self.base_threshold + adjustment
 
     def _interest_score(self, text: str) -> float:
         normalized = text.lower()
-        length_score = min(len(normalized) / 95, 4.0)
-        question_score = normalized.count("?") * 1.5
-        exclamation_score = normalized.count("!") * 0.4
-        detail_score = sum(1 for word in normalized.split() if len(word) >= 7) * 0.08
-        callout_phrases = (
-            "any tips",
-            "need help",
-            "looking for",
-            "recommend",
-            "how do you",
-            "what tools",
-            "anyone else",
-            "best way",
-            "curious how",
-            "does anyone",
+        length_score = min(len(normalized) / 90, 4.0)
+        question_score = normalized.count("?") * CONFIG.dm_question_weight
+        urgency_score = normalized.count("!") * 0.2
+        help_words = sum(
+            normalized.count(keyword)
+            for keyword in ["need", "looking for", "anyone", "recommend", "urgent", "best"]
         )
-        intent_score = 0.0
-        if any(phrase in normalized for phrase in callout_phrases):
-            intent_score += 1.0
-        if "dm me" in normalized or "hit me up" in normalized:
-            intent_score += 0.6
-        return length_score + question_score + exclamation_score + detail_score + intent_score
+        return length_score + question_score + urgency_score + help_words * 0.6
 
-
-SPECIAL_FOCUS_FORMATTING = {
-    "ai": "AI",
-    "gpt": "GPT",
-    "chatgpt": "ChatGPT",
-    "defi": "DeFi",
-    "web3": "Web3",
-}
-
-
-def _prettify_focus(raw: str) -> str:
-    key = raw.strip().lower()
-    if key in SPECIAL_FOCUS_FORMATTING:
-        return SPECIAL_FOCUS_FORMATTING[key]
-    words = raw.split()
-    formatted_words = [word.upper() if len(word) <= 3 else word.capitalize() for word in words]
-    return " ".join(formatted_words)
-
-
-relevance_engine = RelevanceEngine(
-    CONFIG.search_topics,
-    CONFIG.relevant_keywords,
-    min_keyword_matches=CONFIG.min_keyword_matches,
-)
-
-
-@dataclass(slots=True)
-class FilterDecision:
-    is_relevant: bool
-    reason: str
-    matched_focus: str
-    topic_score: float
-    interest_score: float
-    should_dm: bool
-
-
-class TweetFilter:
-    def __init__(self, config: BotConfig, engine: RelevanceEngine):
-        self.config = config
-        self.engine = engine
-
-    def analyze(self, topic: str, tweet_text: str) -> FilterDecision:
-        text = tweet_text.strip()
-        if not text:
-            return FilterDecision(False, "empty text", topic, 0.0, 0.0, False)
-
-        normalized = text.lower()
-        if len(normalized) < self.config.min_tweet_length:
-            return FilterDecision(False, "too short", topic, 0.0, 0.0, False)
-
-        if any(keyword and keyword in normalized for keyword in self.config.spam_keywords):
-            return FilterDecision(False, "spam keywords", topic, 0.0, 0.0, False)
-
-        relevance = self.engine.assess(text)
-        if not relevance.is_relevant:
-            return FilterDecision(False, "topic mismatch", relevance.focus or topic, relevance.topic_score, relevance.interest_score, False)
-
-        if not self._topic_alignment(topic, relevance.topic_key):
-            return FilterDecision(False, "topic mismatch", relevance.focus, relevance.topic_score, relevance.interest_score, False)
-
-        should_dm = self._should_dm(normalized, relevance)
-        return FilterDecision(True, "relevant", relevance.focus, relevance.topic_score, relevance.interest_score, should_dm)
-
-    def _topic_alignment(self, search_topic: str, result_key: str) -> bool:
-        search_tokens = set(_tokenize_phrase(search_topic))
-        result_tokens = set(result_key.split())
-        if not result_tokens:
-            return False
-        if not search_tokens:
+    def _is_high_intent(self, normalized: str, interest_score: float, text_length: int) -> bool:
+        if interest_score >= CONFIG.dm_interest_threshold and text_length >= CONFIG.dm_trigger_length:
             return True
-        overlap = len(search_tokens & result_tokens) / len(result_tokens)
-        return overlap >= 0.6 or result_tokens.issubset(search_tokens)
+        if any(pattern.search(normalized) for pattern in self.QUESTION_PATTERNS):
+            return True
+        if any(pattern.search(normalized) for pattern in self.REQUEST_PATTERNS):
+            return True
+        return False
 
-    def _should_dm(self, normalized_text: str, relevance: RelevanceResult) -> bool:
-        if not self.config.dm_enabled:
-            return False
-        long_form = len(normalized_text) >= self.config.dm_trigger_length
-        question_focus = normalized_text.count("?") * self.config.dm_question_weight >= 1.0
-        high_interest = relevance.interest_score >= self.config.dm_interest_threshold
-        intent_language = " dm " in f" {normalized_text} " or "message me" in normalized_text
-        return (high_interest and (long_form or question_focus)) or (high_interest and intent_language)
-
-
-tweet_filter = TweetFilter(CONFIG, relevance_engine)
+    @staticmethod
+    def _extract_snippet(text: str) -> str:
+        sentences = re.split(r"(?<=[.!?]) +", text.strip())
+        return sentences[0][:180] if sentences else text[:180]
 
 
-# --- Playwright helpers ---------------------------------------------------
+# ---------------------------------------------------------------------------
+# Personalization engine
+# ---------------------------------------------------------------------------
+
+
+class PersonalizationEngine:
+    """Builds reply and DM payloads with personalized content."""
+
+    def __init__(self, media_orchestrator: MediaOrchestrator) -> None:
+        self.media = media_orchestrator
+
+    async def craft_reply(self, analysis: AnalysisResult, topic: str, post_text: str) -> Dict[str, Any]:
+        media_assets = await self.media.build_assets(topic, analysis.focus, post_text)
+        context = {
+            "name": analysis.display_name,
+            "username": analysis.handle or analysis.display_name,
+            "topic": topic,
+            "focus": analysis.focus,
+            "snippet": analysis.snippet,
+            "hashtags": " ".join(analysis.hashtags),
+            "ref_link": CONFIG.referral_link or "",
+        }
+        message = reply_templates.next(context)
+        message = self._append_media_links(message, media_assets)
+        return {"text": message, **media_assets}
+
+    async def craft_dm(self, analysis: AnalysisResult, topic: str, post_text: str) -> Dict[str, Any]:
+        media_assets = await self.media.build_assets(topic, analysis.focus, post_text)
+        context = {
+            "name": analysis.display_name,
+            "username": analysis.handle or analysis.display_name,
+            "topic": topic,
+            "focus": analysis.focus,
+            "snippet": analysis.snippet,
+            "hashtags": " ".join(analysis.hashtags[:3]),
+            "ref_link": CONFIG.referral_link or "",
+        }
+        message = dm_templates.next(context)
+        message = self._append_media_links(message, media_assets)
+        return {"text": message, **media_assets}
+
+    @staticmethod
+    def _append_media_links(message: str, media_assets: Dict[str, Optional[str]]) -> str:
+        parts = [message]
+        if media_assets.get("image_url"):
+            parts.append(f"📷 {media_assets['image_url']}")
+        if media_assets.get("video_url"):
+            parts.append(f"🎬 {media_assets['video_url']}")
+        return "\n".join(parts)
+
+
+# ---------------------------------------------------------------------------
+# Playwright helper utilities
+# ---------------------------------------------------------------------------
 
 
 async def ensure_page(context):
@@ -566,8 +698,8 @@ async def click_latest_tab(page) -> None:
         if await tab.count():
             try:
                 await tab.click()
-                log("Selected Latest tab", level="debug")
                 await page.wait_for_timeout(500)
+                log("Selected Latest tab", level="debug")
                 return
             except PlaywrightError as exc:
                 log(f"Failed to click Latest tab via {selector}: {exc}", level="debug")
@@ -576,7 +708,7 @@ async def click_latest_tab(page) -> None:
 
 async def wait_for_tweets(page) -> None:
     try:
-        await page.wait_for_selector("article[data-testid='tweet']", timeout=20_000)
+        await page.wait_for_selector("article[data-testid='tweet']", timeout=25_000)
     except PlaywrightTimeout:
         log("No tweets found in Latest tab within timeout.", level="warning")
 
@@ -601,7 +733,7 @@ async def open_search(page, topic: str) -> None:
 async def close_composer_if_open(page) -> None:
     composer = page.locator("div[data-testid^='tweetTextarea_']").first
     if await composer.count():
-        with suppress(Exception):
+        with contextlib.suppress(Exception):
             await page.keyboard.press("Escape")
         await page.wait_for_timeout(250)
 
@@ -619,64 +751,22 @@ async def extract_tweet_text(tweet_locator) -> str:
     return cleaned.strip()
 
 
-async def extract_author_name(tweet_locator) -> str:
+async def extract_author(tweet_locator) -> Tuple[str, str]:
     name_locator = tweet_locator.locator("div[data-testid='User-Names'] span").first
+    handle_locator = tweet_locator.locator("a[href*='/status/']").first
+    display = "there"
+    handle = ""
     if await name_locator.count():
-        try:
-            name_text = await name_locator.inner_text()
-            return " ".join(name_text.split())
-        except PlaywrightError:
-            return "there"
-    return "there"
-
-
-def get_reply_message(topic: str, focus: str) -> str:
-    normalized_focus = focus.strip() if focus else ""
-    normalized_topic = topic.strip() if topic else normalized_focus
-    context = {
-        "topic": normalized_topic or normalized_focus,
-        "focus": normalized_focus or normalized_topic,
-        "ref_link": CONFIG.referral_link,
-    }
-    message = reply_manager.next(context)
-
-    if normalized_topic and normalized_topic.lower() not in message.lower():
-        suffix = f" Curious where you’re taking {normalized_topic} next."
-        message = f"{message.rstrip()} {suffix}".strip()
-
-    if CONFIG.referral_link and CONFIG.referral_link not in message:
-        connector = (
-            "." if message and message[-1] not in {".", "!", "?"} else ""
-        )
-        message = f"{message}{connector} Here’s what I’m leaning on: {CONFIG.referral_link}"
-
-    return message
-
-
-async def build_dm_message(name: str, focus: str) -> str:
-    context = {
-        "name": name or "there",
-        "focus": focus,
-        "ref_link": CONFIG.referral_link,
-    }
-    return dm_manager.next(context)
-
-
-async def send_reply(page, message: str) -> bool:
-    textbox = page.locator("div[data-testid='tweetTextarea_0']").first
-    if not await textbox.count():
-        textbox = page.locator("div[data-testid='tweetTextarea_1']").first
-    if not await textbox.count():
-        log("Reply textbox not found; skipping tweet.", level="warning")
-        await close_composer_if_open(page)
-        return False
-
-    await textbox.click()
-    await page.keyboard.type(message, delay=random.randint(18, 26))
-    await page.wait_for_timeout(200)
-    await page.keyboard.press("Meta+Enter")
-    await page.wait_for_timeout(1500)
-    return True
+        with contextlib.suppress(PlaywrightError):
+            display = " ".join((await name_locator.inner_text()).split())
+    if await handle_locator.count():
+        with contextlib.suppress(PlaywrightError):
+            href = await handle_locator.get_attribute("href")
+            if href:
+                parts = href.split("/")
+                if len(parts) >= 5:
+                    handle = parts[3].lstrip("@").lower()
+    return display, handle
 
 
 async def open_reply_composer(page, tweet_locator) -> bool:
@@ -689,164 +779,268 @@ async def open_reply_composer(page, tweet_locator) -> bool:
     return True
 
 
-async def send_dm_to_author(page, tweet_locator, focus: str) -> bool:
-    if not CONFIG.dm_enabled:
-        return False
-
-    context = page.context
-    user_link = tweet_locator.locator("div[data-testid='User-Names'] a").first
-    if not await user_link.count():
-        log("Author profile link not found for DM.", level="debug")
-        return False
-
-    profile_url = await user_link.get_attribute("href")
-    if not profile_url:
-        log("Unable to resolve author profile URL.", level="debug")
-        return False
-
-    dm_page = await context.new_page()
-    try:
-        await dm_page.goto(profile_url, wait_until="domcontentloaded", timeout=45_000)
-        message_button = dm_page.locator("[data-testid='DMButton']").first
-        if not await message_button.count():
-            log("DM button not available for this user.", level="debug")
-            return False
-        await message_button.click()
-        await dm_page.wait_for_timeout(1000)
-
-        composer = dm_page.locator("div[data-testid='dmComposerTextInput']").first
-        if not await composer.count():
-            composer = dm_page.locator("div[data-testid^='tweetTextarea_']").first
-        if not await composer.count():
-            log("DM composer not found.", level="debug")
-            return False
-
-        await composer.click()
-        author_name = await extract_author_name(tweet_locator)
-        message = await build_dm_message(author_name, focus)
-        await dm_page.keyboard.type(message, delay=random.randint(18, 26))
-        await dm_page.wait_for_timeout(300)
-        with suppress(Exception):
-            await dm_page.keyboard.press("Meta+Enter")
-        await dm_page.wait_for_timeout(1200)
-        log(f"Sent DM to {author_name} about {focus}.")
-        return True
-    except PlaywrightTimeout as exc:
-        log(f"Timeout while attempting DM: {exc}", level="debug")
-        return False
-    except PlaywrightError as exc:
-        log(f"Playwright error while attempting DM: {exc}", level="debug")
-        return False
-    finally:
-        await dm_page.close()
-
-
-async def reply_to_tweet(page, tweet_locator, topic: str, index: int, tweet_text: str, decision: FilterDecision) -> bool:
-    log(
-        f"Replying to tweet #{index + 1} for '{topic}' with focus '{decision.matched_focus}'.",
-        level="debug",
-    )
-    try:
-        opened = await open_reply_composer(page, tweet_locator)
-        if not opened:
-            return False
-
-        message = get_reply_message(topic, decision.matched_focus)
-        success = await send_reply(page, message)
-        if success:
-            log(f"Sent reply #{index + 1} for '{topic}'.")
-            if decision.should_dm:
-                dm_success = await send_dm_to_author(page, tweet_locator, decision.matched_focus)
-                if dm_success:
-                    log(
-                        f"Followed up with DM for tweet #{index + 1} on '{topic}'.",
-                        level="debug",
-                    )
-        return success
-    except PlaywrightTimeout as exc:
-        log(f"Timeout while replying to tweet #{index + 1} for '{topic}': {exc}", level="error")
-    except PlaywrightError as exc:
-        log(f"Playwright error while replying to tweet #{index + 1} for '{topic}': {exc}", level="error")
-    except Exception as exc:  # noqa: BLE001
-        log(f"Unexpected error while replying to tweet #{index + 1} for '{topic}': {exc}", level="error")
-    finally:
+async def send_text_to_composer(page, message: str) -> bool:
+    textbox = page.locator("div[data-testid='tweetTextarea_0']").first
+    if not await textbox.count():
+        textbox = page.locator("div[data-testid='tweetTextarea_1']").first
+    if not await textbox.count():
+        log("Reply textbox not found; skipping tweet.", level="warning")
         await close_composer_if_open(page)
-    return False
+        return False
+    await textbox.click()
+    await page.keyboard.type(message, delay=random.randint(14, 24))
+    await page.wait_for_timeout(400)
+    return True
 
 
-async def process_topic(page, topic: str) -> None:
-    await open_search(page, topic)
-    tweets = page.locator("article[data-testid='tweet']")
-    count = await tweets.count()
-    if count == 0:
-        log(f"No tweets found for '{topic}'.", level="warning")
+async def submit_reply(page) -> bool:
+    with contextlib.suppress(Exception):
+        await page.keyboard.press("Meta+Enter")
+    await page.wait_for_timeout(1500)
+    return True
+
+
+async def attach_media(page, media_assets: Dict[str, Optional[str]]) -> None:
+    upload_button = page.locator("input[data-testid='fileInput']").first
+    if not await upload_button.count():
+        log("Upload input unavailable; media links embedded instead.", level="debug")
         return
-
-    replies_sent = 0
-    for idx in range(count):
-        if replies_sent >= CONFIG.max_replies_per_topic:
-            break
-
-        tweet = tweets.nth(idx)
-        tweet_text = await extract_tweet_text(tweet)
-        if not tweet_text:
-            log(f"Skipped tweet #{idx + 1} for '{topic}' (no readable text).", level="debug")
+    for asset_key in ("image_url", "video_url"):
+        url = media_assets.get(asset_key)
+        if not url:
             continue
+        try:
+            tmp_path = await _download_media(url, suffix=".jpg" if "image" in asset_key else ".mp4")
+            await upload_button.set_input_files(str(tmp_path))
+            log(f"Attached media from {url}.", level="debug")
+        except Exception as exc:  # noqa: BLE001
+            log(f"Failed to attach media {url}: {exc}", level="warning")
 
-        decision = tweet_filter.analyze(topic, tweet_text)
-        if not decision.is_relevant:
+
+async def _download_media(url: str, suffix: str) -> Path:
+    tmp_dir = ROOT_DIR / "tmp_media"
+    tmp_dir.mkdir(parents=True, exist_ok=True)
+    async with httpx.AsyncClient(timeout=30) as client:
+        response = await client.get(url)
+        response.raise_for_status()
+    timestamp = datetime.utcnow().strftime("%Y%m%d%H%M%S%f")
+    file_path = tmp_dir / f"asset_{timestamp}{suffix}"
+    file_path.write_bytes(response.content)
+    return file_path
+
+
+# ---------------------------------------------------------------------------
+# Messaging workflow orchestrator
+# ---------------------------------------------------------------------------
+
+
+class MessagingWorkflow:
+    """Coordinates replies and DMs for each relevant post."""
+
+    def __init__(
+        self,
+        relevance_engine: RelevanceEngine,
+        personalizer: PersonalizationEngine,
+        registry: MessageRegistry,
+        scheduler: ActionScheduler,
+    ) -> None:
+        self.relevance_engine = relevance_engine
+        self.personalizer = personalizer
+        self.registry = registry
+        self.scheduler = scheduler
+
+    async def handle_tweet(self, page, topic: str, tweet_locator, index: int) -> bool:
+        # 1) Gather context about the post before making any decisions.
+        post_text = await extract_tweet_text(tweet_locator)
+        if not post_text:
+            log(f"Skipped tweet #{index + 1} for '{topic}' (no readable text).", level="debug")
+            return False
+
+        display_name, handle = await extract_author(tweet_locator)
+        analysis = await self.relevance_engine.analyze(topic, display_name, handle, post_text)
+        if not analysis.is_relevant:
             log(
                 (
-                    f"Skipped tweet #{idx + 1} for '{topic}' ({decision.reason}; "
-                    f"topic_score={decision.topic_score:.2f}, interest={decision.interest_score:.2f})."
+                    f"Ignored tweet #{index + 1} for '{topic}' (keyword_hits={analysis.keyword_hits}, "
+                    f"interest={analysis.interest_score:.2f})."
                 ),
                 level="debug",
             )
-            continue
+            return False
 
-        success = await reply_to_tweet(page, tweet, topic, idx, tweet_text, decision)
-        if success:
-            replies_sent += 1
-            await page.wait_for_timeout(2000)
-    log(f"Finished topic '{topic}' with {replies_sent} replies.")
+        # 2) Draft a personalized public reply and attach generated media.
+        reply_payload = await self.personalizer.craft_reply(analysis, topic, post_text)
+        if not await open_reply_composer(page, tweet_locator):
+            return False
+        await self.scheduler.wait("typing reply")
+        if not await send_text_to_composer(page, reply_payload["text"]):
+            return False
+        await attach_media(page, reply_payload)
+        await self.scheduler.wait("submitting reply")
+        await submit_reply(page)
+        handle_note = f" (@{analysis.handle})" if analysis.handle else ""
+        log(f"Replied to {analysis.display_name}{handle_note} on '{topic}'.")
 
+        if CONFIG.referral_link and CONFIG.referral_link not in reply_payload["text"]:
+            log("Consider updating templates to include referral link automatically.", level="debug")
 
-async def run_bot() -> None:
-    log(f"Starting bot with topics: {', '.join(CONFIG.search_topics)}")
-    browser_args = [
-        "--disable-blink-features=AutomationControlled",
-        "--no-first-run",
-        "--no-default-browser-check",
-        "--disable-dev-shm-usage",
-    ]
+        # 3) Escalate to DM for high-intent posts, respecting the contact registry.
+        if CONFIG.dm_enabled and analysis.high_intent and handle and self.registry.can_contact(handle):
+            await self.scheduler.wait("opening DM composer")
+            dm_sent = await self._send_dm(page, tweet_locator, analysis, topic, post_text, handle)
+            if dm_sent:
+                self.registry.record(handle)
+        else:
+            log(
+                "DM skipped (disabled, not high-intent, or recently contacted).",
+                level="debug",
+            )
 
-    async with async_playwright() as playwright:
-        context = await playwright.chromium.launch_persistent_context(
-            str(CONFIG.profile_dir),
-            headless=False,
-            args=browser_args,
-        )
+        # 4) Allow a buffer before moving to the next candidate tweet.
+        await self.scheduler.wait("moving to next tweet")
+        return True
+
+    async def _send_dm(
+        self,
+        page,
+        tweet_locator,
+        analysis: AnalysisResult,
+        topic: str,
+        post_text: str,
+        username: str,
+    ) -> bool:
+        context = page.context
+        user_link = tweet_locator.locator("div[data-testid='User-Names'] a").first
+        if not await user_link.count():
+            log("Author profile link not found for DM.", level="debug")
+            return False
+        profile_url = await user_link.get_attribute("href")
+        if not profile_url:
+            log("Unable to resolve author profile URL.", level="debug")
+            return False
+
+        dm_page = await context.new_page()
         try:
-            page = await ensure_page(context)
-            log("Browser ready. Beginning main loop.")
-            while True:
-                for topic in CONFIG.search_topics:
-                    try:
-                        await process_topic(page, topic)
-                    except Exception as exc:  # noqa: BLE001
-                        log(f"Error while processing topic '{topic}': {exc}", level="error")
-                log(
-                    f"Cycle complete. Waiting {CONFIG.loop_delay_seconds // 60} minutes before restarting.",
-                    level="info",
-                )
-                await asyncio.sleep(CONFIG.loop_delay_seconds)
+            await dm_page.goto(profile_url, wait_until="domcontentloaded", timeout=45_000)
+            message_button = dm_page.locator("[data-testid='DMButton']").first
+            if not await message_button.count():
+                log("DM button not available for this user.", level="debug")
+                return False
+            await message_button.click()
+            await dm_page.wait_for_timeout(1000)
+
+            composer = dm_page.locator("div[data-testid='dmComposerTextInput']").first
+            if not await composer.count():
+                composer = dm_page.locator("div[data-testid^='tweetTextarea_']").first
+            if not await composer.count():
+                log("DM composer not found.", level="debug")
+                return False
+
+            payload = await self.personalizer.craft_dm(analysis, topic, post_text)
+            await composer.click()
+            await dm_page.keyboard.type(payload["text"], delay=random.randint(12, 22))
+            await attach_media(dm_page, payload)
+            await self.scheduler.wait("sending DM")
+            with contextlib.suppress(Exception):
+                await dm_page.keyboard.press("Meta+Enter")
+            await dm_page.wait_for_timeout(1000)
+            handle_display = f"@{username}" if username else analysis.display_name
+            log(f"Sent DM to {handle_display}.")
+            return True
+        except PlaywrightTimeout as exc:
+            log(f"Timeout while attempting DM: {exc}", level="debug")
+            return False
+        except PlaywrightError as exc:
+            log(f"Playwright error while attempting DM: {exc}", level="debug")
+            return False
         finally:
-            await context.close()
+            await dm_page.close()
+
+
+# ---------------------------------------------------------------------------
+# Main social agent
+# ---------------------------------------------------------------------------
+
+
+class SocialAgent:
+    """Primary orchestration class controlling the bot lifecycle."""
+
+    def __init__(self) -> None:
+        # Compose modular services so each concern can be extended independently.
+        self.scheduler = ActionScheduler(CONFIG.delay_config)
+        self.registry = MessageRegistry(CONFIG.message_registry_path)
+        self.relevance_engine = RelevanceEngine(
+            CONFIG.search_topics,
+            CONFIG.relevant_keywords,
+            CONFIG.spam_keywords,
+            min_keyword_matches=CONFIG.min_keyword_matches,
+        )
+        self.personalizer = PersonalizationEngine(MediaOrchestrator(CONFIG.media_config))
+        self.workflow = MessagingWorkflow(
+            self.relevance_engine,
+            self.personalizer,
+            self.registry,
+            self.scheduler,
+        )
+
+    async def run(self) -> None:
+        log(f"Starting bot with topics: {', '.join(CONFIG.search_topics)}")
+        browser_args = [
+            "--disable-blink-features=AutomationControlled",
+            "--no-first-run",
+            "--no-default-browser-check",
+            "--disable-dev-shm-usage",
+        ]
+
+        async with async_playwright() as playwright:
+            context = await playwright.chromium.launch_persistent_context(
+                str(CONFIG.profile_dir),
+                headless=False,
+                args=browser_args,
+            )
+            try:
+                page = await ensure_page(context)
+                log("Browser ready. Beginning main loop.")
+                while True:
+                    # Iterate over configured topics so new workflows can be injected or reordered easily.
+                    for topic in CONFIG.search_topics:
+                        try:
+                            await self._process_topic(page, topic)
+                        except Exception as exc:  # noqa: BLE001
+                            log(f"Error while processing topic '{topic}': {exc}", level="error")
+                    log("Cycle complete. Restarting after scheduled delay.")
+                    await self.scheduler.wait("starting new cycle")
+            finally:
+                await context.close()
+
+    async def _process_topic(self, page, topic: str) -> None:
+        await self.scheduler.wait(f"opening search for {topic}")
+        await open_search(page, topic)
+        tweets = page.locator("article[data-testid='tweet']")
+        count = await tweets.count()
+        if count == 0:
+            log(f"No tweets found for '{topic}'.", level="warning")
+            return
+
+        replies_sent = 0
+        for idx in range(count):
+            if replies_sent >= CONFIG.max_replies_per_topic:
+                break
+            tweet = tweets.nth(idx)
+            handled = await self.workflow.handle_tweet(page, topic, tweet, idx)
+            if handled:
+                replies_sent += 1
+        log(f"Finished topic '{topic}' with {replies_sent} replies.")
+
+
+# ---------------------------------------------------------------------------
+# Entrypoint
+# ---------------------------------------------------------------------------
 
 
 def main() -> None:
     try:
-        asyncio.run(run_bot())
+        asyncio.run(SocialAgent().run())
     except KeyboardInterrupt:
         log("Interrupted by user. Exiting.", level="info")
 
