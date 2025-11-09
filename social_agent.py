@@ -1,12 +1,5 @@
 #!/usr/bin/env python3
-"""Simple X auto-reply bot driven by Playwright.
-
-The script expects the user to already be logged in using the persistent
-Playwright profile directory. It repeatedly loops through the configured
-search topics, opens each topic's search page, switches to the "Latest" tab,
-replies to the first three tweets with a fixed message, then waits 15 minutes
-before repeating the cycle.
-"""
+"""Refined X auto-reply bot with modular filtering and messaging logic."""
 
 from __future__ import annotations
 
@@ -14,10 +7,12 @@ import asyncio
 import os
 import random
 import sys
+from collections import deque
 from contextlib import suppress
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Iterable, List, Optional
+from typing import Deque, Iterable, List, Optional, Sequence
 from urllib.parse import quote_plus
 
 from dotenv import load_dotenv
@@ -29,30 +24,114 @@ from playwright.async_api import async_playwright
 
 load_dotenv()
 
-DEBUG_ENABLED = os.getenv("DEBUG", "").strip().lower() not in {"", "0", "false", "off"}
-PROFILE_DIR = Path(os.getenv("PW_PROFILE_DIR", ".pwprofile")).expanduser()
-PROFILE_DIR.mkdir(parents=True, exist_ok=True)
+
+@dataclass(slots=True)
+class BotConfig:
+    debug_enabled: bool
+    profile_dir: Path
+    search_topics: List[str]
+    relevant_keywords: List[str]
+    spam_keywords: List[str]
+    referral_link: str
+    loop_delay_seconds: int
+    max_replies_per_topic: int
+    min_tweet_length: int
+    min_keyword_matches: int
+    dm_enabled: bool
+    dm_trigger_length: int
+    dm_question_weight: float
+
+    @classmethod
+    def from_env(cls) -> "BotConfig":
+        debug_enabled = os.getenv("DEBUG", "").strip().lower() not in {"", "0", "false", "off"}
+        profile_dir = Path(os.getenv("PW_PROFILE_DIR", ".pwprofile")).expanduser()
+        profile_dir.mkdir(parents=True, exist_ok=True)
+
+        search_topics = _split_topics(os.getenv("SEARCH_TOPICS", ""))
+        if not search_topics:
+            raise SystemExit("SEARCH_TOPICS env var must list at least one topic.")
+
+        relevant_keywords = _split_keywords(
+            os.getenv("RELEVANT_KEYWORDS", ",".join(DEFAULT_RELEVANT_KEYWORDS))
+        )
+        spam_keywords = _split_keywords(os.getenv("SPAM_KEYWORDS", ",".join(DEFAULT_SPAM_KEYWORDS)))
+
+        referral_link = os.getenv("REFERRAL_LINK", "https://example.com/referral")
+        loop_delay_seconds = int(os.getenv("LOOP_DELAY_SECONDS", str(15 * 60)))
+        max_replies_per_topic = int(os.getenv("MAX_REPLIES_PER_TOPIC", "3"))
+        min_tweet_length = int(os.getenv("MIN_TWEET_LENGTH", "60"))
+        min_keyword_matches = int(os.getenv("MIN_KEYWORD_MATCHES", "1"))
+        dm_enabled = os.getenv("ENABLE_DMS", "true").strip().lower() not in {"", "0", "false", "off"}
+        dm_trigger_length = int(os.getenv("DM_TRIGGER_LENGTH", "180"))
+        dm_question_weight = float(os.getenv("DM_QUESTION_WEIGHT", "0.6"))
+
+        return cls(
+            debug_enabled=debug_enabled,
+            profile_dir=profile_dir,
+            search_topics=search_topics,
+            relevant_keywords=relevant_keywords,
+            spam_keywords=spam_keywords,
+            referral_link=referral_link,
+            loop_delay_seconds=loop_delay_seconds,
+            max_replies_per_topic=max_replies_per_topic,
+            min_tweet_length=min_tweet_length,
+            min_keyword_matches=min_keyword_matches,
+            dm_enabled=dm_enabled,
+            dm_trigger_length=dm_trigger_length,
+            dm_question_weight=dm_question_weight,
+        )
+
 
 DEFAULT_REPLY_TEMPLATES = [
     (
-        "Loving the {focus} convo! I'm stacking smarter automations every week — "
-        "here's the toolkit I mentioned: {ref_link}"
+        "Been deep in {focus} lately and found this toolkit that keeps overdelivering—"
+        "sharing because it sliced hours off my build time: {ref_link}"
     ),
     (
-        "That take on {focus} hits home. I'm building a playbook around it and "
-        "sharing wins here: {ref_link}"
+        "Every time {focus} comes up I think about how this playbook boosted my results."
+        " If you want the exact steps I'm using, here it is: {ref_link}"
     ),
     (
-        "Appreciate the depth on {focus}. Been testing similar ideas with my AI "
-        "stack — full breakdown lives at {ref_link}"
+        "Your take on {focus} reminds me of what helped me scale fast."
+        " My go-to breakdown lives here if you want to peek: {ref_link}"
     ),
     (
-        "If you're leaning into {focus}, you'll vibe with the workflows I'm "
-        "documenting. Cliffs + access: {ref_link}"
+        "I just walked a few friends through my {focus} setup—"
+        "it's wild how much time it's saving us. Cliff notes + tools: {ref_link}"
     ),
     (
-        "Your angle on {focus} is sharp. I compiled the automations + tools "
-        "fueling my growth here: {ref_link}"
+        "If you're experimenting with {focus}, the system I switched to paid for itself in a week."
+        " Detailing the flow here: {ref_link}"
+    ),
+    (
+        "Noticed you're diving into {focus} too."
+        " Here's the resource that helped me automate the messy parts: {ref_link}"
+    ),
+    (
+        "I'm seeing more creators win with {focus}; I know several who migrated after I did."
+        " Dropping the same starter kit we rave about: {ref_link}"
+    ),
+    (
+        "Whenever someone asks how I monetized {focus}, I point them to this breakdown."
+        " It feels like cheating in the best way: {ref_link}"
+    ),
+]
+
+DEFAULT_DM_TEMPLATES = [
+    (
+        "Hey {name}! Loved how you framed {focus}."
+        " I pulled together a behind-the-scenes walkthrough that helped me ship faster—"
+        "happy to send you the exact stack if you're curious: {ref_link}"
+    ),
+    (
+        "Appreciated your deep dive on {focus}."
+        " If you want more candid thoughts, I have a personal write-up here."
+        " Feel free to poke me with questions: {ref_link}"
+    ),
+    (
+        "You're clearly serious about {focus}, so I figured I'd share what worked for me."
+        " This link is my private notes + tools—"
+        "let me know if you want me to unpack anything: {ref_link}"
     ),
 ]
 
@@ -60,24 +139,20 @@ DEFAULT_REPLY_TEMPLATES = [
 def _split_templates(raw: Optional[str]) -> List[str]:
     if not raw:
         return []
-    parts: List[str] = []
+    parts: List[str]
     if "||" in raw:
         parts = raw.split("||")
     else:
         parts = raw.splitlines()
-    templates = [part.strip() for part in parts if part.strip()]
-    return templates
+    return [part.strip() for part in parts if part.strip()]
 
 
 ENV_REPLY_TEMPLATES = _split_templates(os.getenv("REPLY_TEMPLATES"))
-REPLY_TEMPLATES = ENV_REPLY_TEMPLATES if len(ENV_REPLY_TEMPLATES) >= 5 else DEFAULT_REPLY_TEMPLATES
-REFERRAL_LINK = os.getenv("REFERRAL_LINK", "https://example.com/referral")
-MAX_REPLIES_PER_TOPIC = int(os.getenv("MAX_REPLIES_PER_TOPIC", "3"))
-MIN_TWEET_LENGTH = int(os.getenv("MIN_TWEET_LENGTH", "40"))
-
-
-def _split_keywords(raw: str) -> List[str]:
-    return [part.strip().lower() for part in raw.replace("\n", ",").split(",") if part.strip()]
+REPLY_TEMPLATES = (
+    ENV_REPLY_TEMPLATES if len(ENV_REPLY_TEMPLATES) >= 7 else DEFAULT_REPLY_TEMPLATES
+)
+ENV_DM_TEMPLATES = _split_templates(os.getenv("DM_TEMPLATES"))
+DM_TEMPLATES = ENV_DM_TEMPLATES if ENV_DM_TEMPLATES else DEFAULT_DM_TEMPLATES
 
 
 DEFAULT_RELEVANT_KEYWORDS = [
@@ -114,11 +189,9 @@ DEFAULT_SPAM_KEYWORDS = [
     "follow for follow",
 ]
 
-RELEVANT_KEYWORDS = _split_keywords(
-    os.getenv("RELEVANT_KEYWORDS", ",".join(DEFAULT_RELEVANT_KEYWORDS))
-)
-SPAM_KEYWORDS = _split_keywords(os.getenv("SPAM_KEYWORDS", ",".join(DEFAULT_SPAM_KEYWORDS)))
-LOOP_DELAY_SECONDS = int(os.getenv("LOOP_DELAY_SECONDS", str(15 * 60)))
+
+def _split_keywords(raw: str) -> List[str]:
+    return [part.strip().lower() for part in raw.replace("\n", ",").split(",") if part.strip()]
 
 
 def _split_topics(raw: str) -> List[str]:
@@ -130,15 +203,10 @@ def _split_topics(raw: str) -> List[str]:
     return [topic.strip() for topic in parts if topic.strip()]
 
 
-SEARCH_TOPICS = _split_topics(os.getenv("SEARCH_TOPICS", ""))
-if not SEARCH_TOPICS:
-    raise SystemExit("SEARCH_TOPICS env var must list at least one topic.")
-
-
 # --- Logging --------------------------------------------------------------
 
 def log(message: str, *, level: str = "info") -> None:
-    if level == "debug" and not DEBUG_ENABLED:
+    if level == "debug" and not CONFIG.debug_enabled:
         return
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     line = f"[{timestamp}] [{level.upper()}] {message}"
@@ -146,7 +214,130 @@ def log(message: str, *, level: str = "info") -> None:
     sys.stdout.flush()
 
 
+CONFIG = BotConfig.from_env()
+
+
+# --- Template Management --------------------------------------------------
+
+
+class TemplatePool:
+    """Manages rotation of natural-sounding templates without repetition."""
+
+    def __init__(self, templates: Sequence[str]):
+        if len(templates) == 0:
+            raise ValueError("At least one template is required.")
+        self.templates = list(templates)
+        self._queue: Deque[str] = deque()
+        self._last_used: Optional[str] = None
+        self._reshuffle()
+
+    def _reshuffle(self) -> None:
+        order = self.templates[:]
+        random.shuffle(order)
+        if self._last_used and order and order[0] == self._last_used:
+            order.append(order.pop(0))
+        self._queue = deque(order)
+
+    def next(self, context: dict) -> str:
+        if not self._queue:
+            self._reshuffle()
+        template = self._queue.popleft()
+        self._last_used = template
+        return template.format(**context)
+
+
+reply_templates = TemplatePool(REPLY_TEMPLATES)
+dm_templates = TemplatePool(DM_TEMPLATES)
+
+
+SPECIAL_FOCUS_FORMATTING = {
+    "ai": "AI",
+    "gpt": "GPT",
+    "chatgpt": "ChatGPT",
+    "defi": "DeFi",
+    "web3": "Web3",
+}
+
+
+def _prettify_focus(raw: str) -> str:
+    key = raw.strip().lower()
+    if key in SPECIAL_FOCUS_FORMATTING:
+        return SPECIAL_FOCUS_FORMATTING[key]
+    words = raw.split()
+    formatted_words = [word.upper() if len(word) <= 3 else word.capitalize() for word in words]
+    return " ".join(formatted_words)
+
+
+@dataclass(slots=True)
+class FilterDecision:
+    is_relevant: bool
+    reason: str
+    matched_focus: str
+    quality_score: float
+    should_dm: bool
+
+
+class TweetFilter:
+    def __init__(self, config: BotConfig):
+        self.config = config
+
+    def analyze(self, topic: str, tweet_text: str) -> FilterDecision:
+        normalized = tweet_text.lower()
+        if not normalized:
+            return FilterDecision(False, "empty text", topic, 0.0, False)
+
+        if len(normalized) < self.config.min_tweet_length:
+            return FilterDecision(False, "too short", topic, 0.0, False)
+
+        if any(keyword in normalized for keyword in self.config.spam_keywords):
+            return FilterDecision(False, "spam keywords", topic, 0.0, False)
+
+        matched_focus = self._match_focus(topic, normalized)
+        if not matched_focus:
+            return FilterDecision(False, "topic mismatch", topic, 0.0, False)
+
+        keyword_matches = sum(1 for keyword in self.config.relevant_keywords if keyword in normalized)
+        if keyword_matches < self.config.min_keyword_matches:
+            return FilterDecision(False, "insufficient keyword matches", matched_focus, 0.0, False)
+
+        quality_score = self._score_quality(normalized, keyword_matches)
+        should_dm = self._should_dm(normalized, quality_score)
+        return FilterDecision(True, "relevant", matched_focus, quality_score, should_dm)
+
+    def _match_focus(self, topic: str, normalized_text: str) -> str:
+        topic_tokens = [token.strip("# ") for token in topic.lower().split() if token.strip("# ")]
+        for token in topic_tokens:
+            if token and token in normalized_text:
+                return _prettify_focus(token)
+        for keyword in self.config.relevant_keywords:
+            if keyword in normalized_text:
+                return _prettify_focus(keyword)
+        return ""
+
+    def _score_quality(self, normalized_text: str, keyword_matches: int) -> float:
+        sentence_breaks = normalized_text.count(".") + normalized_text.count("!")
+        question_marks = normalized_text.count("?")
+        hashtags = normalized_text.count("#")
+        length_factor = min(len(normalized_text) / (self.config.min_tweet_length * 1.5), 2.0)
+        structure_bonus = 0.2 * sentence_breaks + 0.3 * question_marks
+        keyword_bonus = 0.5 * min(keyword_matches, 4)
+        hashtag_penalty = -0.2 if hashtags > 5 else 0.0
+        return max(0.0, length_factor + structure_bonus + keyword_bonus + hashtag_penalty)
+
+    def _should_dm(self, normalized_text: str, quality_score: float) -> bool:
+        if not CONFIG.dm_enabled:
+            return False
+        long_form = len(normalized_text) >= self.config.dm_trigger_length
+        question_focus = normalized_text.count("?") * self.config.dm_question_weight >= 1.0
+        high_quality = quality_score >= 2.5
+        return long_form or (question_focus and high_quality)
+
+
+tweet_filter = TweetFilter(CONFIG)
+
+
 # --- Playwright helpers ---------------------------------------------------
+
 
 async def ensure_page(context):
     page = context.pages[0] if context.pages else await context.new_page()
@@ -175,7 +366,7 @@ async def click_latest_tab(page) -> None:
 
 async def wait_for_tweets(page) -> None:
     try:
-        await page.wait_for_selector("article[data-testid='tweet']", timeout=15_000)
+        await page.wait_for_selector("article[data-testid='tweet']", timeout=20_000)
     except PlaywrightTimeout:
         log("No tweets found in Latest tab within timeout.", level="warning")
 
@@ -218,105 +409,136 @@ async def extract_tweet_text(tweet_locator) -> str:
     return cleaned.strip()
 
 
-def is_tweet_relevant(tweet_text: str, topic: str) -> bool:
-    if not tweet_text:
-        return False
-
-    normalized = tweet_text.lower()
-    if len(normalized) < MIN_TWEET_LENGTH:
-        return False
-
-    if any(keyword in normalized for keyword in SPAM_KEYWORDS):
-        return False
-
-    topic_normalized = topic.lower()
-    if topic_normalized and topic_normalized in normalized:
-        return True
-
-    if RELEVANT_KEYWORDS and any(keyword in normalized for keyword in RELEVANT_KEYWORDS):
-        return True
-
-    return False
+async def extract_author_name(tweet_locator) -> str:
+    name_locator = tweet_locator.locator("div[data-testid='User-Names'] span").first
+    if await name_locator.count():
+        try:
+            name_text = await name_locator.inner_text()
+            return " ".join(name_text.split())
+        except PlaywrightError:
+            return "there"
+    return "there"
 
 
-SPECIAL_FOCUS_FORMATTING = {
-    "ai": "AI",
-    "gpt": "GPT",
-    "chatgpt": "ChatGPT",
-    "defi": "DeFi",
-    "web3": "Web3",
-}
-
-
-def _prettify_focus(raw: str) -> str:
-    key = raw.strip().lower()
-    if key in SPECIAL_FOCUS_FORMATTING:
-        return SPECIAL_FOCUS_FORMATTING[key]
-    words = raw.split()
-    formatted_words = [word.upper() if len(word) <= 3 else word.capitalize() for word in words]
-    return " ".join(formatted_words)
-
-
-def detect_focus_keyword(topic: str, tweet_text: str) -> str:
-    normalized = tweet_text.lower()
-    topic_normalized = topic.lower()
-    if topic_normalized and topic_normalized in normalized:
-        return _prettify_focus(topic)
-
-    for keyword in RELEVANT_KEYWORDS:
-        if keyword in normalized:
-            return _prettify_focus(keyword)
-
-    return _prettify_focus(topic)
-
-
-def build_reply_message(topic: str, tweet_text: str) -> str:
-    template = random.choice(REPLY_TEMPLATES)
-    focus = detect_focus_keyword(topic, tweet_text)
+async def build_reply_message(topic: str, tweet_text: str, focus: str) -> str:
     context = {
         "topic": topic,
         "focus": focus,
-        "ref_link": REFERRAL_LINK,
+        "ref_link": CONFIG.referral_link,
     }
+    return reply_templates.next(context)
+
+
+async def build_dm_message(name: str, focus: str) -> str:
+    context = {
+        "name": name or "there",
+        "focus": focus,
+        "ref_link": CONFIG.referral_link,
+    }
+    return dm_templates.next(context)
+
+
+async def send_reply(page, message: str) -> bool:
+    textbox = page.locator("div[data-testid='tweetTextarea_0']").first
+    if not await textbox.count():
+        textbox = page.locator("div[data-testid='tweetTextarea_1']").first
+    if not await textbox.count():
+        log("Reply textbox not found; skipping tweet.", level="warning")
+        await close_composer_if_open(page)
+        return False
+
+    await textbox.click()
+    await page.keyboard.type(message, delay=random.randint(18, 26))
+    await page.wait_for_timeout(200)
+    await page.keyboard.press("Meta+Enter")
+    await page.wait_for_timeout(1500)
+    return True
+
+
+async def open_reply_composer(page, tweet_locator) -> bool:
+    reply_button = tweet_locator.locator("[data-testid='reply']").first
+    if not await reply_button.count():
+        log("Reply button not found for tweet; skipping.", level="warning")
+        return False
+    await reply_button.click()
+    await page.wait_for_timeout(500)
+    return True
+
+
+async def send_dm_to_author(page, tweet_locator, focus: str) -> bool:
+    if not CONFIG.dm_enabled:
+        return False
+
+    context = page.context
+    user_link = tweet_locator.locator("div[data-testid='User-Names'] a").first
+    if not await user_link.count():
+        log("Author profile link not found for DM.", level="debug")
+        return False
+
+    profile_url = await user_link.get_attribute("href")
+    if not profile_url:
+        log("Unable to resolve author profile URL.", level="debug")
+        return False
+
+    dm_page = await context.new_page()
     try:
-        return template.format(**context)
-    except KeyError:
-        fallback_context = {"topic": topic, "ref_link": REFERRAL_LINK}
-        return template.format(**fallback_context)
-
-
-async def reply_to_tweet(
-    page,
-    tweet_locator,
-    topic: str,
-    index: int,
-    tweet_text: str,
-) -> bool:
-    log(f"Replying to tweet #{index + 1} for '{topic}'.", level="debug")
-    try:
-        reply_button = tweet_locator.locator("[data-testid='reply']").first
-        if not await reply_button.count():
-            log("Reply button not found for tweet; skipping.", level="warning")
+        await dm_page.goto(profile_url, wait_until="domcontentloaded", timeout=45_000)
+        message_button = dm_page.locator("[data-testid='DMButton']").first
+        if not await message_button.count():
+            log("DM button not available for this user.", level="debug")
             return False
-        await reply_button.click()
-        await page.wait_for_timeout(500)
+        await message_button.click()
+        await dm_page.wait_for_timeout(1000)
 
-        textbox = page.locator("div[data-testid='tweetTextarea_0']").first
-        if not await textbox.count():
-            textbox = page.locator("div[data-testid='tweetTextarea_1']").first
-        if not await textbox.count():
-            log("Reply textbox not found; skipping tweet.", level="warning")
-            await close_composer_if_open(page)
+        composer = dm_page.locator("div[data-testid='dmComposerTextInput']").first
+        if not await composer.count():
+            composer = dm_page.locator("div[data-testid^='tweetTextarea_']").first
+        if not await composer.count():
+            log("DM composer not found.", level="debug")
             return False
 
-        await textbox.click()
-        message = build_reply_message(topic, tweet_text)
-        await page.keyboard.type(message, delay=20)
-        await page.wait_for_timeout(200)
-        await page.keyboard.press("Meta+Enter")
-        await page.wait_for_timeout(1500)
-        log(f"Sent reply #{index + 1} for '{topic}'.")
+        await composer.click()
+        author_name = await extract_author_name(tweet_locator)
+        message = await build_dm_message(author_name, focus)
+        await dm_page.keyboard.type(message, delay=random.randint(18, 26))
+        await dm_page.wait_for_timeout(300)
+        with suppress(Exception):
+            await dm_page.keyboard.press("Meta+Enter")
+        await dm_page.wait_for_timeout(1200)
+        log(f"Sent DM to {author_name} about {focus}.")
         return True
+    except PlaywrightTimeout as exc:
+        log(f"Timeout while attempting DM: {exc}", level="debug")
+        return False
+    except PlaywrightError as exc:
+        log(f"Playwright error while attempting DM: {exc}", level="debug")
+        return False
+    finally:
+        await dm_page.close()
+
+
+async def reply_to_tweet(page, tweet_locator, topic: str, index: int, tweet_text: str, decision: FilterDecision) -> bool:
+    log(
+        f"Replying to tweet #{index + 1} for '{topic}' with focus '{decision.matched_focus}'.",
+        level="debug",
+    )
+    try:
+        opened = await open_reply_composer(page, tweet_locator)
+        if not opened:
+            return False
+
+        message = await build_reply_message(topic, tweet_text, decision.matched_focus)
+        success = await send_reply(page, message)
+        if success:
+            log(f"Sent reply #{index + 1} for '{topic}'.")
+            if decision.should_dm:
+                dm_success = await send_dm_to_author(page, tweet_locator, decision.matched_focus)
+                if dm_success:
+                    log(
+                        f"Followed up with DM for tweet #{index + 1} on '{topic}'.",
+                        level="debug",
+                    )
+        return success
     except PlaywrightTimeout as exc:
         log(f"Timeout while replying to tweet #{index + 1} for '{topic}': {exc}", level="error")
     except PlaywrightError as exc:
@@ -338,7 +560,7 @@ async def process_topic(page, topic: str) -> None:
 
     replies_sent = 0
     for idx in range(count):
-        if replies_sent >= MAX_REPLIES_PER_TOPIC:
+        if replies_sent >= CONFIG.max_replies_per_topic:
             break
 
         tweet = tweets.nth(idx)
@@ -347,22 +569,23 @@ async def process_topic(page, topic: str) -> None:
             log(f"Skipped tweet #{idx + 1} for '{topic}' (no readable text).", level="debug")
             continue
 
-        if not is_tweet_relevant(tweet_text, topic):
+        decision = tweet_filter.analyze(topic, tweet_text)
+        if not decision.is_relevant:
             log(
-                f"Skipped tweet #{idx + 1} for '{topic}' (irrelevant content).",
+                f"Skipped tweet #{idx + 1} for '{topic}' ({decision.reason}).",
                 level="debug",
             )
             continue
 
-        success = await reply_to_tweet(page, tweet, topic, idx, tweet_text)
+        success = await reply_to_tweet(page, tweet, topic, idx, tweet_text, decision)
         if success:
             replies_sent += 1
-            await page.wait_for_timeout(1500)
+            await page.wait_for_timeout(2000)
     log(f"Finished topic '{topic}' with {replies_sent} replies.")
 
 
 async def run_bot() -> None:
-    log(f"Starting bot with topics: {', '.join(SEARCH_TOPICS)}")
+    log(f"Starting bot with topics: {', '.join(CONFIG.search_topics)}")
     browser_args = [
         "--disable-blink-features=AutomationControlled",
         "--no-first-run",
@@ -372,7 +595,7 @@ async def run_bot() -> None:
 
     async with async_playwright() as playwright:
         context = await playwright.chromium.launch_persistent_context(
-            str(PROFILE_DIR),
+            str(CONFIG.profile_dir),
             headless=False,
             args=browser_args,
         )
@@ -380,16 +603,16 @@ async def run_bot() -> None:
             page = await ensure_page(context)
             log("Browser ready. Beginning main loop.")
             while True:
-                for topic in SEARCH_TOPICS:
+                for topic in CONFIG.search_topics:
                     try:
                         await process_topic(page, topic)
                     except Exception as exc:  # noqa: BLE001
                         log(f"Error while processing topic '{topic}': {exc}", level="error")
                 log(
-                    f"Cycle complete. Waiting {LOOP_DELAY_SECONDS // 60} minutes before restarting.",
+                    f"Cycle complete. Waiting {CONFIG.loop_delay_seconds // 60} minutes before restarting.",
                     level="info",
                 )
-                await asyncio.sleep(LOOP_DELAY_SECONDS)
+                await asyncio.sleep(CONFIG.loop_delay_seconds)
         finally:
             await context.close()
 
