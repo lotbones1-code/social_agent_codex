@@ -11,7 +11,7 @@ import sys
 from contextlib import suppress
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Awaitable, Callable, Optional
 from urllib.parse import quote_plus
 
 from dotenv import load_dotenv
@@ -216,6 +216,15 @@ def detect_focus(text: str, default: str) -> str:
     return default
 
 
+def is_on_x_domain(url: str) -> bool:
+    normalized = url.lower()
+    if "x.com" not in normalized:
+        return False
+    if "/login" in normalized:
+        return False
+    return True
+
+
 async def ensure_on_x_domain(page) -> None:
     try:
         await page.wait_for_function(
@@ -257,20 +266,53 @@ async def wait_for_login_transition(page, timeout_ms: int) -> bool:
         )
         return True
     except PlaywrightTimeout:
+        current_url = page.url
+        if is_on_x_domain(current_url):
+            return True
         return False
 
 
-async def ensure_logged_in(page) -> bool:
+async def confirm_login_success(page) -> bool:
+    """Confirm login succeeded by inspecting the current page context."""
+
+    current_url = page.url
+    if is_on_x_domain(current_url):
+        return True
+    try:
+        await ensure_on_x_domain(page)
+    except PlaywrightTimeout:
+        pass
+    current_url = page.url
+    if is_on_x_domain(current_url):
+        return True
+    with suppress(PlaywrightTimeout):
+        element = await page.query_selector('div[data-testid="SideNav_AccountSwitcher_Button"]')
+        if element:
+            return True
+    return False
+
+
+async def ensure_logged_in(
+    page,
+    *,
+    on_login_success: Callable[[], Awaitable[None]],
+) -> None:
     log("Checking current authentication state.")
     await page.goto("https://x.com/home", wait_until="networkidle")
     with suppress(PlaywrightTimeout):
         await page.wait_for_timeout(2000)
-    if await page.query_selector('div[data-testid="SideNav_AccountSwitcher_Button"]'):
-        log("Session already authenticated.")
+
+    async def finalize_login(*, ensure_confirmation: bool = True) -> None:
+        if ensure_confirmation and not await confirm_login_success(page):
+            raise RuntimeError("Login flow completed without confirming authenticated session.")
         print("[INFO] Login success — continuing workflow")
         sys.stdout.flush()
-        await ensure_on_x_domain(page)
-        return True
+        await on_login_success()
+
+    if await confirm_login_success(page):
+        log("Session already authenticated.")
+        await finalize_login(ensure_confirmation=False)
+        return
 
     log("No active session detected. Navigating to login page.")
     await page.goto("https://x.com/login", wait_until="networkidle")
@@ -286,10 +328,8 @@ async def ensure_logged_in(page) -> bool:
             if not success:
                 await wait_for_manual_login(page, timeout_ms=5 * 60 * 1000)
             log("Manual login detected. Continuing run.")
-            print("[INFO] Login success — continuing workflow")
-            sys.stdout.flush()
-            await ensure_on_x_domain(page)
-            return True
+            await finalize_login()
+            return
         except PlaywrightTimeout as exc:  # noqa: PERF203 - deliberate handling
             raise RuntimeError("Manual login timed out after 5 minutes.") from exc
 
@@ -306,10 +346,8 @@ async def ensure_logged_in(page) -> bool:
             try:
                 await wait_for_manual_login(page, timeout_ms=5 * 60 * 1000)
                 log("Manual login detected. Continuing run.")
-                print("[INFO] Login success — continuing workflow")
-                sys.stdout.flush()
-                await ensure_on_x_domain(page)
-                return True
+                await finalize_login()
+                return
             except PlaywrightTimeout as exc:  # noqa: PERF203 - deliberate handling
                 raise RuntimeError("X login UI did not load correctly for automation.") from exc
 
@@ -338,10 +376,8 @@ async def ensure_logged_in(page) -> bool:
                     'div[data-testid="SideNav_AccountSwitcher_Button"]', timeout=10000
                 )
             log("Login successful.")
-            print("[INFO] Login success — continuing workflow")
-            sys.stdout.flush()
-            await ensure_on_x_domain(page)
-            return True
+            await finalize_login()
+            return
 
         print("[ERROR] Login timeout — please sign in manually")
         sys.stdout.flush()
@@ -359,16 +395,14 @@ async def ensure_logged_in(page) -> bool:
         try:
             await wait_for_manual_login(page, timeout_ms=5 * 60 * 1000)
             log("Manual login detected after timeout. Continuing run.")
-            print("[INFO] Login success — continuing workflow")
-            sys.stdout.flush()
-            await ensure_on_x_domain(page)
-            return True
+            await finalize_login()
+            return
         except PlaywrightTimeout as manual_exc:  # noqa: PERF203 - deliberate handling
             raise RuntimeError(
                 "Unable to confirm X login. Check credentials, 2FA, or network conditions."
             ) from manual_exc
 
-    return False
+    raise RuntimeError("Unable to confirm X login. Check credentials, 2FA, or network conditions.")
 
 
 async def run_engagement_cycle(browser, page, state: dict) -> None:
@@ -376,10 +410,17 @@ async def run_engagement_cycle(browser, page, state: dict) -> None:
     sys.stdout.flush()
     log("Engagement cycle initialized.")
 
+    print("[INFO] Engagement loop started")
+    sys.stdout.flush()
+    log("Engagement loop entered.")
+
     while True:
         if browser.is_closed():
             log("Browser context closed; stopping engagement cycle.", level="WARN")
             break
+
+        print("[INFO] Searching for posts...")
+        sys.stdout.flush()
 
         try:
             if SEARCH_TOPICS:
@@ -610,16 +651,16 @@ async def main() -> None:
 
             page = browser.pages[0] if browser.pages else await browser.new_page()
             log("Ensuring authenticated session before starting engagement loop.")
-            login_success = await ensure_logged_in(page)
-            if not login_success:
-                raise RuntimeError("Login flow completed without reaching x.com home feed.")
 
-            log("Authentication confirmed. Beginning engagement loop.")
-            try:
-                await run_engagement_cycle(browser, page, state)
-            except (PlaywrightTimeout, PlaywrightError) as err:
-                log(f"Fatal Playwright issue encountered: {err}", level="ERROR")
-                raise
+            async def begin_engagement_cycle() -> None:
+                log("Authentication confirmed. Beginning engagement loop.")
+                try:
+                    await run_engagement_cycle(browser, page, state)
+                except (PlaywrightTimeout, PlaywrightError) as err:
+                    log(f"Fatal Playwright issue encountered: {err}", level="ERROR")
+                    raise
+
+            await ensure_logged_in(page, on_login_success=begin_engagement_cycle)
     except RuntimeError as exc:
         log(f"Fatal error: {exc}", level="ERROR")
         sys.exit(1)
