@@ -226,6 +226,27 @@ async def wait_for_manual_login(page, timeout_ms: int) -> None:
     )
 
 
+async def wait_for_login_transition(page, timeout_ms: int) -> bool:
+    """Wait for the login flow to navigate away from the login screen."""
+
+    try:
+        await page.wait_for_function(
+            """
+            () => {
+                const href = window.location.href;
+                const normalized = href.toLowerCase();
+                const is_x_domain = normalized.includes("x.com");
+                const still_on_login = normalized.includes("/login");
+                return is_x_domain && !still_on_login;
+            }
+            """,
+            timeout=timeout_ms,
+        )
+        return True
+    except PlaywrightTimeout:
+        return False
+
+
 async def ensure_logged_in(page) -> None:
     log("Checking current authentication state.")
     await page.goto("https://x.com/home", wait_until="networkidle")
@@ -233,6 +254,8 @@ async def ensure_logged_in(page) -> None:
         await page.wait_for_timeout(2000)
     if await page.query_selector('div[data-testid="SideNav_AccountSwitcher_Button"]'):
         log("Session already authenticated.")
+        print("[INFO] Login success — continuing workflow")
+        sys.stdout.flush()
         return
 
     log("No active session detected. Navigating to login page.")
@@ -245,56 +268,83 @@ async def ensure_logged_in(page) -> None:
             level="WARN",
         )
         try:
-            await wait_for_manual_login(page, timeout_ms=5 * 60 * 1000)
+            success = await wait_for_login_transition(page, timeout_ms=5 * 60 * 1000)
+            if not success:
+                await wait_for_manual_login(page, timeout_ms=5 * 60 * 1000)
             log("Manual login detected. Continuing run.")
+            print("[INFO] Login success — continuing workflow")
+            sys.stdout.flush()
             return
         except PlaywrightTimeout as exc:  # noqa: PERF203 - deliberate handling
             raise RuntimeError("Manual login timed out after 5 minutes.") from exc
 
     log("Attempting automated login with provided credentials.")
-    try:
-        username_input = await page.wait_for_selector('input[name="text"]', timeout=30000)
-    except PlaywrightTimeout:
-        log(
-            "Username field not detected; waiting for manual intervention.",
-            level="WARN",
-        )
+    max_attempts = 2
+    for attempt in range(1, max_attempts + 1):
         try:
-            await wait_for_manual_login(page, timeout_ms=5 * 60 * 1000)
-            log("Manual login detected. Continuing run.")
+            username_input = await page.wait_for_selector('input[name="text"]', timeout=30000)
+        except PlaywrightTimeout:
+            log(
+                "Username field not detected; waiting for manual intervention.",
+                level="WARN",
+            )
+            try:
+                await wait_for_manual_login(page, timeout_ms=5 * 60 * 1000)
+                log("Manual login detected. Continuing run.")
+                print("[INFO] Login success — continuing workflow")
+                sys.stdout.flush()
+                return
+            except PlaywrightTimeout as exc:  # noqa: PERF203 - deliberate handling
+                raise RuntimeError("X login UI did not load correctly for automation.") from exc
+
+        await username_input.fill(X_USERNAME)
+        log("Username entered; submitting identifier.")
+        await page.keyboard.press("Enter")
+        await page.wait_for_timeout(1000)
+
+        with suppress(PlaywrightTimeout):
+            alt_identifier = await page.query_selector('input[name="text"]')
+            if alt_identifier:
+                log("Encountered secondary identifier prompt; refilling username.")
+                await alt_identifier.fill(X_USERNAME)
+                await page.keyboard.press("Enter")
+                await page.wait_for_timeout(500)
+
+        password_input = await page.wait_for_selector('input[name="password"]', timeout=30000)
+        await password_input.fill(X_PASSWORD)
+        log("Password entered; submitting credentials.")
+        await page.keyboard.press("Enter")
+
+        success = await wait_for_login_transition(page, timeout_ms=60000)
+        if success:
+            with suppress(PlaywrightTimeout):
+                await page.wait_for_selector(
+                    'div[data-testid="SideNav_AccountSwitcher_Button"]', timeout=10000
+                )
+            log("Login successful.")
+            print("[INFO] Login success — continuing workflow")
+            sys.stdout.flush()
             return
-        except PlaywrightTimeout as exc:  # noqa: PERF203 - deliberate handling
-            raise RuntimeError("X login UI did not load correctly for automation.") from exc
 
-    await username_input.fill(X_USERNAME)
-    log("Username entered; submitting identifier.")
-    await page.keyboard.press("Enter")
-    await page.wait_for_timeout(1000)
-
-    with suppress(PlaywrightTimeout):
-        alt_identifier = await page.query_selector('input[name="text"]')
-        if alt_identifier:
-            log("Encountered secondary identifier prompt; refilling username.")
-            await alt_identifier.fill(X_USERNAME)
-            await page.keyboard.press("Enter")
-            await page.wait_for_timeout(500)
-
-    password_input = await page.wait_for_selector('input[name="password"]', timeout=30000)
-    await password_input.fill(X_PASSWORD)
-    log("Password entered; submitting credentials.")
-    await page.keyboard.press("Enter")
-
-    try:
-        await wait_for_manual_login(page, timeout_ms=60000)
-        log("Login successful.")
-    except PlaywrightTimeout as exc:
+        print("[ERROR] Login timeout — please sign in manually")
+        sys.stdout.flush()
         log(
-            "Login confirmation not detected automatically. Allowing manual completion.",
-            level="WARN",
+            "Login confirmation not detected within 60 seconds.",
+            level="ERROR",
         )
+
+        if attempt < max_attempts:
+            log("Retrying automated login sequence.")
+            await page.goto("https://x.com/login", wait_until="networkidle")
+            await page.wait_for_timeout(1000)
+            continue
+
         try:
             await wait_for_manual_login(page, timeout_ms=5 * 60 * 1000)
             log("Manual login detected after timeout. Continuing run.")
+            print("[INFO] Login success — continuing workflow")
+            sys.stdout.flush()
+            return
         except PlaywrightTimeout as manual_exc:  # noqa: PERF203 - deliberate handling
             raise RuntimeError(
                 "Unable to confirm X login. Check credentials, 2FA, or network conditions."
