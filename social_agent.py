@@ -1,23 +1,79 @@
 #!/usr/bin/env python3
-"""Ultra-human modular social agent for X interactions."""
+"""Simple X auto-reply bot driven by Playwright.
+
+Ultra-human modular social agent for X interactions.
+"""
 
 from __future__ import annotations
 
 import asyncio
-import contextlib
-import json
 import os
-import random
-import re
 import sys
-from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from contextlib import suppress
+from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
+from typing import Iterable, List
 from urllib.parse import quote_plus
 
-import httpx
 from dotenv import load_dotenv
+from playwright.async_api import Error as PlaywrightError
+from playwright.async_api import TimeoutError as PlaywrightTimeout
+from playwright.async_api import async_playwright
+
+# == Environment ===============================================================
+
+load_dotenv()
+
+# Read VIDEO_PROVIDER once, with a safe default
+VIDEO_PROVIDER = os.getenv("VIDEO_PROVIDER", "none").strip().lower()
+
+REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN", "").strip()
+
+replicate_client = None
+replicate_warning_printed = False
+
+if VIDEO_PROVIDER == "replicate":
+    try:
+        import replicate  # type: ignore
+    except ImportError:
+        # Print this warning ONCE, then fall back to none
+        if not replicate_warning_printed:
+            print(
+                "VIDEO_PROVIDER=replicate requires the 'replicate' package. "
+                "Run `pip install replicate` or set VIDEO_PROVIDER=none."
+            )
+            replicate_warning_printed = True
+        VIDEO_PROVIDER = "none"
+    else:
+        if not REPLICATE_API_TOKEN:
+            if not replicate_warning_printed:
+                print(
+                    "VIDEO_PROVIDER=replicate is set but REPLICATE_API_TOKEN is missing. "
+                    "Set it in .env or use VIDEO_PROVIDER=none."
+                )
+                replicate_warning_printed = True
+            VIDEO_PROVIDER = "none"
+        else:
+            replicate_client = replicate.Client(api_token=REPLICATE_API_TOKEN)
+            print("Replicate video provider enabled.")
+else:
+    VIDEO_PROVIDER = "none"
+
+DEFAULT_MESSAGE = (
+    "Hey! I’ve been using this AI browser that automates a ton of research and workflows "
+    "for builders and founders. If you want to try the exact setup I’m using, here’s my link."
+)
+
+REPLY_MESSAGE = os.getenv("REPLY_MESSAGE", DEFAULT_MESSAGE)
+
+import json
+import random
+import re
+from dataclasses import dataclass, field
+from datetime import timedelta
+from typing import Any, Dict, Optional, Sequence, Set, Tuple
+
+import httpx
 
 try:
     import openai
@@ -26,16 +82,6 @@ except ImportError as exc:  # pragma: no cover - handled at runtime
     _OPENAI_IMPORT_ERROR: Optional[Exception] = exc
 else:
     _OPENAI_IMPORT_ERROR = None
-from playwright.async_api import Error as PlaywrightError
-from playwright.async_api import TimeoutError as PlaywrightTimeout
-from playwright.async_api import async_playwright
-try:
-    from replicate import Client as ReplicateClient
-except ImportError as exc:  # pragma: no cover - handled at runtime
-    ReplicateClient = None  # type: ignore[assignment]
-    _REPLICATE_IMPORT_ERROR: Optional[Exception] = exc
-else:
-    _REPLICATE_IMPORT_ERROR = None
 
 from configurator import (
     DEFAULT_DM_TEMPLATES,
@@ -146,7 +192,7 @@ class BotConfig:
 
         media_config = MediaConfig(
             image_provider=os.getenv("IMAGE_PROVIDER", "openai"),
-            video_provider=os.getenv("VIDEO_PROVIDER", "replicate"),
+            video_provider=VIDEO_PROVIDER,
             image_model=os.getenv("IMAGE_MODEL", "gpt-image-1"),
             video_model=os.getenv("VIDEO_MODEL", "pika-labs/pika-1.0"),
             image_size=os.getenv("IMAGE_SIZE", "1024x1024"),
@@ -361,7 +407,7 @@ class MessageRegistry:
     def _load(self) -> None:
         if self.storage_path.exists():
             with self.storage_path.open("r", encoding="utf-8") as handle:
-                with contextlib.suppress(json.JSONDecodeError):
+                with suppress(json.JSONDecodeError):
                     self._records = json.load(handle)
 
     def _persist(self) -> None:
@@ -470,53 +516,28 @@ class AIImageService:
 
 
 class AIVideoService:
-    """Generates short topic videos using Replicate."""
+    """Generates short topic videos using Replicate when available."""
 
     def __init__(self, config: MediaConfig) -> None:
         self.config = config
-        self.provider = (self.config.video_provider or "").strip().lower()
-        self.api_token = os.getenv("REPLICATE_API_TOKEN", "").strip()
-        self.client: Optional[Any] = None
-        self._disabled = False
+        self.provider = VIDEO_PROVIDER
+        self.client: Optional[Any] = replicate_client if self.provider == "replicate" else None
+        self._disabled = self.provider != "replicate" or self.client is None
 
-        if self.provider in {"", "none", "disabled"}:
-            self._disabled = True
+        if self._disabled:
             log("Video generation disabled via VIDEO_PROVIDER setting.", level="debug")
-        elif self.provider == "replicate":
-            if _REPLICATE_IMPORT_ERROR:
-                self._disabled = True
-                warn_once(
-                    "replicate_missing",
-                    "VIDEO_PROVIDER=replicate requires the optional 'replicate' package. "
-                    "Install it with `pip install replicate` or set VIDEO_PROVIDER=none.",
-                )
-                return
-            if not self.api_token:
-                raise SystemExit(
-                    "VIDEO_PROVIDER=replicate requires REPLICATE_API_TOKEN to be set in the environment."
-                )
-            try:
-                self.client = ReplicateClient(api_token=self.api_token)
-            except Exception as exc:  # noqa: BLE001
-                self._disabled = True
-                log(f"Failed to initialize Replicate client: {exc}", level="error")
         else:
-            raise SystemExit(
-                f"Unsupported VIDEO_PROVIDER '{self.config.video_provider}'. "
-                "Set VIDEO_PROVIDER to 'replicate' or 'none'."
-            )
+            log("Video generation enabled via Replicate provider.", level="debug")
 
     async def generate(self, prompt: str) -> Optional[str]:
         if self._disabled:
-            return None
-        if not self.client:
-            log("Video generation unavailable (Replicate client failed to initialize).", level="error")
             return None
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(None, self._sync_generate, prompt)
 
     def _sync_generate(self, prompt: str) -> Optional[str]:
         try:
+            assert self.client is not None
             output = self.client.run(
                 self.config.video_model,
                 input={
@@ -738,7 +759,13 @@ class PersonalizationEngine:
             "hashtags": " ".join(analysis.hashtags),
             "ref_link": CONFIG.referral_link or "",
         }
-        message = reply_templates.next(context)
+        try:
+            message = reply_templates.next(context)
+        except Exception as exc:  # noqa: BLE001
+            log(f"Falling back to default reply message due to template error: {exc}", level="debug")
+            message = REPLY_MESSAGE
+        if not message.strip():
+            message = REPLY_MESSAGE
         message = self._append_media_links(message, media_assets)
         return {"text": message, **media_assets}
 
@@ -753,7 +780,13 @@ class PersonalizationEngine:
             "hashtags": " ".join(analysis.hashtags[:3]),
             "ref_link": CONFIG.referral_link or "",
         }
-        message = dm_templates.next(context)
+        try:
+            message = dm_templates.next(context)
+        except Exception as exc:  # noqa: BLE001
+            log(f"Falling back to default DM message due to template error: {exc}", level="debug")
+            message = REPLY_MESSAGE
+        if not message.strip():
+            message = REPLY_MESSAGE
         message = self._append_media_links(message, media_assets)
         return {"text": message, **media_assets}
 
@@ -824,7 +857,7 @@ async def open_search(page, topic: str) -> None:
 async def close_composer_if_open(page) -> None:
     composer = page.locator("div[data-testid^='tweetTextarea_']").first
     if await composer.count():
-        with contextlib.suppress(Exception):
+        with suppress(Exception):
             await page.keyboard.press("Escape")
         await page.wait_for_timeout(250)
 
@@ -848,10 +881,10 @@ async def extract_author(tweet_locator) -> Tuple[str, str]:
     display = "there"
     handle = ""
     if await name_locator.count():
-        with contextlib.suppress(PlaywrightError):
+        with suppress(PlaywrightError):
             display = " ".join((await name_locator.inner_text()).split())
     if await handle_locator.count():
-        with contextlib.suppress(PlaywrightError):
+        with suppress(PlaywrightError):
             href = await handle_locator.get_attribute("href")
             if href:
                 parts = href.split("/")
@@ -885,7 +918,7 @@ async def send_text_to_composer(page, message: str) -> bool:
 
 
 async def submit_reply(page) -> bool:
-    with contextlib.suppress(Exception):
+    with suppress(Exception):
         await page.keyboard.press("Meta+Enter")
     await page.wait_for_timeout(1500)
     return True
@@ -1032,7 +1065,7 @@ class MessagingWorkflow:
             await dm_page.keyboard.type(payload["text"], delay=random.randint(12, 22))
             await attach_media(dm_page, payload)
             await self.scheduler.wait("sending DM")
-            with contextlib.suppress(Exception):
+            with suppress(Exception):
                 await dm_page.keyboard.press("Meta+Enter")
             await dm_page.wait_for_timeout(1000)
             handle_display = f"@{username}" if username else analysis.display_name
