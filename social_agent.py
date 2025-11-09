@@ -165,18 +165,30 @@ class TemplatePool:
 class TemplateManager:
     """Manages template collections sourced from the environment file."""
 
-    def __init__(self, env_path: Path, env_key: str, fallback: Sequence[str]):
+    def __init__(
+        self,
+        env_path: Path,
+        env_key: str,
+        fallback: Sequence[str],
+        *,
+        min_count: int = 1,
+    ):
         self.env_path = env_path
         self.env_key = env_key
         self.fallback = list(fallback)
+        self.min_count = max(1, min_count)
         self.templates = self._load_templates()
         self._pool = TemplatePool(self.templates)
 
     def _load_templates(self) -> List[str]:
         raw = os.getenv(self.env_key, "")
         templates = self._dedupe(parse_delimited_list(raw))
-        if len(templates) < len(self.fallback):
-            templates = self.fallback[:]
+        if len(templates) < self.min_count:
+            templates = self._dedupe(self.fallback)
+            if len(templates) < self.min_count:
+                raise ValueError(
+                    f"At least {self.min_count} templates are required for {self.env_key}."
+                )
             self._persist(templates)
         return templates
 
@@ -197,7 +209,14 @@ class TemplateManager:
 
     def _refresh_pool(self) -> None:
         if not self.templates:
-            self.templates = self.fallback[:]
+            self.templates = self._dedupe(self.fallback)
+        if len(self.templates) < self.min_count:
+            replenished = self._dedupe(self.templates + list(self.fallback))
+            if len(replenished) < self.min_count:
+                raise ValueError(
+                    f"At least {self.min_count} templates are required for {self.env_key}."
+                )
+            self.templates = replenished
         self._pool = TemplatePool(self.templates)
 
     def next(self, context: dict) -> str:
@@ -229,7 +248,12 @@ class TemplateManager:
         self._refresh_pool()
 
 
-reply_manager = TemplateManager(ENV_PATH, "REPLY_TEMPLATES", DEFAULT_REPLY_TEMPLATES)
+reply_manager = TemplateManager(
+    ENV_PATH,
+    "REPLY_TEMPLATES",
+    DEFAULT_REPLY_TEMPLATES,
+    min_count=10,
+)
 dm_manager = TemplateManager(ENV_PATH, "DM_TEMPLATES", DEFAULT_DM_TEMPLATES)
 
 
@@ -606,13 +630,27 @@ async def extract_author_name(tweet_locator) -> str:
     return "there"
 
 
-async def build_reply_message(topic: str, tweet_text: str, focus: str) -> str:
+def get_reply_message(topic: str, focus: str) -> str:
+    normalized_focus = focus.strip() if focus else ""
+    normalized_topic = topic.strip() if topic else normalized_focus
     context = {
-        "topic": topic,
-        "focus": focus,
+        "topic": normalized_topic or normalized_focus,
+        "focus": normalized_focus or normalized_topic,
         "ref_link": CONFIG.referral_link,
     }
-    return reply_manager.next(context)
+    message = reply_manager.next(context)
+
+    if normalized_topic and normalized_topic.lower() not in message.lower():
+        suffix = f" Curious where you’re taking {normalized_topic} next."
+        message = f"{message.rstrip()} {suffix}".strip()
+
+    if CONFIG.referral_link and CONFIG.referral_link not in message:
+        connector = (
+            "." if message and message[-1] not in {".", "!", "?"} else ""
+        )
+        message = f"{message}{connector} Here’s what I’m leaning on: {CONFIG.referral_link}"
+
+    return message
 
 
 async def build_dm_message(name: str, focus: str) -> str:
@@ -713,7 +751,7 @@ async def reply_to_tweet(page, tweet_locator, topic: str, index: int, tweet_text
         if not opened:
             return False
 
-        message = await build_reply_message(topic, tweet_text, decision.matched_focus)
+        message = get_reply_message(topic, decision.matched_focus)
         success = await send_reply(page, message)
         if success:
             log(f"Sent reply #{index + 1} for '{topic}'.")
