@@ -13,7 +13,7 @@ import sys
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 from urllib.parse import quote_plus
 
 import httpx
@@ -211,6 +211,9 @@ def _build_hashtag_fallback(topics: Sequence[str]) -> Dict[str, List[str]]:
 # ---------------------------------------------------------------------------
 
 
+_EMITTED_WARNINGS: Set[str] = set()
+
+
 def log(message: str, *, level: str = "info") -> None:
     if level == "debug" and not CONFIG.debug_enabled:
         return
@@ -221,6 +224,13 @@ def log(message: str, *, level: str = "info") -> None:
 
 
 CONFIG = BotConfig.from_env()
+
+
+def warn_once(key: str, message: str, *, level: str = "warning") -> None:
+    if key in _EMITTED_WARNINGS:
+        return
+    _EMITTED_WARNINGS.add(key)
+    log(message, level=level)
 
 
 # ---------------------------------------------------------------------------
@@ -474,10 +484,13 @@ class AIVideoService:
             log("Video generation disabled via VIDEO_PROVIDER setting.", level="debug")
         elif self.provider == "replicate":
             if _REPLICATE_IMPORT_ERROR:
-                raise SystemExit(
+                self._disabled = True
+                warn_once(
+                    "replicate_missing",
                     "VIDEO_PROVIDER=replicate requires the optional 'replicate' package. "
-                    "Install it with `pip install replicate` or set VIDEO_PROVIDER=none."
-                ) from _REPLICATE_IMPORT_ERROR
+                    "Install it with `pip install replicate` or set VIDEO_PROVIDER=none.",
+                )
+                return
             if not self.api_token:
                 raise SystemExit(
                     "VIDEO_PROVIDER=replicate requires REPLICATE_API_TOKEN to be set in the environment."
