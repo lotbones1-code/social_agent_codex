@@ -21,9 +21,26 @@ from playwright.async_api import async_playwright
 
 # == Environment ===============================================================
 
-load_dotenv()
-
 BASE_DIR = Path(__file__).parent
+
+
+def load_environment() -> None:
+    """Load environment variables from the project .env file and defaults."""
+
+    env_candidates = [
+        BASE_DIR / ".env",
+        Path.cwd() / ".env",
+    ]
+
+    for candidate in env_candidates:
+        if candidate.exists():
+            load_dotenv(candidate, override=False)
+
+    # Final call ensures process env vars remain authoritative.
+    load_dotenv(override=False)
+
+
+load_environment()
 
 X_USERNAME = os.getenv("X_USERNAME") or os.getenv("USERNAME")
 X_PASSWORD = os.getenv("X_PASSWORD") or os.getenv("PASSWORD")
@@ -58,7 +75,7 @@ DM_INTEREST_THRESHOLD = float(os.getenv("DM_INTEREST_THRESHOLD", "3.0"))
 DM_QUESTION_WEIGHT = float(os.getenv("DM_QUESTION_WEIGHT", "0.7"))
 
 DEBUG = os.getenv("DEBUG", "false").lower() == "true"
-HEADLESS = os.getenv("HEADLESS", "true").lower() == "true"
+HEADLESS = os.getenv("HEADLESS", "false").lower() == "true"
 
 if ACTION_DELAY_MIN > ACTION_DELAY_MAX:
     ACTION_DELAY_MIN, ACTION_DELAY_MAX = ACTION_DELAY_MAX, ACTION_DELAY_MIN
@@ -199,40 +216,89 @@ def detect_focus(text: str, default: str) -> str:
     return default
 
 
+async def wait_for_manual_login(page, timeout_ms: int) -> None:
+    log(
+        "Waiting for manual login confirmation (SideNav account switcher to appear).",
+        level="INFO",
+    )
+    await page.wait_for_selector(
+        'div[data-testid="SideNav_AccountSwitcher_Button"]', timeout=timeout_ms
+    )
+
+
 async def ensure_logged_in(page) -> None:
+    log("Checking current authentication state.")
     await page.goto("https://x.com/home", wait_until="networkidle")
     with suppress(PlaywrightTimeout):
         await page.wait_for_timeout(2000)
     if await page.query_selector('div[data-testid="SideNav_AccountSwitcher_Button"]'):
-        log("Already logged in to X.")
+        log("Session already authenticated.")
         return
+
+    log("No active session detected. Navigating to login page.")
+    await page.goto("https://x.com/login", wait_until="networkidle")
+    await page.wait_for_timeout(1000)
+
     if not X_USERNAME or not X_PASSWORD:
-        raise RuntimeError("Missing X credentials. Set X_USERNAME and X_PASSWORD in the environment.")
+        log(
+            "Credentials missing; pausing for manual login. Set X_USERNAME and X_PASSWORD to enable auto-login.",
+            level="WARN",
+        )
+        try:
+            await wait_for_manual_login(page, timeout_ms=5 * 60 * 1000)
+            log("Manual login detected. Continuing run.")
+            return
+        except PlaywrightTimeout as exc:  # noqa: PERF203 - deliberate handling
+            raise RuntimeError("Manual login timed out after 5 minutes.") from exc
 
-    log("Attempting X login flow.")
-    await page.goto("https://x.com/i/flow/login", wait_until="networkidle")
+    log("Attempting automated login with provided credentials.")
+    try:
+        username_input = await page.wait_for_selector('input[name="text"]', timeout=30000)
+    except PlaywrightTimeout:
+        log(
+            "Username field not detected; waiting for manual intervention.",
+            level="WARN",
+        )
+        try:
+            await wait_for_manual_login(page, timeout_ms=5 * 60 * 1000)
+            log("Manual login detected. Continuing run.")
+            return
+        except PlaywrightTimeout as exc:  # noqa: PERF203 - deliberate handling
+            raise RuntimeError("X login UI did not load correctly for automation.") from exc
 
-    username_input = await page.wait_for_selector('input[name="text"]', timeout=30000)
     await username_input.fill(X_USERNAME)
+    log("Username entered; submitting identifier.")
     await page.keyboard.press("Enter")
     await page.wait_for_timeout(1000)
 
     with suppress(PlaywrightTimeout):
         alt_identifier = await page.query_selector('input[name="text"]')
         if alt_identifier:
+            log("Encountered secondary identifier prompt; refilling username.")
             await alt_identifier.fill(X_USERNAME)
             await page.keyboard.press("Enter")
             await page.wait_for_timeout(500)
 
     password_input = await page.wait_for_selector('input[name="password"]', timeout=30000)
     await password_input.fill(X_PASSWORD)
+    log("Password entered; submitting credentials.")
     await page.keyboard.press("Enter")
 
     try:
-        await page.wait_for_selector('div[data-testid="SideNav_AccountSwitcher_Button"]', timeout=30000)
+        await wait_for_manual_login(page, timeout_ms=60000)
         log("Login successful.")
     except PlaywrightTimeout as exc:
-        raise RuntimeError("Unable to confirm X login. Check credentials or 2FA requirements.") from exc
+        log(
+            "Login confirmation not detected automatically. Allowing manual completion.",
+            level="WARN",
+        )
+        try:
+            await wait_for_manual_login(page, timeout_ms=5 * 60 * 1000)
+            log("Manual login detected after timeout. Continuing run.")
+        except PlaywrightTimeout as manual_exc:  # noqa: PERF203 - deliberate handling
+            raise RuntimeError(
+                "Unable to confirm X login. Check credentials, 2FA, or network conditions."
+            ) from manual_exc
 
 
 async def collect_tweets(page, *, limit: int = 20) -> list[dict]:
@@ -418,24 +484,46 @@ async def main() -> None:
     profile_dir.mkdir(parents=True, exist_ok=True)
 
     try:
+        log("Initializing Playwright and Chromium context.")
         async with async_playwright() as p:
             headless_mode = HEADLESS if not DEBUG else False
+            if headless_mode:
+                log(
+                    "HEADLESS mode requested but overridden to ensure visible browser window.",
+                    level="WARN",
+                )
+                headless_mode = False
+
+            log(
+                f"Opening browser profile at {profile_dir} (headless={headless_mode})."
+            )
             browser = await p.chromium.launch_persistent_context(
                 str(profile_dir),
                 headless=headless_mode,
-                args=["--disable-blink-features=AutomationControlled"],
+                args=[
+                    "--disable-blink-features=AutomationControlled",
+                    "--start-maximized",
+                ],
+                slow_mo=50,
             )
 
             try:
                 page = browser.pages[0] if browser.pages else await browser.new_page()
+                log("Ensuring authenticated session before starting engagement loop.")
                 await ensure_logged_in(page)
+                log("Authentication confirmed. Beginning engagement loop.")
 
                 while True:
+                    if browser.is_closed():
+                        log("Browser context closed; shutting down agent loop.", level="WARN")
+                        break
                     try:
                         if SEARCH_TOPICS:
                             for topic in SEARCH_TOPICS:
+                                log(f"Starting topic scan for '{topic}'.")
                                 await process_topic(page, topic, state)
                         else:
+                            log("Starting home timeline scan cycle.")
                             await process_home_timeline(page, state)
                     except (PlaywrightTimeout, PlaywrightError) as err:
                         log(f"Playwright issue encountered: {err}", level="WARN")
@@ -444,7 +532,9 @@ async def main() -> None:
                     log(f"Cycle complete. Sleeping for {LOOP_DELAY} seconds before next pass.")
                     await asyncio.sleep(LOOP_DELAY)
             finally:
-                await browser.close()
+                if not browser.is_closed():
+                    log("Closing browser context.")
+                    await browser.close()
     except RuntimeError as exc:
         log(f"Fatal error: {exc}", level="ERROR")
         sys.exit(1)
@@ -454,4 +544,7 @@ async def main() -> None:
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        log("Interrupted by user. Shutting down.", level="WARN")
