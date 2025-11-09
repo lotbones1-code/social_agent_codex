@@ -22,7 +22,13 @@ from openai import OpenAI
 from playwright.async_api import Error as PlaywrightError
 from playwright.async_api import TimeoutError as PlaywrightTimeout
 from playwright.async_api import async_playwright
-from replicate import Client as ReplicateClient
+try:
+    from replicate import Client as ReplicateClient
+except ImportError as exc:  # pragma: no cover - handled at runtime
+    ReplicateClient = None  # type: ignore[assignment]
+    _REPLICATE_IMPORT_ERROR: Optional[Exception] = exc
+else:
+    _REPLICATE_IMPORT_ERROR = None
 
 from configurator import (
     DEFAULT_DM_TEMPLATES,
@@ -431,18 +437,27 @@ class AIVideoService:
         self.config = config
         self.provider = (self.config.video_provider or "").strip().lower()
         self.api_token = os.getenv("REPLICATE_API_TOKEN", "").strip()
-        self.client: Optional[ReplicateClient] = None
+        self.client: Optional[Any] = None
         self._disabled = False
 
         if self.provider in {"", "none", "disabled"}:
             self._disabled = True
             log("Video generation disabled via VIDEO_PROVIDER setting.", level="debug")
         elif self.provider == "replicate":
+            if _REPLICATE_IMPORT_ERROR:
+                raise SystemExit(
+                    "VIDEO_PROVIDER=replicate requires the optional 'replicate' package. "
+                    "Install it with `pip install replicate` or set VIDEO_PROVIDER=none."
+                ) from _REPLICATE_IMPORT_ERROR
             if not self.api_token:
                 raise SystemExit(
                     "VIDEO_PROVIDER=replicate requires REPLICATE_API_TOKEN to be set in the environment."
                 )
-            self.client = ReplicateClient(api_token=self.api_token)
+            try:
+                self.client = ReplicateClient(api_token=self.api_token)
+            except Exception as exc:  # noqa: BLE001
+                self._disabled = True
+                log(f"Failed to initialize Replicate client: {exc}", level="error")
         else:
             raise SystemExit(
                 f"Unsupported VIDEO_PROVIDER '{self.config.video_provider}'. "
@@ -1075,6 +1090,17 @@ class SocialAgent:
 def main() -> None:
     try:
         asyncio.run(SocialAgent().run())
+    except PlaywrightError as exc:
+        message = str(exc)
+        if "Executable doesn't exist" in message:
+            log(
+                "Playwright Chromium binaries are missing. After installing dependencies, "
+                "run `playwright install` to download the required browsers.",
+                level="error",
+            )
+        else:
+            log(f"Playwright failed: {message}", level="error")
+        raise SystemExit(1)
     except KeyboardInterrupt:
         log("Interrupted by user. Exiting.", level="info")
 
