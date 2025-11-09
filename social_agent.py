@@ -381,14 +381,31 @@ class AIImageService:
 
     def __init__(self, config: MediaConfig) -> None:
         self.config = config
+        self.provider = (self.config.image_provider or "").strip().lower()
         self.api_key = os.getenv("OPENAI_API_KEY", "").strip()
         self.client: Optional[OpenAI] = None
-        if self.api_key and self.config.image_provider.lower() == "openai":
+        self._disabled = False
+
+        if self.provider in {"", "none", "disabled"}:
+            self._disabled = True
+            log("Image generation disabled via IMAGE_PROVIDER setting.", level="debug")
+        elif self.provider in {"openai", "dalle", "dall-e"}:
+            if not self.api_key:
+                raise SystemExit(
+                    "IMAGE_PROVIDER=openai requires OPENAI_API_KEY to be set in the environment."
+                )
             self.client = OpenAI(api_key=self.api_key)
+        else:
+            raise SystemExit(
+                f"Unsupported IMAGE_PROVIDER '{self.config.image_provider}'. "
+                "Set IMAGE_PROVIDER to 'openai' or 'none'."
+            )
 
     async def generate(self, prompt: str) -> Optional[str]:
+        if self._disabled:
+            return None
         if not self.client:
-            log("Image generation skipped (no OpenAI client configured).", level="debug")
+            log("Image generation unavailable (OpenAI client failed to initialize).", level="error")
             return None
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(None, self._sync_generate, prompt)
@@ -412,14 +429,31 @@ class AIVideoService:
 
     def __init__(self, config: MediaConfig) -> None:
         self.config = config
+        self.provider = (self.config.video_provider or "").strip().lower()
         self.api_token = os.getenv("REPLICATE_API_TOKEN", "").strip()
         self.client: Optional[ReplicateClient] = None
-        if self.api_token and self.config.video_provider.lower() == "replicate":
+        self._disabled = False
+
+        if self.provider in {"", "none", "disabled"}:
+            self._disabled = True
+            log("Video generation disabled via VIDEO_PROVIDER setting.", level="debug")
+        elif self.provider == "replicate":
+            if not self.api_token:
+                raise SystemExit(
+                    "VIDEO_PROVIDER=replicate requires REPLICATE_API_TOKEN to be set in the environment."
+                )
             self.client = ReplicateClient(api_token=self.api_token)
+        else:
+            raise SystemExit(
+                f"Unsupported VIDEO_PROVIDER '{self.config.video_provider}'. "
+                "Set VIDEO_PROVIDER to 'replicate' or 'none'."
+            )
 
     async def generate(self, prompt: str) -> Optional[str]:
+        if self._disabled:
+            return None
         if not self.client:
-            log("Video generation skipped (no Replicate client configured).", level="debug")
+            log("Video generation unavailable (Replicate client failed to initialize).", level="error")
             return None
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(None, self._sync_generate, prompt)
