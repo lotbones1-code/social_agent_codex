@@ -47,6 +47,36 @@ load_dotenv()
 
 BASE_DIR = Path(__file__).parent
 
+
+def _get_bool(name: str, default: bool = False) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() == "true"
+
+
+def _get_int(name: str, default: int) -> int:
+    raw = os.getenv(name)
+    if raw is None or not raw.strip():
+        return default
+    try:
+        return int(float(raw.strip()))
+    except ValueError:
+        log(f"Invalid integer for {name!r}: {raw!r}. Using default {default}.", level="WARN")
+        return default
+
+
+def _get_float(name: str, default: float) -> float:
+    raw = os.getenv(name)
+    if raw is None or not raw.strip():
+        return default
+    try:
+        return float(raw.strip())
+    except ValueError:
+        log(f"Invalid float for {name!r}: {raw!r}. Using default {default}.", level="WARN")
+        return default
+
+
 X_USERNAME = os.getenv("X_USERNAME") or os.getenv("USERNAME")
 X_PASSWORD = os.getenv("X_PASSWORD") or os.getenv("PASSWORD")
 PW_PROFILE_DIR = os.getenv("PW_PROFILE_DIR", ".pwprofile")
@@ -66,19 +96,22 @@ SPAM_KEYWORDS = [
     k.strip().lower() for k in (os.getenv("SPAM_KEYWORDS") or "").split(",") if k.strip()
 ]
 
-ACTION_DELAY_MIN = int(os.getenv("ACTION_DELAY_MIN_SECONDS", "60"))
-ACTION_DELAY_MAX = int(os.getenv("ACTION_DELAY_MAX_SECONDS", "600"))
-LOOP_DELAY = int(os.getenv("LOOP_DELAY_SECONDS", "900"))
-MAX_REPLIES_PER_TOPIC = int(os.getenv("MAX_REPLIES_PER_TOPIC", "3"))
-MIN_TWEET_LENGTH = int(os.getenv("MIN_TWEET_LENGTH", "70"))
-MIN_KEYWORD_MATCHES = int(os.getenv("MIN_KEYWORD_MATCHES", "1"))
+ACTION_DELAY_MIN = _get_int("ACTION_DELAY_MIN_SECONDS", 60)
+ACTION_DELAY_MAX = _get_int("ACTION_DELAY_MAX_SECONDS", 600)
+if ACTION_DELAY_MAX < ACTION_DELAY_MIN:
+    ACTION_DELAY_MAX = ACTION_DELAY_MIN
 
-ENABLE_DMS = (os.getenv("ENABLE_DMS", "false").lower() == "true")
-DM_TRIGGER_LENGTH = int(os.getenv("DM_TRIGGER_LENGTH", "220"))
-DM_INTEREST_THRESHOLD = float(os.getenv("DM_INTEREST_THRESHOLD", "3.0"))
-DM_QUESTION_WEIGHT = float(os.getenv("DM_QUESTION_WEIGHT", "0.7"))
+LOOP_DELAY = _get_int("LOOP_DELAY_SECONDS", 900)
+MAX_REPLIES_PER_TOPIC = _get_int("MAX_REPLIES_PER_TOPIC", 3)
+MIN_TWEET_LENGTH = _get_int("MIN_TWEET_LENGTH", 70)
+MIN_KEYWORD_MATCHES = _get_int("MIN_KEYWORD_MATCHES", 1)
 
-DEBUG = (os.getenv("DEBUG", "false").lower() == "true")
+ENABLE_DMS = _get_bool("ENABLE_DMS", False)
+DM_TRIGGER_LENGTH = _get_int("DM_TRIGGER_LENGTH", 220)
+DM_INTEREST_THRESHOLD = _get_float("DM_INTEREST_THRESHOLD", 3.0)
+DM_QUESTION_WEIGHT = _get_float("DM_QUESTION_WEIGHT", 0.7)
+
+DEBUG = _get_bool("DEBUG", False)
 
 MESSAGE_REGISTRY_PATH = Path(
     os.getenv("MESSAGE_REGISTRY_PATH", "logs/messaged_users.json")
@@ -93,13 +126,13 @@ DM_TEMPLATES = [
     t.strip() for t in (os.getenv("DM_TEMPLATES") or "").split("||") if t.strip()
 ]
 
-HEADLESS = (os.getenv("HEADLESS", "false").lower() == "true")
+HEADLESS = _get_bool("HEADLESS", False)
 
 DEFAULT_MESSAGE = (
-    "I’ve been using an AI automation browser stack that offloads a ton of workflows. "
+    "I’ve been using an AI automation/browser stack that offloads a ton of work. "
     f"If you want the exact setup I’m running, here’s the breakdown: {REFERRAL_LINK}"
     if REFERRAL_LINK
-    else "I’ve been using an AI automation browser stack that offloads a ton of workflows."
+    else "I’ve been using an AI automation/browser stack that offloads a ton of work."
 )
 
 REPLY_MESSAGE = os.getenv("REPLY_MESSAGE", DEFAULT_MESSAGE)
@@ -132,9 +165,12 @@ if VIDEO_PROVIDER == "replicate":
 else:
     VIDEO_PROVIDER = "none"
 
-log(f"Loaded {len(SEARCH_TOPICS)} topics." if SEARCH_TOPICS else "Loaded 0 topics; using home timeline.")
-log(f"Using HEADLESS={HEADLESS}.")
-log(f"Video provider: {VIDEO_PROVIDER}.")
+if SEARCH_TOPICS:
+    log(f"Loaded {len(SEARCH_TOPICS)} search topics")
+else:
+    log("Loaded 0 search topics; falling back to home timeline")
+log(f"Using HEADLESS={HEADLESS}")
+log(f"Video provider: {VIDEO_PROVIDER}")
 
 # == Message Registry ==========================================================
 
@@ -182,10 +218,10 @@ def save_message_registry() -> None:
 # == Utilities =================================================================
 
 
-def random_delay_seconds() -> int:
+def random_delay_seconds() -> float:
     if ACTION_DELAY_MIN > ACTION_DELAY_MAX:
-        return ACTION_DELAY_MIN
-    return random.randint(ACTION_DELAY_MIN, ACTION_DELAY_MAX)
+        return float(ACTION_DELAY_MIN)
+    return random.uniform(ACTION_DELAY_MIN, ACTION_DELAY_MAX)
 
 
 @dataclass
@@ -264,14 +300,13 @@ async def create_browser():
         headless=HEADLESS,
         args=["--no-sandbox"],
     )
-    if context.pages:
-        page = context.pages[0]
-    else:
-        page = await context.new_page()
+    page = await context.new_page()
     return pw, context, page
 
 
 async def is_logged_in(page) -> bool:
+    if "x.com/home" in (page.url or ""):
+        return True
     avatar_locators = [
         "a[aria-label='Profile']",
         "div[data-testid='SideNav_AccountSwitcher_Button']",
@@ -281,9 +316,7 @@ async def is_logged_in(page) -> bool:
             locator = page.locator(selector)
             if await locator.is_visible(timeout=2500):
                 return True
-        except PlaywrightError:
-            continue
-        except PlaywrightTimeout:
+        except (PlaywrightError, PlaywrightTimeout):
             continue
     return False
 
@@ -319,6 +352,8 @@ async def ensure_logged_in(page) -> bool:
         await page.wait_for_timeout(2000)
     except PlaywrightTimeout:
         log("Timeout loading home timeline during login check.", level="WARN")
+    except PlaywrightError as exc:
+        log(f"Error while loading home timeline: {exc}", level="WARN")
     if await is_logged_in(page):
         log("Session already authenticated.")
         return True
@@ -327,15 +362,17 @@ async def ensure_logged_in(page) -> bool:
         if await login_with_credentials(page):
             return True
         log("Credential-based login failed. Falling back to manual login.", level="WARN")
-    log("Please log in manually in the opened browser window...")
+    log("Please complete login manually in the browser window...")
     deadline = time.monotonic() + 90
     while time.monotonic() < deadline:
         try:
             if await is_logged_in(page):
                 log("Manual login detected.")
                 return True
-        except PlaywrightError:
-            pass
+        except PlaywrightError as exc:
+            log(f"Login poll error: {exc}", level="WARN")
+            await asyncio.sleep(3)
+            continue
         await asyncio.sleep(3)
     log("Manual login timed out.", level="WARN")
     return False
@@ -476,12 +513,12 @@ async def run_engagement_loop(context, page) -> None:
                         + quote_plus(topic)
                         + "&src=typed_query&f=live"
                     )
-                    log(f"Exploring topic '{topic}'.")
+                    log(f"Starting cycle for topic '{topic}'.")
                     await page.goto(search_url, wait_until="domcontentloaded", timeout=60000)
                     await page.wait_for_timeout(2000)
                     await process_page_tweets(page, topic)
             else:
-                log("Exploring home timeline.")
+                log("Starting cycle for home timeline.")
                 await page.goto("https://x.com/home", wait_until="domcontentloaded", timeout=60000)
                 await page.wait_for_timeout(2000)
                 await process_page_tweets(page, None)
