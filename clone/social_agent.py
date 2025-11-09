@@ -49,7 +49,9 @@ GENERATE_VIDEO_EVERY_N_REPLIES = 10
 
 # ====================================================
 
-PROFILE_DIR  = Path(os.getenv("PW_PROFILE_DIR", ".pw-profile")).resolve()
+DEFAULT_PROFILE_DIR = Path.home() / ".pw-chrome-referral"
+PROFILE_DIR = Path(os.getenv("PW_PROFILE_DIR", DEFAULT_PROFILE_DIR)).expanduser()
+PROFILE_DIR.mkdir(parents=True, exist_ok=True)
 STORAGE_PATH = Path("storage/x.json")
 DEDUP_TWEETS = Path("storage/replied.json")
 DEDUP_TEXTS  = Path("storage/text_hashes.json")   # avoid posting the exact same sentence back to back
