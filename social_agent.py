@@ -216,6 +216,19 @@ def detect_focus(text: str, default: str) -> str:
     return default
 
 
+async def ensure_on_x_domain(page) -> None:
+    try:
+        await page.wait_for_function(
+            "() => window.location.href.toLowerCase().includes('x.com')",
+            timeout=5000,
+        )
+    except PlaywrightTimeout:
+        log("Post-login navigation did not reach x.com; forcing redirect to home.", level="WARN")
+        await page.goto("https://x.com/home", wait_until="networkidle")
+        with suppress(PlaywrightTimeout):
+            await page.wait_for_timeout(2000)
+
+
 async def wait_for_manual_login(page, timeout_ms: int) -> None:
     log(
         "Waiting for manual login confirmation (SideNav account switcher to appear).",
@@ -247,7 +260,7 @@ async def wait_for_login_transition(page, timeout_ms: int) -> bool:
         return False
 
 
-async def ensure_logged_in(page) -> None:
+async def ensure_logged_in(page) -> bool:
     log("Checking current authentication state.")
     await page.goto("https://x.com/home", wait_until="networkidle")
     with suppress(PlaywrightTimeout):
@@ -256,7 +269,8 @@ async def ensure_logged_in(page) -> None:
         log("Session already authenticated.")
         print("[INFO] Login success — continuing workflow")
         sys.stdout.flush()
-        return
+        await ensure_on_x_domain(page)
+        return True
 
     log("No active session detected. Navigating to login page.")
     await page.goto("https://x.com/login", wait_until="networkidle")
@@ -274,7 +288,8 @@ async def ensure_logged_in(page) -> None:
             log("Manual login detected. Continuing run.")
             print("[INFO] Login success — continuing workflow")
             sys.stdout.flush()
-            return
+            await ensure_on_x_domain(page)
+            return True
         except PlaywrightTimeout as exc:  # noqa: PERF203 - deliberate handling
             raise RuntimeError("Manual login timed out after 5 minutes.") from exc
 
@@ -293,7 +308,8 @@ async def ensure_logged_in(page) -> None:
                 log("Manual login detected. Continuing run.")
                 print("[INFO] Login success — continuing workflow")
                 sys.stdout.flush()
-                return
+                await ensure_on_x_domain(page)
+                return True
             except PlaywrightTimeout as exc:  # noqa: PERF203 - deliberate handling
                 raise RuntimeError("X login UI did not load correctly for automation.") from exc
 
@@ -324,7 +340,8 @@ async def ensure_logged_in(page) -> None:
             log("Login successful.")
             print("[INFO] Login success — continuing workflow")
             sys.stdout.flush()
-            return
+            await ensure_on_x_domain(page)
+            return True
 
         print("[ERROR] Login timeout — please sign in manually")
         sys.stdout.flush()
@@ -344,11 +361,45 @@ async def ensure_logged_in(page) -> None:
             log("Manual login detected after timeout. Continuing run.")
             print("[INFO] Login success — continuing workflow")
             sys.stdout.flush()
-            return
+            await ensure_on_x_domain(page)
+            return True
         except PlaywrightTimeout as manual_exc:  # noqa: PERF203 - deliberate handling
             raise RuntimeError(
                 "Unable to confirm X login. Check credentials, 2FA, or network conditions."
             ) from manual_exc
+
+    return False
+
+
+async def run_engagement_cycle(browser, page, state: dict) -> None:
+    print("[INFO] Starting engagement cycle...")
+    sys.stdout.flush()
+    log("Engagement cycle initialized.")
+
+    while True:
+        if browser.is_closed():
+            log("Browser context closed; stopping engagement cycle.", level="WARN")
+            break
+
+        try:
+            if SEARCH_TOPICS:
+                print("[INFO] Searching for topics...")
+                sys.stdout.flush()
+                for topic in SEARCH_TOPICS:
+                    log(f"Starting topic scan for '{topic}'.")
+                    await process_topic(page, topic, state)
+            else:
+                print("[INFO] Scanning home timeline...")
+                sys.stdout.flush()
+                log("Starting home timeline scan cycle.")
+                await process_home_timeline(page, state)
+        except (PlaywrightTimeout, PlaywrightError) as err:
+            log(f"Playwright issue encountered during engagement cycle: {err}", level="WARN")
+            await asyncio.sleep(10)
+            continue
+
+        log(f"Cycle complete. Sleeping for {LOOP_DELAY} seconds before next pass.")
+        await asyncio.sleep(LOOP_DELAY)
 
 
 async def collect_tweets(page, *, limit: int = 20) -> list[dict]:
@@ -557,34 +608,18 @@ async def main() -> None:
                 slow_mo=50,
             )
 
+            page = browser.pages[0] if browser.pages else await browser.new_page()
+            log("Ensuring authenticated session before starting engagement loop.")
+            login_success = await ensure_logged_in(page)
+            if not login_success:
+                raise RuntimeError("Login flow completed without reaching x.com home feed.")
+
+            log("Authentication confirmed. Beginning engagement loop.")
             try:
-                page = browser.pages[0] if browser.pages else await browser.new_page()
-                log("Ensuring authenticated session before starting engagement loop.")
-                await ensure_logged_in(page)
-                log("Authentication confirmed. Beginning engagement loop.")
-
-                while True:
-                    if browser.is_closed():
-                        log("Browser context closed; shutting down agent loop.", level="WARN")
-                        break
-                    try:
-                        if SEARCH_TOPICS:
-                            for topic in SEARCH_TOPICS:
-                                log(f"Starting topic scan for '{topic}'.")
-                                await process_topic(page, topic, state)
-                        else:
-                            log("Starting home timeline scan cycle.")
-                            await process_home_timeline(page, state)
-                    except (PlaywrightTimeout, PlaywrightError) as err:
-                        log(f"Playwright issue encountered: {err}", level="WARN")
-                        await asyncio.sleep(10)
-
-                    log(f"Cycle complete. Sleeping for {LOOP_DELAY} seconds before next pass.")
-                    await asyncio.sleep(LOOP_DELAY)
-            finally:
-                if not browser.is_closed():
-                    log("Closing browser context.")
-                    await browser.close()
+                await run_engagement_cycle(browser, page, state)
+            except (PlaywrightTimeout, PlaywrightError) as err:
+                log(f"Fatal Playwright issue encountered: {err}", level="ERROR")
+                raise
     except RuntimeError as exc:
         log(f"Fatal error: {exc}", level="ERROR")
         sys.exit(1)
