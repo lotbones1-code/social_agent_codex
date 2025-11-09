@@ -7,18 +7,37 @@ Ultra-human modular social agent for X interactions.
 from __future__ import annotations
 
 import asyncio
+import json
 import os
+import random
+import re
 import sys
 from contextlib import suppress
-from datetime import datetime
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Iterable, List
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 from urllib.parse import quote_plus
 
+import httpx
 from dotenv import load_dotenv
 from playwright.async_api import Error as PlaywrightError
 from playwright.async_api import TimeoutError as PlaywrightTimeout
 from playwright.async_api import async_playwright
+
+
+def log(message: str, *, level: str = "info") -> None:
+    """Simple timestamped logger that respects debug settings when available."""
+
+    config = globals().get("CONFIG")
+    debug_enabled = bool(getattr(config, "debug_enabled", False)) if config else False
+    if level.lower() == "debug" and not debug_enabled:
+        return
+
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    line = f"[{timestamp}] [{level.upper()}] {message}"
+    print(line)
+    sys.stdout.flush()
 
 # == Environment ===============================================================
 
@@ -29,33 +48,29 @@ VIDEO_PROVIDER = os.getenv("VIDEO_PROVIDER", "none").strip().lower()
 
 REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN", "").strip()
 
-replicate_client = None
-replicate_warning_printed = False
+replicate_client: Optional[Any] = None
 
 if VIDEO_PROVIDER == "replicate":
     try:
         import replicate  # type: ignore
     except ImportError:
-        # Print this warning ONCE, then fall back to none
-        if not replicate_warning_printed:
-            print(
-                "VIDEO_PROVIDER=replicate requires the 'replicate' package. "
-                "Run `pip install replicate` or set VIDEO_PROVIDER=none."
-            )
-            replicate_warning_printed = True
+        log(
+            "VIDEO_PROVIDER=replicate requires the optional 'replicate' package. "
+            "Run `pip install replicate` or set VIDEO_PROVIDER=none.",
+            level="warning",
+        )
         VIDEO_PROVIDER = "none"
     else:
         if not REPLICATE_API_TOKEN:
-            if not replicate_warning_printed:
-                print(
-                    "VIDEO_PROVIDER=replicate is set but REPLICATE_API_TOKEN is missing. "
-                    "Set it in .env or use VIDEO_PROVIDER=none."
-                )
-                replicate_warning_printed = True
+            log(
+                "VIDEO_PROVIDER=replicate is set but REPLICATE_API_TOKEN is missing. "
+                "Set it in .env or use VIDEO_PROVIDER=none.",
+                level="warning",
+            )
             VIDEO_PROVIDER = "none"
         else:
             replicate_client = replicate.Client(api_token=REPLICATE_API_TOKEN)
-            print("Replicate video provider enabled.")
+            log("Replicate video provider enabled.")
 else:
     VIDEO_PROVIDER = "none"
 
@@ -65,15 +80,6 @@ DEFAULT_MESSAGE = (
 )
 
 REPLY_MESSAGE = os.getenv("REPLY_MESSAGE", DEFAULT_MESSAGE)
-
-import json
-import random
-import re
-from dataclasses import dataclass, field
-from datetime import timedelta
-from typing import Any, Dict, Optional, Sequence, Set, Tuple
-
-import httpx
 
 try:
     import openai
@@ -168,7 +174,10 @@ class BotConfig:
 
         search_topics = _split_topics(os.getenv("SEARCH_TOPICS", ""))
         if not search_topics:
-            raise SystemExit("SEARCH_TOPICS env var must list at least one topic.")
+            log(
+                "No SEARCH_TOPICS configured. Topic search workflow will be skipped.",
+                level="info",
+            )
 
         relevant_keywords = _split_keywords(os.getenv("RELEVANT_KEYWORDS", ""))
         spam_keywords = _split_keywords(os.getenv("SPAM_KEYWORDS", ""))
@@ -260,16 +269,26 @@ def _build_hashtag_fallback(topics: Sequence[str]) -> Dict[str, List[str]]:
 _EMITTED_WARNINGS: Set[str] = set()
 
 
-def log(message: str, *, level: str = "info") -> None:
-    if level == "debug" and not CONFIG.debug_enabled:
-        return
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    line = f"[{timestamp}] [{level.upper()}] {message}"
-    print(line)
-    sys.stdout.flush()
-
-
 CONFIG = BotConfig.from_env()
+
+log(
+    "Bot configuration loaded. "
+    f"DMs={'enabled' if CONFIG.dm_enabled else 'disabled'}, "
+    f"image_provider={CONFIG.media_config.image_provider}, "
+    f"video_provider={CONFIG.media_config.video_provider}."
+)
+
+if CONFIG.search_topics:
+    log(
+        f"Loaded {len(CONFIG.search_topics)} search topic(s): "
+        + ", ".join(CONFIG.search_topics),
+        level="info",
+    )
+else:
+    log(
+        "No search topics configured; awaiting inbound activity for replies/DMs only.",
+        level="info",
+    )
 
 
 def warn_once(key: str, message: str, *, level: str = "warning") -> None:
@@ -1106,18 +1125,30 @@ class SocialAgent:
             self.registry,
             self.scheduler,
         )
+        log(
+            "SocialAgent initialized with scheduler, registry, relevance engine, and personalization modules.",
+            level="info",
+        )
 
     async def run(self, page) -> None:
-        log(f"Starting bot with topics: {', '.join(CONFIG.search_topics)}")
+        topics_display = ", ".join(CONFIG.search_topics) if CONFIG.search_topics else "(none configured)"
+        log(f"Starting bot with topics: {topics_display}")
         while True:
-            # Iterate over configured topics so new workflows can be injected or reordered easily.
-            for topic in CONFIG.search_topics:
-                try:
-                    await self._process_topic(page, topic)
-                except Exception as exc:  # noqa: BLE001
-                    log(f"Error while processing topic '{topic}': {exc}", level="error")
-            log("Cycle complete. Restarting after scheduled delay.")
-            await self.scheduler.wait("starting new cycle")
+            if CONFIG.search_topics:
+                # Iterate over configured topics so new workflows can be injected or reordered easily.
+                for topic in CONFIG.search_topics:
+                    try:
+                        await self._process_topic(page, topic)
+                    except Exception as exc:  # noqa: BLE001
+                        log(f"Error while processing topic '{topic}': {exc}", level="error")
+                log("Cycle complete. Restarting after scheduled delay.")
+                await self.scheduler.wait("starting new cycle")
+            else:
+                log(
+                    "No search topics available; idling before next inbound DM/reply check.",
+                    level="info",
+                )
+                await self.scheduler.wait("idle without search topics")
 
     async def _process_topic(self, page, topic: str) -> None:
         await self.scheduler.wait(f"opening search for {topic}")
