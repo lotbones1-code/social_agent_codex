@@ -9,10 +9,10 @@ import random
 import sys
 from collections import deque
 from contextlib import suppress
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Deque, Iterable, List, Optional, Sequence
+from typing import Deque, Iterable, List, Optional, Sequence, Tuple
 from urllib.parse import quote_plus
 
 from dotenv import load_dotenv
@@ -20,9 +20,20 @@ from playwright.async_api import Error as PlaywrightError
 from playwright.async_api import TimeoutError as PlaywrightTimeout
 from playwright.async_api import async_playwright
 
+from configurator import (
+    DEFAULT_DM_TEMPLATES,
+    DEFAULT_REPLY_TEMPLATES,
+    TEMPLATE_DELIMITER,
+    ensure_env_file,
+    parse_delimited_list,
+    update_env,
+)
+
 # --- Environment ----------------------------------------------------------
 
-load_dotenv()
+ROOT_DIR = Path(__file__).resolve().parent
+ENV_PATH = ensure_env_file(ROOT_DIR)
+load_dotenv(ENV_PATH)
 
 
 @dataclass(slots=True)
@@ -40,6 +51,7 @@ class BotConfig:
     dm_enabled: bool
     dm_trigger_length: int
     dm_question_weight: float
+    dm_interest_threshold: float
 
     @classmethod
     def from_env(cls) -> "BotConfig":
@@ -51,10 +63,8 @@ class BotConfig:
         if not search_topics:
             raise SystemExit("SEARCH_TOPICS env var must list at least one topic.")
 
-        relevant_keywords = _split_keywords(
-            os.getenv("RELEVANT_KEYWORDS", ",".join(DEFAULT_RELEVANT_KEYWORDS))
-        )
-        spam_keywords = _split_keywords(os.getenv("SPAM_KEYWORDS", ",".join(DEFAULT_SPAM_KEYWORDS)))
+        relevant_keywords = _split_keywords(os.getenv("RELEVANT_KEYWORDS", ""))
+        spam_keywords = _split_keywords(os.getenv("SPAM_KEYWORDS", ""))
 
         referral_link = os.getenv("REFERRAL_LINK", "https://example.com/referral")
         loop_delay_seconds = int(os.getenv("LOOP_DELAY_SECONDS", str(15 * 60)))
@@ -64,6 +74,7 @@ class BotConfig:
         dm_enabled = os.getenv("ENABLE_DMS", "true").strip().lower() not in {"", "0", "false", "off"}
         dm_trigger_length = int(os.getenv("DM_TRIGGER_LENGTH", "180"))
         dm_question_weight = float(os.getenv("DM_QUESTION_WEIGHT", "0.6"))
+        dm_interest_threshold = float(os.getenv("DM_INTEREST_THRESHOLD", "3.2"))
 
         return cls(
             debug_enabled=debug_enabled,
@@ -79,128 +90,33 @@ class BotConfig:
             dm_enabled=dm_enabled,
             dm_trigger_length=dm_trigger_length,
             dm_question_weight=dm_question_weight,
+            dm_interest_threshold=dm_interest_threshold,
         )
-
-
-DEFAULT_REPLY_TEMPLATES = [
-    (
-        "Been deep in {focus} lately and found this toolkit that keeps overdelivering—"
-        "sharing because it sliced hours off my build time: {ref_link}"
-    ),
-    (
-        "Every time {focus} comes up I think about how this playbook boosted my results."
-        " If you want the exact steps I'm using, here it is: {ref_link}"
-    ),
-    (
-        "Your take on {focus} reminds me of what helped me scale fast."
-        " My go-to breakdown lives here if you want to peek: {ref_link}"
-    ),
-    (
-        "I just walked a few friends through my {focus} setup—"
-        "it's wild how much time it's saving us. Cliff notes + tools: {ref_link}"
-    ),
-    (
-        "If you're experimenting with {focus}, the system I switched to paid for itself in a week."
-        " Detailing the flow here: {ref_link}"
-    ),
-    (
-        "Noticed you're diving into {focus} too."
-        " Here's the resource that helped me automate the messy parts: {ref_link}"
-    ),
-    (
-        "I'm seeing more creators win with {focus}; I know several who migrated after I did."
-        " Dropping the same starter kit we rave about: {ref_link}"
-    ),
-    (
-        "Whenever someone asks how I monetized {focus}, I point them to this breakdown."
-        " It feels like cheating in the best way: {ref_link}"
-    ),
-]
-
-DEFAULT_DM_TEMPLATES = [
-    (
-        "Hey {name}! Loved how you framed {focus}."
-        " I pulled together a behind-the-scenes walkthrough that helped me ship faster—"
-        "happy to send you the exact stack if you're curious: {ref_link}"
-    ),
-    (
-        "Appreciated your deep dive on {focus}."
-        " If you want more candid thoughts, I have a personal write-up here."
-        " Feel free to poke me with questions: {ref_link}"
-    ),
-    (
-        "You're clearly serious about {focus}, so I figured I'd share what worked for me."
-        " This link is my private notes + tools—"
-        "let me know if you want me to unpack anything: {ref_link}"
-    ),
-]
-
-
-def _split_templates(raw: Optional[str]) -> List[str]:
+def _split_keywords(raw: str) -> List[str]:
     if not raw:
         return []
-    parts: List[str]
-    if "||" in raw:
-        parts = raw.split("||")
-    else:
-        parts = raw.splitlines()
-    return [part.strip() for part in parts if part.strip()]
-
-
-ENV_REPLY_TEMPLATES = _split_templates(os.getenv("REPLY_TEMPLATES"))
-REPLY_TEMPLATES = (
-    ENV_REPLY_TEMPLATES if len(ENV_REPLY_TEMPLATES) >= 7 else DEFAULT_REPLY_TEMPLATES
-)
-ENV_DM_TEMPLATES = _split_templates(os.getenv("DM_TEMPLATES"))
-DM_TEMPLATES = ENV_DM_TEMPLATES if ENV_DM_TEMPLATES else DEFAULT_DM_TEMPLATES
-
-
-DEFAULT_RELEVANT_KEYWORDS = [
-    "ai",
-    "artificial intelligence",
-    "automation",
-    "autonomous",
-    "chatgpt",
-    "gpt",
-    "openai",
-    "crypto",
-    "cryptocurrency",
-    "blockchain",
-    "defi",
-    "web3",
-    "trading",
-    "algorithmic trading",
-    "quant",
-    "quantitative",
-    "machine learning",
-    "making money online",
-    "side hustle",
-    "passive income",
-]
-DEFAULT_SPAM_KEYWORDS = [
-    "giveaway",
-    "airdrop",
-    "free nft",
-    "pump",
-    "casino",
-    "xxx",
-    "sex",
-    "nsfw",
-    "follow for follow",
-]
-
-
-def _split_keywords(raw: str) -> List[str]:
-    return [part.strip().lower() for part in raw.replace("\n", ",").split(",") if part.strip()]
+    normalized = raw.replace("\n", TEMPLATE_DELIMITER).replace(",", TEMPLATE_DELIMITER)
+    return [part.strip().lower() for part in normalized.split(TEMPLATE_DELIMITER) if part.strip()]
 
 
 def _split_topics(raw: str) -> List[str]:
-    parts: Iterable[str]
-    if "\n" in raw:
-        parts = (chunk for line in raw.splitlines() for chunk in line.split(","))
+    if not raw:
+        return []
+    if TEMPLATE_DELIMITER in raw:
+        parts = raw.split(TEMPLATE_DELIMITER)
     else:
-        parts = raw.split(",")
+        parts = (chunk for line in raw.splitlines() for chunk in line.split(","))
     return [topic.strip() for topic in parts if topic.strip()]
+
+
+def _tokenize_phrase(text: str) -> List[str]:
+    sanitized = (
+        text.replace("#", " ")
+        .replace("/", " ")
+        .replace("-", " ")
+        .replace("_", " ")
+    )
+    return [token for token in sanitized.lower().split() if token]
 
 
 # --- Logging --------------------------------------------------------------
@@ -246,8 +162,279 @@ class TemplatePool:
         return template.format(**context)
 
 
-reply_templates = TemplatePool(REPLY_TEMPLATES)
-dm_templates = TemplatePool(DM_TEMPLATES)
+class TemplateManager:
+    """Manages template collections sourced from the environment file."""
+
+    def __init__(self, env_path: Path, env_key: str, fallback: Sequence[str]):
+        self.env_path = env_path
+        self.env_key = env_key
+        self.fallback = list(fallback)
+        self.templates = self._load_templates()
+        self._pool = TemplatePool(self.templates)
+
+    def _load_templates(self) -> List[str]:
+        raw = os.getenv(self.env_key, "")
+        templates = self._dedupe(parse_delimited_list(raw))
+        if len(templates) < len(self.fallback):
+            templates = self.fallback[:]
+            self._persist(templates)
+        return templates
+
+    def _persist(self, templates: Sequence[str]) -> None:
+        serialized = TEMPLATE_DELIMITER.join(templates)
+        update_env(self.env_path, {self.env_key: serialized})
+        os.environ[self.env_key] = serialized
+
+    @staticmethod
+    def _dedupe(templates: Sequence[str]) -> List[str]:
+        seen: set[str] = set()
+        ordered: List[str] = []
+        for template in templates:
+            if template not in seen:
+                seen.add(template)
+                ordered.append(template)
+        return ordered
+
+    def _refresh_pool(self) -> None:
+        if not self.templates:
+            self.templates = self.fallback[:]
+        self._pool = TemplatePool(self.templates)
+
+    def next(self, context: dict) -> str:
+        return self._pool.next(context)
+
+    def add_template(self, template: str) -> None:
+        template = template.strip()
+        if not template:
+            raise ValueError("Template content cannot be empty.")
+        self.templates.append(template)
+        self._persist(self.templates)
+        self._refresh_pool()
+
+    def remove_template(self, index: int) -> None:
+        if not (0 <= index < len(self.templates)):
+            raise IndexError("Template index out of range.")
+        del self.templates[index]
+        self._persist(self.templates or self.fallback)
+        self._refresh_pool()
+
+    def edit_template(self, index: int, template: str) -> None:
+        if not (0 <= index < len(self.templates)):
+            raise IndexError("Template index out of range.")
+        template = template.strip()
+        if not template:
+            raise ValueError("Template content cannot be empty.")
+        self.templates[index] = template
+        self._persist(self.templates)
+        self._refresh_pool()
+
+
+reply_manager = TemplateManager(ENV_PATH, "REPLY_TEMPLATES", DEFAULT_REPLY_TEMPLATES)
+dm_manager = TemplateManager(ENV_PATH, "DM_TEMPLATES", DEFAULT_DM_TEMPLATES)
+
+
+def add_reply_template(template: str) -> None:
+    """Add a new public reply template and persist it to the .env file."""
+
+    reply_manager.add_template(template)
+
+
+def remove_reply_template(index: int) -> None:
+    """Remove a reply template by index and persist the change."""
+
+    reply_manager.remove_template(index)
+
+
+def edit_reply_template(index: int, template: str) -> None:
+    """Edit an existing reply template in place and persist it."""
+
+    reply_manager.edit_template(index, template)
+
+
+def add_dm_template(template: str) -> None:
+    """Add a new DM template and persist it."""
+
+    dm_manager.add_template(template)
+
+
+def remove_dm_template(index: int) -> None:
+    """Remove a DM template by index and persist the change."""
+
+    dm_manager.remove_template(index)
+
+
+def edit_dm_template(index: int, template: str) -> None:
+    """Edit an existing DM template."""
+
+    dm_manager.edit_template(index, template)
+
+
+# --- Relevance Engine -----------------------------------------------------
+
+
+@dataclass(slots=True)
+class TopicProfile:
+    """Representation of a search topic with derived alias information."""
+
+    raw: str
+    raw_lower: str = field(init=False)
+    tokens: List[str] = field(init=False)
+    pretty: str = field(init=False)
+    key: str = field(init=False)
+    aliases: List[str] = field(init=False)
+    hashtags: set[str] = field(init=False)
+
+    def __post_init__(self) -> None:
+        self.raw = self.raw.strip()
+        self.raw_lower = self.raw.lower()
+        self.tokens = _tokenize_phrase(self.raw)
+        self.pretty = _prettify_focus(self.raw)
+        self.key = " ".join(self.tokens) if self.tokens else self.raw_lower
+        self.aliases = self._build_aliases()
+        self.hashtags = {f"#{token}" for token in self.tokens if token}
+
+    def _build_aliases(self) -> List[str]:
+        aliases = {self.raw_lower}
+        if len(self.tokens) > 1:
+            joined = " ".join(self.tokens)
+            aliases.add(joined)
+            aliases.add("-".join(self.tokens))
+            aliases.add(joined.replace(" ", ""))
+        for token in self.tokens:
+            aliases.add(token)
+        return sorted(aliases)
+
+    def score(self, normalized_text: str) -> Tuple[float, str]:
+        score = 0.0
+        best_focus = self.pretty
+        best_score = 0.0
+
+        if self.raw_lower in normalized_text:
+            score += 2.8
+            best_focus = self.pretty
+            best_score = 2.8
+
+        for alias in self.aliases:
+            if alias and alias in normalized_text:
+                alias_score = 1.6 if " " in alias else 1.0 + min(len(alias) / 9, 0.8)
+                score += alias_score
+                if alias_score > best_score:
+                    best_score = alias_score
+                    best_focus = _prettify_focus(alias)
+
+        for tag in self.hashtags:
+            if tag in normalized_text:
+                tag_score = 1.4
+                score += tag_score
+                if tag_score > best_score:
+                    best_score = tag_score
+                    best_focus = _prettify_focus(tag.strip("#"))
+
+        coverage = sum(1 for token in self.tokens if token in normalized_text)
+        if self.tokens:
+            score += coverage / len(self.tokens)
+
+        return score, best_focus
+
+
+@dataclass(slots=True)
+class RelevanceResult:
+    is_relevant: bool
+    topic_label: str
+    focus: str
+    topic_key: str
+    topic_score: float
+    keyword_hits: int
+    interest_score: float
+
+
+class RelevanceEngine:
+    """Determines whether a tweet is relevant to configured search topics."""
+
+    def __init__(
+        self,
+        topics: Sequence[str],
+        keywords: Sequence[str],
+        *,
+        min_keyword_matches: int,
+        base_threshold: float = 2.4,
+    ) -> None:
+        self.profiles = [TopicProfile(topic) for topic in topics]
+        self.keyword_inventory = self._build_keywords(keywords)
+        self.min_keyword_matches = max(1, min_keyword_matches)
+        self.base_threshold = base_threshold
+
+    def _build_keywords(self, keywords: Sequence[str]) -> set[str]:
+        inventory = {keyword.lower() for keyword in keywords if keyword}
+        for profile in self.profiles:
+            inventory.update(profile.tokens)
+        return inventory
+
+    def assess(self, text: str) -> RelevanceResult:
+        normalized = text.lower()
+        best_profile: Optional[TopicProfile] = None
+        best_focus = ""
+        best_score = 0.0
+
+        for profile in self.profiles:
+            score, focus = profile.score(normalized)
+            if score > best_score:
+                best_score = score
+                best_profile = profile
+                best_focus = focus
+
+        keyword_hits = sum(1 for keyword in self.keyword_inventory if keyword and keyword in normalized)
+        interest_score = self._interest_score(text)
+
+        if best_profile is None:
+            return RelevanceResult(False, "", "", "", 0.0, keyword_hits, interest_score)
+
+        threshold = self._topic_threshold(best_profile)
+        is_relevant = best_score >= threshold and keyword_hits >= self.min_keyword_matches
+
+        return RelevanceResult(
+            is_relevant,
+            best_profile.raw,
+            best_focus or best_profile.pretty,
+            best_profile.key,
+            best_score,
+            keyword_hits,
+            interest_score,
+        )
+
+    def _topic_threshold(self, profile: TopicProfile) -> float:
+        adjustment = 0.0
+        token_count = len(profile.tokens)
+        if token_count <= 1:
+            adjustment -= 0.4
+        elif token_count >= 3:
+            adjustment += 0.3
+        return self.base_threshold + adjustment
+
+    def _interest_score(self, text: str) -> float:
+        normalized = text.lower()
+        length_score = min(len(normalized) / 95, 4.0)
+        question_score = normalized.count("?") * 1.5
+        exclamation_score = normalized.count("!") * 0.4
+        detail_score = sum(1 for word in normalized.split() if len(word) >= 7) * 0.08
+        callout_phrases = (
+            "any tips",
+            "need help",
+            "looking for",
+            "recommend",
+            "how do you",
+            "what tools",
+            "anyone else",
+            "best way",
+            "curious how",
+            "does anyone",
+        )
+        intent_score = 0.0
+        if any(phrase in normalized for phrase in callout_phrases):
+            intent_score += 1.0
+        if "dm me" in normalized or "hit me up" in normalized:
+            intent_score += 0.6
+        return length_score + question_score + exclamation_score + detail_score + intent_score
 
 
 SPECIAL_FOCUS_FORMATTING = {
@@ -268,72 +455,71 @@ def _prettify_focus(raw: str) -> str:
     return " ".join(formatted_words)
 
 
+relevance_engine = RelevanceEngine(
+    CONFIG.search_topics,
+    CONFIG.relevant_keywords,
+    min_keyword_matches=CONFIG.min_keyword_matches,
+)
+
+
 @dataclass(slots=True)
 class FilterDecision:
     is_relevant: bool
     reason: str
     matched_focus: str
-    quality_score: float
+    topic_score: float
+    interest_score: float
     should_dm: bool
 
 
 class TweetFilter:
-    def __init__(self, config: BotConfig):
+    def __init__(self, config: BotConfig, engine: RelevanceEngine):
         self.config = config
+        self.engine = engine
 
     def analyze(self, topic: str, tweet_text: str) -> FilterDecision:
-        normalized = tweet_text.lower()
-        if not normalized:
-            return FilterDecision(False, "empty text", topic, 0.0, False)
+        text = tweet_text.strip()
+        if not text:
+            return FilterDecision(False, "empty text", topic, 0.0, 0.0, False)
 
+        normalized = text.lower()
         if len(normalized) < self.config.min_tweet_length:
-            return FilterDecision(False, "too short", topic, 0.0, False)
+            return FilterDecision(False, "too short", topic, 0.0, 0.0, False)
 
-        if any(keyword in normalized for keyword in self.config.spam_keywords):
-            return FilterDecision(False, "spam keywords", topic, 0.0, False)
+        if any(keyword and keyword in normalized for keyword in self.config.spam_keywords):
+            return FilterDecision(False, "spam keywords", topic, 0.0, 0.0, False)
 
-        matched_focus = self._match_focus(topic, normalized)
-        if not matched_focus:
-            return FilterDecision(False, "topic mismatch", topic, 0.0, False)
+        relevance = self.engine.assess(text)
+        if not relevance.is_relevant:
+            return FilterDecision(False, "topic mismatch", relevance.focus or topic, relevance.topic_score, relevance.interest_score, False)
 
-        keyword_matches = sum(1 for keyword in self.config.relevant_keywords if keyword in normalized)
-        if keyword_matches < self.config.min_keyword_matches:
-            return FilterDecision(False, "insufficient keyword matches", matched_focus, 0.0, False)
+        if not self._topic_alignment(topic, relevance.topic_key):
+            return FilterDecision(False, "topic mismatch", relevance.focus, relevance.topic_score, relevance.interest_score, False)
 
-        quality_score = self._score_quality(normalized, keyword_matches)
-        should_dm = self._should_dm(normalized, quality_score)
-        return FilterDecision(True, "relevant", matched_focus, quality_score, should_dm)
+        should_dm = self._should_dm(normalized, relevance)
+        return FilterDecision(True, "relevant", relevance.focus, relevance.topic_score, relevance.interest_score, should_dm)
 
-    def _match_focus(self, topic: str, normalized_text: str) -> str:
-        topic_tokens = [token.strip("# ") for token in topic.lower().split() if token.strip("# ")]
-        for token in topic_tokens:
-            if token and token in normalized_text:
-                return _prettify_focus(token)
-        for keyword in self.config.relevant_keywords:
-            if keyword in normalized_text:
-                return _prettify_focus(keyword)
-        return ""
+    def _topic_alignment(self, search_topic: str, result_key: str) -> bool:
+        search_tokens = set(_tokenize_phrase(search_topic))
+        result_tokens = set(result_key.split())
+        if not result_tokens:
+            return False
+        if not search_tokens:
+            return True
+        overlap = len(search_tokens & result_tokens) / len(result_tokens)
+        return overlap >= 0.6 or result_tokens.issubset(search_tokens)
 
-    def _score_quality(self, normalized_text: str, keyword_matches: int) -> float:
-        sentence_breaks = normalized_text.count(".") + normalized_text.count("!")
-        question_marks = normalized_text.count("?")
-        hashtags = normalized_text.count("#")
-        length_factor = min(len(normalized_text) / (self.config.min_tweet_length * 1.5), 2.0)
-        structure_bonus = 0.2 * sentence_breaks + 0.3 * question_marks
-        keyword_bonus = 0.5 * min(keyword_matches, 4)
-        hashtag_penalty = -0.2 if hashtags > 5 else 0.0
-        return max(0.0, length_factor + structure_bonus + keyword_bonus + hashtag_penalty)
-
-    def _should_dm(self, normalized_text: str, quality_score: float) -> bool:
-        if not CONFIG.dm_enabled:
+    def _should_dm(self, normalized_text: str, relevance: RelevanceResult) -> bool:
+        if not self.config.dm_enabled:
             return False
         long_form = len(normalized_text) >= self.config.dm_trigger_length
         question_focus = normalized_text.count("?") * self.config.dm_question_weight >= 1.0
-        high_quality = quality_score >= 2.5
-        return long_form or (question_focus and high_quality)
+        high_interest = relevance.interest_score >= self.config.dm_interest_threshold
+        intent_language = " dm " in f" {normalized_text} " or "message me" in normalized_text
+        return (high_interest and (long_form or question_focus)) or (high_interest and intent_language)
 
 
-tweet_filter = TweetFilter(CONFIG)
+tweet_filter = TweetFilter(CONFIG, relevance_engine)
 
 
 # --- Playwright helpers ---------------------------------------------------
@@ -426,7 +612,7 @@ async def build_reply_message(topic: str, tweet_text: str, focus: str) -> str:
         "focus": focus,
         "ref_link": CONFIG.referral_link,
     }
-    return reply_templates.next(context)
+    return reply_manager.next(context)
 
 
 async def build_dm_message(name: str, focus: str) -> str:
@@ -435,7 +621,7 @@ async def build_dm_message(name: str, focus: str) -> str:
         "focus": focus,
         "ref_link": CONFIG.referral_link,
     }
-    return dm_templates.next(context)
+    return dm_manager.next(context)
 
 
 async def send_reply(page, message: str) -> bool:
@@ -572,7 +758,10 @@ async def process_topic(page, topic: str) -> None:
         decision = tweet_filter.analyze(topic, tweet_text)
         if not decision.is_relevant:
             log(
-                f"Skipped tweet #{idx + 1} for '{topic}' ({decision.reason}).",
+                (
+                    f"Skipped tweet #{idx + 1} for '{topic}' ({decision.reason}; "
+                    f"topic_score={decision.topic_score:.2f}, interest={decision.interest_score:.2f})."
+                ),
                 level="debug",
             )
             continue
