@@ -12,11 +12,12 @@ from __future__ import annotations
 
 import asyncio
 import os
+import random
 import sys
 from contextlib import suppress
 from datetime import datetime
 from pathlib import Path
-from typing import Iterable, List
+from typing import Iterable, List, Optional
 from urllib.parse import quote_plus
 
 from dotenv import load_dotenv
@@ -32,12 +33,44 @@ DEBUG_ENABLED = os.getenv("DEBUG", "").strip().lower() not in {"", "0", "false",
 PROFILE_DIR = Path(os.getenv("PW_PROFILE_DIR", ".pwprofile")).expanduser()
 PROFILE_DIR.mkdir(parents=True, exist_ok=True)
 
-DEFAULT_MESSAGE = (
-    "Love the insights on {topic}! I'm building AI-driven automation plays and"
-    " always keen to swap ideas. Shoot me a DM or grab my favorite toolkit here:"
-    " {ref_link}"
-)
-REPLY_MESSAGE = os.getenv("REPLY_MESSAGE", DEFAULT_MESSAGE)
+DEFAULT_REPLY_TEMPLATES = [
+    (
+        "Loving the {focus} convo! I'm stacking smarter automations every week — "
+        "here's the toolkit I mentioned: {ref_link}"
+    ),
+    (
+        "That take on {focus} hits home. I'm building a playbook around it and "
+        "sharing wins here: {ref_link}"
+    ),
+    (
+        "Appreciate the depth on {focus}. Been testing similar ideas with my AI "
+        "stack — full breakdown lives at {ref_link}"
+    ),
+    (
+        "If you're leaning into {focus}, you'll vibe with the workflows I'm "
+        "documenting. Cliffs + access: {ref_link}"
+    ),
+    (
+        "Your angle on {focus} is sharp. I compiled the automations + tools "
+        "fueling my growth here: {ref_link}"
+    ),
+]
+
+
+def _split_templates(raw: Optional[str]) -> List[str]:
+    if not raw:
+        return []
+    parts: List[str] = []
+    if "||" in raw:
+        parts = raw.split("||")
+    else:
+        parts = raw.splitlines()
+    templates = [part.strip() for part in parts if part.strip()]
+    return templates
+
+
+ENV_REPLY_TEMPLATES = _split_templates(os.getenv("REPLY_TEMPLATES"))
+REPLY_TEMPLATES = ENV_REPLY_TEMPLATES if len(ENV_REPLY_TEMPLATES) >= 5 else DEFAULT_REPLY_TEMPLATES
 REFERRAL_LINK = os.getenv("REFERRAL_LINK", "https://example.com/referral")
 MAX_REPLIES_PER_TOPIC = int(os.getenv("MAX_REPLIES_PER_TOPIC", "3"))
 MIN_TWEET_LENGTH = int(os.getenv("MIN_TWEET_LENGTH", "40"))
@@ -65,6 +98,9 @@ DEFAULT_RELEVANT_KEYWORDS = [
     "quant",
     "quantitative",
     "machine learning",
+    "making money online",
+    "side hustle",
+    "passive income",
 ]
 DEFAULT_SPAM_KEYWORDS = [
     "giveaway",
@@ -182,7 +218,7 @@ async def extract_tweet_text(tweet_locator) -> str:
     return cleaned.strip()
 
 
-def is_tweet_relevant(tweet_text: str) -> bool:
+def is_tweet_relevant(tweet_text: str, topic: str) -> bool:
     if not tweet_text:
         return False
 
@@ -193,13 +229,69 @@ def is_tweet_relevant(tweet_text: str) -> bool:
     if any(keyword in normalized for keyword in SPAM_KEYWORDS):
         return False
 
+    topic_normalized = topic.lower()
+    if topic_normalized and topic_normalized in normalized:
+        return True
+
     if RELEVANT_KEYWORDS and any(keyword in normalized for keyword in RELEVANT_KEYWORDS):
         return True
 
     return False
 
 
-async def reply_to_tweet(page, tweet_locator, topic: str, index: int) -> bool:
+SPECIAL_FOCUS_FORMATTING = {
+    "ai": "AI",
+    "gpt": "GPT",
+    "chatgpt": "ChatGPT",
+    "defi": "DeFi",
+    "web3": "Web3",
+}
+
+
+def _prettify_focus(raw: str) -> str:
+    key = raw.strip().lower()
+    if key in SPECIAL_FOCUS_FORMATTING:
+        return SPECIAL_FOCUS_FORMATTING[key]
+    words = raw.split()
+    formatted_words = [word.upper() if len(word) <= 3 else word.capitalize() for word in words]
+    return " ".join(formatted_words)
+
+
+def detect_focus_keyword(topic: str, tweet_text: str) -> str:
+    normalized = tweet_text.lower()
+    topic_normalized = topic.lower()
+    if topic_normalized and topic_normalized in normalized:
+        return _prettify_focus(topic)
+
+    for keyword in RELEVANT_KEYWORDS:
+        if keyword in normalized:
+            return _prettify_focus(keyword)
+
+    return _prettify_focus(topic)
+
+
+def build_reply_message(topic: str, tweet_text: str) -> str:
+    template = random.choice(REPLY_TEMPLATES)
+    focus = detect_focus_keyword(topic, tweet_text)
+    context = {
+        "topic": topic,
+        "focus": focus,
+        "ref_link": REFERRAL_LINK,
+    }
+    try:
+        return template.format(**context)
+    except KeyError:
+        fallback_context = {"topic": topic, "ref_link": REFERRAL_LINK}
+        return template.format(**fallback_context)
+
+
+async def reply_to_tweet(
+    page,
+    tweet_locator,
+    topic: str,
+    index: int,
+    tweet_text: str,
+) -> bool:
     log(f"Replying to tweet #{index + 1} for '{topic}'.", level="debug")
     try:
         reply_button = tweet_locator.locator("[data-testid='reply']").first
@@ -218,10 +310,7 @@ async def reply_to_tweet(page, tweet_locator, topic: str, index: int) -> bool:
             return False
 
         await textbox.click()
-        try:
-            message = REPLY_MESSAGE.format(topic=topic, ref_link=REFERRAL_LINK)
-        except KeyError:
-            message = REPLY_MESSAGE.format(topic=topic)
+        message = build_reply_message(topic, tweet_text)
         await page.keyboard.type(message, delay=20)
         await page.wait_for_timeout(200)
         await page.keyboard.press("Meta+Enter")
@@ -258,14 +347,14 @@ async def process_topic(page, topic: str) -> None:
             log(f"Skipped tweet #{idx + 1} for '{topic}' (no readable text).", level="debug")
             continue
 
-        if not is_tweet_relevant(tweet_text):
+        if not is_tweet_relevant(tweet_text, topic):
             log(
                 f"Skipped tweet #{idx + 1} for '{topic}' (irrelevant content).",
                 level="debug",
             )
             continue
 
-        success = await reply_to_tweet(page, tweet, topic, idx)
+        success = await reply_to_tweet(page, tweet, topic, idx, tweet_text)
         if success:
             replies_sent += 1
             await page.wait_for_timeout(1500)
