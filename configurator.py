@@ -55,7 +55,7 @@ ENV_DEFAULTS: Dict[str, str] = {
     "ACTION_DELAY_MAX_SECONDS": "600",
     "MESSAGE_REGISTRY_PATH": "logs/messaged_users.json",
     "IMAGE_PROVIDER": "openai",
-    "IMAGE_MODEL": "gpt-image-1",
+    "IMAGE_MODEL": "dall-e-3",
     "IMAGE_SIZE": "1024x1024",
     "VIDEO_PROVIDER": "replicate",
     "VIDEO_MODEL": "pika-labs/pika-1.0",

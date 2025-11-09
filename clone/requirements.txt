@@ -16,7 +16,7 @@ packaging==25.0
 pillow==11.3.0
 playwright==1.49.0
 proglog==0.1.12
-pydantic==2.9.2
+pydantic==1.10.14
 pyee==12.0.0
 python-dotenv==1.2.1
 replicate==0.25.2

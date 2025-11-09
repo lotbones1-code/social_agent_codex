@@ -18,7 +18,14 @@ from urllib.parse import quote_plus
 
 import httpx
 from dotenv import load_dotenv
-from openai import OpenAI
+
+try:
+    import openai
+except ImportError as exc:  # pragma: no cover - handled at runtime
+    openai = None  # type: ignore[assignment]
+    _OPENAI_IMPORT_ERROR: Optional[Exception] = exc
+else:
+    _OPENAI_IMPORT_ERROR = None
 from playwright.async_api import Error as PlaywrightError
 from playwright.async_api import TimeoutError as PlaywrightTimeout
 from playwright.async_api import async_playwright
@@ -389,18 +396,29 @@ class AIImageService:
         self.config = config
         self.provider = (self.config.image_provider or "").strip().lower()
         self.api_key = os.getenv("OPENAI_API_KEY", "").strip()
-        self.client: Optional[OpenAI] = None
+        self._client_ready = False
         self._disabled = False
 
         if self.provider in {"", "none", "disabled"}:
             self._disabled = True
             log("Image generation disabled via IMAGE_PROVIDER setting.", level="debug")
         elif self.provider in {"openai", "dalle", "dall-e"}:
+            if _OPENAI_IMPORT_ERROR:
+                raise SystemExit(
+                    "IMAGE_PROVIDER=openai requires the optional 'openai' package. "
+                    "Install it with `pip install openai` or set IMAGE_PROVIDER=none."
+                ) from _OPENAI_IMPORT_ERROR
             if not self.api_key:
                 raise SystemExit(
                     "IMAGE_PROVIDER=openai requires OPENAI_API_KEY to be set in the environment."
                 )
-            self.client = OpenAI(api_key=self.api_key)
+            try:
+                assert openai is not None
+                openai.api_key = self.api_key
+                self._client_ready = True
+            except Exception as exc:  # noqa: BLE001
+                self._client_ready = False
+                log(f"Failed to initialize OpenAI client: {exc}", level="error")
         else:
             raise SystemExit(
                 f"Unsupported IMAGE_PROVIDER '{self.config.image_provider}'. "
@@ -410,7 +428,7 @@ class AIImageService:
     async def generate(self, prompt: str) -> Optional[str]:
         if self._disabled:
             return None
-        if not self.client:
+        if not self._client_ready:
             log("Image generation unavailable (OpenAI client failed to initialize).", level="error")
             return None
         loop = asyncio.get_running_loop()
@@ -418,13 +436,24 @@ class AIImageService:
 
     def _sync_generate(self, prompt: str) -> Optional[str]:
         try:
-            response = self.client.images.generate(
-                model=self.config.image_model,
+            assert openai is not None
+            model = self.config.image_model
+            if model == "gpt-image-1":
+                model = "dall-e-3"
+            response = openai.Image.create(
                 prompt=prompt,
                 size=self.config.image_size,
+                n=1,
+                model=model or None,
             )
-            if response.data:
-                return response.data[0].url
+            data = response.get("data") if isinstance(response, dict) else getattr(response, "data", None)
+            if data:
+                first = data[0]
+                if isinstance(first, dict):
+                    return first.get("url")
+                url = getattr(first, "url", None)
+                if isinstance(url, str):
+                    return url
         except Exception as exc:  # noqa: BLE001
             log(f"Image generation failed: {exc}", level="warning")
         return None
