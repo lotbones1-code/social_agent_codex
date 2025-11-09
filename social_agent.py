@@ -1107,35 +1107,17 @@ class SocialAgent:
             self.scheduler,
         )
 
-    async def run(self) -> None:
+    async def run(self, page) -> None:
         log(f"Starting bot with topics: {', '.join(CONFIG.search_topics)}")
-        browser_args = [
-            "--disable-blink-features=AutomationControlled",
-            "--no-first-run",
-            "--no-default-browser-check",
-            "--disable-dev-shm-usage",
-        ]
-
-        async with async_playwright() as playwright:
-            context = await playwright.chromium.launch_persistent_context(
-                str(CONFIG.profile_dir),
-                headless=False,
-                args=browser_args,
-            )
-            try:
-                page = await ensure_page(context)
-                log("Browser ready. Beginning main loop.")
-                while True:
-                    # Iterate over configured topics so new workflows can be injected or reordered easily.
-                    for topic in CONFIG.search_topics:
-                        try:
-                            await self._process_topic(page, topic)
-                        except Exception as exc:  # noqa: BLE001
-                            log(f"Error while processing topic '{topic}': {exc}", level="error")
-                    log("Cycle complete. Restarting after scheduled delay.")
-                    await self.scheduler.wait("starting new cycle")
-            finally:
-                await context.close()
+        while True:
+            # Iterate over configured topics so new workflows can be injected or reordered easily.
+            for topic in CONFIG.search_topics:
+                try:
+                    await self._process_topic(page, topic)
+                except Exception as exc:  # noqa: BLE001
+                    log(f"Error while processing topic '{topic}': {exc}", level="error")
+            log("Cycle complete. Restarting after scheduled delay.")
+            await self.scheduler.wait("starting new cycle")
 
     async def _process_topic(self, page, topic: str) -> None:
         await self.scheduler.wait(f"opening search for {topic}")
@@ -1162,9 +1144,31 @@ class SocialAgent:
 # ---------------------------------------------------------------------------
 
 
-def main() -> None:
+async def main() -> None:
+    browser_args = [
+        "--disable-blink-features=AutomationControlled",
+        "--no-first-run",
+        "--no-default-browser-check",
+        "--disable-dev-shm-usage",
+    ]
+
+    agent = SocialAgent()
+
     try:
-        asyncio.run(SocialAgent().run())
+        async with async_playwright() as playwright:
+            context = None
+            try:
+                context = await playwright.chromium.launch_persistent_context(
+                    str(CONFIG.profile_dir),
+                    headless=False,
+                    args=browser_args,
+                )
+                page = await ensure_page(context)
+                log("Browser ready. Beginning main loop.")
+                await agent.run(page)
+            finally:
+                if context is not None:
+                    await context.close()
     except PlaywrightError as exc:
         message = str(exc)
         if "Executable doesn't exist" in message:
@@ -1181,4 +1185,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
