@@ -10,13 +10,14 @@ import random
 from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, List
+from typing import Iterable, List, Tuple
 from urllib.parse import quote_plus
 
 from dotenv import load_dotenv
 from playwright.async_api import (
     BrowserContext,
     Error as PlaywrightError,
+    Locator,
     Page,
     TimeoutError as PlaywrightTimeout,
     async_playwright,
@@ -178,22 +179,6 @@ def _candidate_identifier(candidate: TweetCandidate) -> str:
     return candidate.url or candidate.tweet_id
 
 
-def should_skip_candidate(candidate: TweetCandidate) -> bool:
-    text = candidate.text.strip()
-    if not text or len(text) < MIN_TWEET_LENGTH:
-        return True
-    normalized = text.lower()
-    if SPAM_KEYWORDS and any(keyword in normalized for keyword in SPAM_KEYWORDS):
-        return True
-    if RELEVANT_KEYWORDS:
-        matches = sum(1 for keyword in RELEVANT_KEYWORDS if keyword in normalized)
-        if matches < MIN_KEYWORD_MATCHES:
-            return True
-    if candidate.author_handle and X_USERNAME and candidate.author_handle.lower() == X_USERNAME.lower():
-        return True
-    return False
-
-
 def mark_replied(identifier: str) -> None:
     if identifier not in MESSAGE_REGISTRY["replied"]:
         MESSAGE_REGISTRY["replied"].append(identifier)
@@ -307,7 +292,7 @@ async def ensure_logged_in(page: Page) -> bool:
     return False
 
 
-async def get_tweet_elements(page: Page):
+async def get_tweet_elements(page: Page) -> list[Locator]:
     try:
         await page.wait_for_selector(TWEET_SELECTOR, timeout=15000)
     except PlaywrightTimeout:
@@ -365,7 +350,15 @@ async def extract_candidate(tweet_locator) -> TweetCandidate | None:
     )
 
 
-async def send_reply(page: Page, tweet_locator, message: str, *, topic: str | None, handle: str) -> bool:
+async def send_reply(
+    page: Page,
+    tweet_locator,
+    message: str,
+    *,
+    topic: str | None,
+    handle: str,
+    tweet_id: str,
+) -> bool:
     try:
         await tweet_locator.locator("div[data-testid='reply']").click()
         composer = page.locator("div[data-testid^='tweetTextarea_']").first
@@ -376,7 +369,11 @@ async def send_reply(page: Page, tweet_locator, message: str, *, topic: str | No
         await page.keyboard.insert_text(message)
         await page.locator("div[data-testid='tweetButtonInline']").click()
         await asyncio.sleep(2)
-        print(f"[INFO] Replied to @{handle or 'unknown'} on topic '{topic or 'timeline'}'.")
+        topic_label = topic or "home timeline"
+        print(
+            f"[INFO] Replied to @{handle or 'unknown'} on topic '{topic_label}' "
+            f"(tweet id {tweet_id})."
+        )
         return True
     except PlaywrightTimeout:
         print("[WARN] Timeout while composing reply.")
@@ -386,29 +383,77 @@ async def send_reply(page: Page, tweet_locator, message: str, *, topic: str | No
 
 
 async def engage_with_tweets(page: Page, tweets, *, topic: str | None) -> None:
-    replies_sent = 0
+    topic_label = topic or "home timeline"
+    evaluated: list[Tuple[TweetCandidate, Locator, str]] = []
+
     for tweet_locator in tweets:
         if page.is_closed():
             print("[WARN] Page closed during engagement. Stopping current cycle.")
             return
-        if topic is not None and replies_sent >= MAX_REPLIES_PER_TOPIC:
-            break
 
         candidate = await extract_candidate(tweet_locator)
         if not candidate:
             continue
 
+        text = candidate.text.strip()
+        text_l = text.lower()
         identifier = _candidate_identifier(candidate)
-        if identifier in MESSAGE_REGISTRY["replied"]:
-            continue
-        if should_skip_candidate(candidate):
-            continue
+        match_count = sum(1 for keyword in RELEVANT_KEYWORDS if keyword in text_l)
+        is_spam = any(keyword in text_l for keyword in SPAM_KEYWORDS)
+        length_ok = len(text) >= MIN_TWEET_LENGTH
+        keyword_ok = match_count >= MIN_KEYWORD_MATCHES if RELEVANT_KEYWORDS else True
+        self_authored = (
+            bool(candidate.author_handle)
+            and bool(X_USERNAME)
+            and candidate.author_handle.lower() == X_USERNAME.lower()
+        )
+        already_replied = identifier in MESSAGE_REGISTRY["replied"]
+
+        if DEBUG:
+            print(
+                f"[DEBUG] Candidate tweet {candidate.tweet_id}: len={len(text)}, "
+                f"matches={match_count}, spam={is_spam}, self={self_authored}, "
+                f"replied={already_replied}"
+            )
+
+        eligible = (
+            length_ok
+            and not is_spam
+            and keyword_ok
+            and not self_authored
+            and not already_replied
+        )
+
+        if eligible:
+            evaluated.append((candidate, tweet_locator, identifier))
+
+    print(
+        f"[INFO] {len(evaluated)} eligible tweets for topic '{topic_label}' after filtering."
+    )
+
+    if not evaluated:
+        print(f"[INFO] No eligible tweets for topic '{topic_label}'.")
+        return
+
+    replies_sent = 0
+    for candidate, tweet_locator, identifier in evaluated:
+        if replies_sent >= MAX_REPLIES_PER_TOPIC:
+            break
 
         reply_text = build_reply(topic, candidate.text)
-        if await send_reply(page, tweet_locator, reply_text, topic=topic, handle=candidate.author_handle):
+        if await send_reply(
+            page,
+            tweet_locator,
+            reply_text,
+            topic=topic_label,
+            handle=candidate.author_handle,
+            tweet_id=candidate.tweet_id,
+        ):
             mark_replied(identifier)
             replies_sent += 1
-            await asyncio.sleep(random.randint(ACTION_DELAY_MIN_SECONDS, ACTION_DELAY_MAX_SECONDS))
+            await asyncio.sleep(
+                random.randint(ACTION_DELAY_MIN_SECONDS, ACTION_DELAY_MAX_SECONDS)
+            )
 
 
 # =============================================================================
@@ -429,6 +474,7 @@ async def handle_topic(page: Page, topic: str) -> None:
         return
 
     tweets = await get_tweet_elements(page)
+    print(f"[INFO] Loaded {len(tweets)} raw tweets for topic '{topic}'.")
     if not tweets:
         print(f"[INFO] No tweets for topic '{topic}'. Skipping.")
         return
@@ -448,6 +494,7 @@ async def handle_home_timeline(page: Page) -> None:
         return
 
     tweets = await get_tweet_elements(page)
+    print(f"[INFO] Loaded {len(tweets)} raw tweets for topic 'home timeline'.")
     if not tweets:
         print("[INFO] No tweets loaded on home timeline. Skipping.")
         return
@@ -475,6 +522,10 @@ async def run_engagement_loop(page: Page) -> None:
             raise
         except PlaywrightError as exc:
             print(f"[WARN] Playwright error in engagement loop: {exc}")
+            message = str(exc).lower()
+            if "has been closed" in message or "target closed" in message:
+                print("[INFO] Browser or page closed — stopping engagement loop.")
+                return
             await asyncio.sleep(10)
         except Exception as exc:  # noqa: BLE001
             print(f"[WARN] Unexpected error in engagement loop: {exc}")
