@@ -1,5 +1,14 @@
 #!/usr/bin/env python3
-"""Ultra-human modular social agent for X interactions."""
+"""Ultra-human modular social agent for X interactions.
+
+High-level:
+- Uses Playwright to control X.
+- Loads config from .env.
+- Logs in with persistent session or credentials.
+- Scans timelines or search results.
+- Replies & DMs high-signal users with smart templates and my referral link.
+- Optionally generates video via Replicate when configured.
+"""
 
 from __future__ import annotations
 
@@ -8,59 +17,49 @@ import json
 import os
 import random
 import sys
+import time
 from contextlib import suppress
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Iterable, List
 from urllib.parse import quote_plus
 
 from dotenv import load_dotenv
-from playwright.async_api import Error as PlaywrightError
-from playwright.async_api import TimeoutError as PlaywrightTimeout
-from playwright.async_api import async_playwright
+from playwright.async_api import (
+    async_playwright,
+    Error as PlaywrightError,
+    TimeoutError as PlaywrightTimeout,
+)
 
 # == Environment ===============================================================
 
+load_dotenv()
+
 BASE_DIR = Path(__file__).parent
-
-
-def load_environment() -> None:
-    """Load environment variables from the project .env file and defaults."""
-
-    env_candidates = [
-        BASE_DIR / ".env",
-        Path.cwd() / ".env",
-    ]
-
-    for candidate in env_candidates:
-        if candidate.exists():
-            load_dotenv(candidate, override=False)
-
-    # Final call ensures process env vars remain authoritative.
-    load_dotenv(override=False)
-
-
-load_environment()
 
 X_USERNAME = os.getenv("X_USERNAME") or os.getenv("USERNAME")
 X_PASSWORD = os.getenv("X_PASSWORD") or os.getenv("PASSWORD")
 PW_PROFILE_DIR = os.getenv("PW_PROFILE_DIR", ".pwprofile")
 
-REFERRAL_LINK = os.getenv("REFERRAL_LINK", "").strip()
+REFERRAL_LINK = (os.getenv("REFERRAL_LINK") or "").strip()
 
-# Topics are optional. If empty, the bot will use home timeline instead of crashing.
-SEARCH_TOPICS_RAW = os.getenv("SEARCH_TOPICS", "").strip()
+SEARCH_TOPICS_RAW = (os.getenv("SEARCH_TOPICS") or "").strip()
 SEARCH_TOPICS: list[str] = [
-    t.strip()
-    for t in SEARCH_TOPICS_RAW.split(",")
-    if t.strip()
+    t.strip() for t in SEARCH_TOPICS_RAW.split(",") if t.strip()
 ]
 
-RELEVANT_KEYWORDS_RAW = os.getenv("RELEVANT_KEYWORDS", "")
-RELEVANT_KEYWORDS = [k.strip().lower() for k in RELEVANT_KEYWORDS_RAW.split(",") if k.strip()]
+RELEVANT_KEYWORDS = [
+    k.strip().lower()
+    for k in (os.getenv("RELEVANT_KEYWORDS") or "").split(",")
+    if k.strip()
+]
 
-SPAM_KEYWORDS_RAW = os.getenv("SPAM_KEYWORDS", "")
-SPAM_KEYWORDS = [k.strip().lower() for k in SPAM_KEYWORDS_RAW.split(",") if k.strip()]
+SPAM_KEYWORDS = [
+    k.strip().lower()
+    for k in (os.getenv("SPAM_KEYWORDS") or "").split(",")
+    if k.strip()
+]
 
 ACTION_DELAY_MIN = int(os.getenv("ACTION_DELAY_MIN_SECONDS", "60"))
 ACTION_DELAY_MAX = int(os.getenv("ACTION_DELAY_MAX_SECONDS", "600"))
@@ -69,599 +68,447 @@ MAX_REPLIES_PER_TOPIC = int(os.getenv("MAX_REPLIES_PER_TOPIC", "3"))
 MIN_TWEET_LENGTH = int(os.getenv("MIN_TWEET_LENGTH", "70"))
 MIN_KEYWORD_MATCHES = int(os.getenv("MIN_KEYWORD_MATCHES", "1"))
 
-ENABLE_DMS = os.getenv("ENABLE_DMS", "false").lower() == "true"
+ENABLE_DMS = (os.getenv("ENABLE_DMS", "false").lower() == "true")
 DM_TRIGGER_LENGTH = int(os.getenv("DM_TRIGGER_LENGTH", "220"))
 DM_INTEREST_THRESHOLD = float(os.getenv("DM_INTEREST_THRESHOLD", "3.0"))
 DM_QUESTION_WEIGHT = float(os.getenv("DM_QUESTION_WEIGHT", "0.7"))
 
-DEBUG = os.getenv("DEBUG", "false").lower() == "true"
-HEADLESS = os.getenv("HEADLESS", "false").lower() == "true"
+DEBUG = (os.getenv("DEBUG", "false").lower() == "true")
 
-if ACTION_DELAY_MIN > ACTION_DELAY_MAX:
-    ACTION_DELAY_MIN, ACTION_DELAY_MAX = ACTION_DELAY_MAX, ACTION_DELAY_MIN
+MESSAGE_REGISTRY_PATH = Path(
+    os.getenv("MESSAGE_REGISTRY_PATH", "logs/messaged_users.json")
+)
+MESSAGE_REGISTRY_PATH.parent.mkdir(parents=True, exist_ok=True)
 
-# Reply and DM templates
-REPLY_TEMPLATES_RAW = os.getenv("REPLY_TEMPLATES", "")
-DM_TEMPLATES_RAW = os.getenv("DM_TEMPLATES", "")
+REPLY_TEMPLATES = [
+    t.strip()
+    for t in (os.getenv("REPLY_TEMPLATES") or "").split("||")
+    if t.strip()
+]
 
-REPLY_TEMPLATES = [t.strip() for t in REPLY_TEMPLATES_RAW.split("||") if t.strip()]
-DM_TEMPLATES = [t.strip() for t in DM_TEMPLATES_RAW.split("||") if t.strip()]
+DM_TEMPLATES = [
+    t.strip()
+    for t in (os.getenv("DM_TEMPLATES") or "").split("||")
+    if t.strip()
+]
 
-# Default message as safe fallback
+HEADLESS = (os.getenv("HEADLESS", "false").lower() == "true")
+
 DEFAULT_MESSAGE = (
-    "I’ve been using a new AI browser + workflow system that automates a ton of work. "
-    f"If you’re into serious AI/automation, this is the stack I’d start with: {REFERRAL_LINK}"
+    "I’ve been using a serious AI browser + automation stack that offloads a ton of work. "
+    f"If you're into real automation, here's what I’m using: {REFERRAL_LINK}"
     if REFERRAL_LINK
-    else "I’ve been using a new AI browser + workflow system that automates a ton of work."
+    else "I’ve been using a serious AI browser + automation stack that offloads a ton of work."
 )
 
-# Choose base reply message
 REPLY_MESSAGE = os.getenv("REPLY_MESSAGE", DEFAULT_MESSAGE)
 
 # == Video Provider ============================================================
 
-VIDEO_PROVIDER = os.getenv("VIDEO_PROVIDER", "none").strip().lower()
-REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN", "").strip()
-VIDEO_MODEL = os.getenv("VIDEO_MODEL", "")
+VIDEO_PROVIDER = (os.getenv("VIDEO_PROVIDER") or "none").strip().lower()
+REPLICATE_API_TOKEN = (os.getenv("REPLICATE_API_TOKEN") or "").strip()
+VIDEO_MODEL = (os.getenv("VIDEO_MODEL") or "").strip()
 VIDEO_DURATION_SECONDS = int(os.getenv("VIDEO_DURATION_SECONDS", "8"))
 
-replicate_client: Optional[object] = None
+replicate_client = None
 
 if VIDEO_PROVIDER == "replicate":
     try:
         import replicate  # type: ignore
-        if REPLICATE_API_TOKEN:
+
+        if REPLICATE_API_TOKEN and VIDEO_MODEL:
             replicate_client = replicate.Client(api_token=REPLICATE_API_TOKEN)
             print("[INFO] Replicate video provider enabled.")
         else:
-            print("[WARN] VIDEO_PROVIDER=replicate but REPLICATE_API_TOKEN is missing. Disabling video.")
+            print("[WARN] Replicate configured but missing token or model. Disabling video.")
             VIDEO_PROVIDER = "none"
     except ImportError:
-        print("[WARN] VIDEO_PROVIDER=replicate but 'replicate' package is not installed. Disabling video.")
+        print("[WARN] VIDEO_PROVIDER=replicate but 'replicate' is not installed. Disabling video.")
         VIDEO_PROVIDER = "none"
 else:
     VIDEO_PROVIDER = "none"
 
-# == State =====================================================================
-
-STATE_PATH = BASE_DIR / "logs" / "agent_state.json"
-STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+# == Logging ==================================================================
 
 
 def log(message: str, *, level: str = "INFO") -> None:
-    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    print(f"[{level.upper()}] {ts} {message}")
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    print(f"[{level}] {timestamp} {message}")
     sys.stdout.flush()
 
 
-def load_state() -> dict:
-    if STATE_PATH.exists():
-        try:
-            with STATE_PATH.open("r", encoding="utf-8") as fh:
-                data = json.load(fh)
-        except (json.JSONDecodeError, OSError):
-            data = None
-        if isinstance(data, dict):
-            data.setdefault("replied_ids", [])
-            data.setdefault("dm_ids", [])
-            return data
-    return {"replied_ids": [], "dm_ids": []}
+log(f"Loaded {len(SEARCH_TOPICS)} topics." if SEARCH_TOPICS else "Loaded 0 topics; using home timeline.")
+log(f"Using HEADLESS={HEADLESS}.")
+log(f"Video provider: {VIDEO_PROVIDER}.")
+
+# == Message Registry ==========================================================
 
 
-def save_state(state: dict) -> None:
-    with STATE_PATH.open("w", encoding="utf-8") as fh:
-        json.dump(state, fh, indent=2)
+def _default_registry() -> dict[str, List[str]]:
+    return {"replied": [], "dm": []}
 
 
-def summarize_config() -> str:
-    summary = {
-        "topics": SEARCH_TOPICS,
-        "relevant_keywords": RELEVANT_KEYWORDS,
-        "spam_keywords": SPAM_KEYWORDS,
-        "dms_enabled": ENABLE_DMS,
-        "video_provider": VIDEO_PROVIDER,
-        "headless": HEADLESS if not DEBUG else False,
-        "debug": DEBUG,
-    }
-    return json.dumps(summary, ensure_ascii=False)
+def _unique(items: Iterable[str]) -> List[str]:
+    seen: List[str] = []
+    for item in items:
+        if item not in seen:
+            seen.append(str(item))
+    return seen
 
 
-def choose_reply(topic: str, focus: str) -> str:
-    template: Optional[str] = None
-    if REPLY_TEMPLATES:
-        template = random.choice(REPLY_TEMPLATES)
-    else:
-        template = REPLY_MESSAGE
-
+def load_message_registry() -> dict[str, List[str]]:
+    if not MESSAGE_REGISTRY_PATH.exists():
+        return _default_registry()
     try:
-        return template.format(topic=topic, focus=focus, ref_link=REFERRAL_LINK)
-    except Exception:
-        return template
+        with MESSAGE_REGISTRY_PATH.open("r", encoding="utf-8") as handle:
+            data = json.load(handle)
+        if isinstance(data, dict):
+            data.setdefault("replied", [])
+            data.setdefault("dm", [])
+            data["replied"] = _unique(data["replied"])  # type: ignore[arg-type]
+            data["dm"] = _unique(data["dm"])  # type: ignore[arg-type]
+            return data
+    except (OSError, json.JSONDecodeError) as exc:
+        log(f"Failed to load message registry: {exc}", level="WARN")
+    return _default_registry()
 
 
-def should_skip_text(text: str) -> bool:
+MESSAGE_REGISTRY = load_message_registry()
+
+
+def save_message_registry() -> None:
+    try:
+        with MESSAGE_REGISTRY_PATH.open("w", encoding="utf-8") as handle:
+            json.dump(MESSAGE_REGISTRY, handle, indent=2)
+    except OSError as exc:
+        log(f"Failed to persist message registry: {exc}", level="WARN")
+
+
+# == Utilities =================================================================
+
+
+def random_delay_seconds() -> int:
+    if ACTION_DELAY_MIN > ACTION_DELAY_MAX:
+        return ACTION_DELAY_MIN
+    return random.randint(ACTION_DELAY_MIN, ACTION_DELAY_MAX)
+
+
+@dataclass
+class TweetCandidate:
+    tweet_id: str
+    url: str
+    author_handle: str
+    text: str
+
+
+def should_skip_candidate(candidate: TweetCandidate) -> bool:
+    text = candidate.text.strip()
+    if not text or len(text) < MIN_TWEET_LENGTH:
+        return True
     normalized = text.lower()
-    if not text.strip():
-        return True
-    if len(text.strip()) < MIN_TWEET_LENGTH:
-        return True
-    if SPAM_KEYWORDS and any(keyword in normalized for keyword in SPAM_KEYWORDS):
+    if any(blocked in normalized for blocked in SPAM_KEYWORDS):
         return True
     if RELEVANT_KEYWORDS:
         matches = sum(1 for keyword in RELEVANT_KEYWORDS if keyword in normalized)
         if matches < MIN_KEYWORD_MATCHES:
             return True
+    if candidate.author_handle and X_USERNAME and candidate.author_handle.lower() == X_USERNAME.lower():
+        return True
     return False
 
 
-def is_my_tweet(author_handle: Optional[str]) -> bool:
-    if not author_handle or not X_USERNAME:
-        return False
-    return author_handle.lstrip("@").lower() == X_USERNAME.lower()
+def mark_replied(identifier: str) -> None:
+    if identifier not in MESSAGE_REGISTRY["replied"]:
+        MESSAGE_REGISTRY["replied"].append(identifier)
+        save_message_registry()
 
 
-def parse_interest_score(text: str) -> float:
-    normalized = text.lower()
-    question_bonus = normalized.count("?") * DM_QUESTION_WEIGHT
-    keyword_bonus = sum(1 for keyword in RELEVANT_KEYWORDS if keyword in normalized)
-    length_bonus = len(text) / 100
-    return question_bonus + keyword_bonus + length_bonus
+def mark_dm(identifier: str) -> None:
+    if identifier not in MESSAGE_REGISTRY["dm"]:
+        MESSAGE_REGISTRY["dm"].append(identifier)
+        save_message_registry()
 
 
-def detect_focus(text: str, default: str) -> str:
-    normalized = text.lower()
-    for keyword in RELEVANT_KEYWORDS:
-        if keyword in normalized:
-            return keyword
-    return default
-
-
-def is_on_x_domain(url: str) -> bool:
-    normalized = url.lower()
-    if "x.com" not in normalized:
-        return False
-    if "/login" in normalized:
-        return False
-    return True
-
-
-async def ensure_on_x_domain(page) -> None:
+def build_reply(topic: str | None, text: str) -> str:
+    focus = text.strip().replace("\n", " ")[:160]
+    template = random.choice(REPLY_TEMPLATES) if REPLY_TEMPLATES else REPLY_MESSAGE
     try:
-        await page.wait_for_function(
-            "() => window.location.href.toLowerCase().includes('x.com')",
-            timeout=5000,
-        )
-    except PlaywrightTimeout:
-        log("Post-login navigation did not reach x.com; forcing redirect to home.", level="WARN")
-        await page.goto("https://x.com/home", wait_until="networkidle")
-        with suppress(PlaywrightTimeout):
-            await page.wait_for_timeout(2000)
+        return template.format(topic=topic or "this", focus=focus, ref_link=REFERRAL_LINK)
+    except Exception:
+        return template
 
 
-async def wait_for_manual_login(page, timeout_ms: int) -> None:
-    log(
-        "Waiting for manual login confirmation (SideNav account switcher to appear).",
-        level="INFO",
+def build_dm(text: str, topic: str | None) -> str:
+    focus = text.strip().replace("\n", " ")[:200]
+    fallback = (
+        "Really enjoyed your thoughts here — I've been running an AI browser + automation stack that's been a game changer. "
+        f"Happy to share: {REFERRAL_LINK}" if REFERRAL_LINK else "Really enjoyed your thoughts here — I've been running an AI browser + automation stack that's been a game changer."
     )
-    await page.wait_for_selector(
-        'div[data-testid="SideNav_AccountSwitcher_Button"]', timeout=timeout_ms
-    )
-
-
-async def wait_for_login_transition(page, timeout_ms: int) -> bool:
-    """Wait for the login flow to navigate away from the login screen."""
-
+    template = random.choice(DM_TEMPLATES) if DM_TEMPLATES else fallback
     try:
-        await page.wait_for_function(
-            """
-            () => {
-                const href = window.location.href;
-                const normalized = href.toLowerCase();
-                const is_x_domain = normalized.includes("x.com");
-                const still_on_login = normalized.includes("/login");
-                return is_x_domain && !still_on_login;
-            }
-            """,
-            timeout=timeout_ms,
-        )
+        return template.format(topic=topic or "this", focus=focus, ref_link=REFERRAL_LINK)
+    except Exception:
+        return template
+
+
+def dm_interest_score(text: str) -> float:
+    normalized = text.lower()
+    matches = sum(1 for keyword in RELEVANT_KEYWORDS if keyword in normalized)
+    question_bonus = text.count("?") * DM_QUESTION_WEIGHT
+    length_bonus = 1.0 if len(text) >= DM_TRIGGER_LENGTH else 0.0
+    return matches + question_bonus + length_bonus
+
+
+# == Playwright helpers ========================================================
+
+
+async def create_browser():
+    pw = await async_playwright().start()
+    context = await pw.chromium.launch_persistent_context(
+        PW_PROFILE_DIR,
+        headless=HEADLESS,
+        args=["--no-sandbox"],
+    )
+    if context.pages:
+        page = context.pages[0]
+    else:
+        page = await context.new_page()
+    return pw, context, page
+
+
+async def is_logged_in(page) -> bool:
+    try:
+        await page.wait_for_selector("a[aria-label='Profile']", timeout=5000)
         return True
     except PlaywrightTimeout:
-        current_url = page.url
-        if is_on_x_domain(current_url):
-            return True
         return False
 
 
-async def confirm_login_success(page) -> bool:
-    """Confirm login succeeded by inspecting the current page context."""
-
-    current_url = page.url
-    if is_on_x_domain(current_url):
-        return True
+async def login_with_credentials(page) -> bool:
+    if not X_USERNAME or not X_PASSWORD:
+        return False
     try:
-        await ensure_on_x_domain(page)
-    except PlaywrightTimeout:
-        pass
-    current_url = page.url
-    if is_on_x_domain(current_url):
-        return True
-    with suppress(PlaywrightTimeout):
-        element = await page.query_selector('div[data-testid="SideNav_AccountSwitcher_Button"]')
-        if element:
+        await page.goto("https://x.com/login", wait_until="domcontentloaded", timeout=60000)
+        username_input = page.locator("input[name='text']")
+        await username_input.fill(X_USERNAME)
+        await page.keyboard.press("Enter")
+        await page.wait_for_selector("input[name='password']", timeout=30000)
+        password_input = page.locator("input[name='password']")
+        await password_input.fill(X_PASSWORD)
+        await page.keyboard.press("Enter")
+        await page.wait_for_url("**/home", timeout=60000)
+        await page.wait_for_timeout(2000)
+        if await is_logged_in(page):
+            log("Login via credentials succeeded.")
             return True
+    except PlaywrightTimeout:
+        log("Timed out while logging in with credentials.", level="WARN")
+    except PlaywrightError as exc:
+        log(f"Playwright error during login: {exc}", level="WARN")
     return False
 
 
 async def ensure_logged_in(page) -> bool:
-    log("Checking current authentication state.")
-    await page.goto("https://x.com/home", wait_until="networkidle")
-    with suppress(PlaywrightTimeout):
+    try:
+        await page.goto("https://x.com/home", wait_until="domcontentloaded", timeout=60000)
         await page.wait_for_timeout(2000)
-    if await confirm_login_success(page):
+    except PlaywrightTimeout:
+        log("Timeout loading home timeline during login check.", level="WARN")
+    if await is_logged_in(page):
         log("Session already authenticated.")
         return True
-
-    log("No active session detected. Navigating to login page.")
-    await page.goto("https://x.com/login", wait_until="networkidle")
-    await page.wait_for_timeout(1000)
-
-    if not X_USERNAME or not X_PASSWORD:
-        log(
-            "Credentials missing; pausing for manual login. Set X_USERNAME and X_PASSWORD to enable auto-login.",
-            level="WARN",
-        )
-        try:
-            success = await wait_for_login_transition(page, timeout_ms=5 * 60 * 1000)
-            if not success:
-                await wait_for_manual_login(page, timeout_ms=5 * 60 * 1000)
-            log("Manual login detected. Continuing run.")
-            await ensure_on_x_domain(page)
-            return await confirm_login_success(page)
-        except PlaywrightTimeout as exc:  # noqa: PERF203 - deliberate handling
-            raise RuntimeError("Manual login timed out after 5 minutes.") from exc
-
-    log("Attempting automated login with provided credentials.")
-    max_attempts = 2
-    for attempt in range(1, max_attempts + 1):
-        try:
-            username_input = await page.wait_for_selector('input[name="text"]', timeout=30000)
-        except PlaywrightTimeout:
-            log(
-                "Username field not detected; waiting for manual intervention.",
-                level="WARN",
-            )
-            try:
-                await wait_for_manual_login(page, timeout_ms=5 * 60 * 1000)
-                log("Manual login detected. Continuing run.")
-                await ensure_on_x_domain(page)
-                return await confirm_login_success(page)
-            except PlaywrightTimeout as exc:  # noqa: PERF203 - deliberate handling
-                raise RuntimeError("X login UI did not load correctly for automation.") from exc
-
-        await username_input.fill(X_USERNAME)
-        log("Username entered; submitting identifier.")
-        await page.keyboard.press("Enter")
-        await page.wait_for_timeout(1000)
-
-        with suppress(PlaywrightTimeout):
-            alt_identifier = await page.query_selector('input[name="text"]')
-            if alt_identifier:
-                log("Encountered secondary identifier prompt; refilling username.")
-                await alt_identifier.fill(X_USERNAME)
-                await page.keyboard.press("Enter")
-                await page.wait_for_timeout(500)
-
-        password_input = await page.wait_for_selector('input[name="password"]', timeout=30000)
-        await password_input.fill(X_PASSWORD)
-        log("Password entered; submitting credentials.")
-        await page.keyboard.press("Enter")
-
-        success = await wait_for_login_transition(page, timeout_ms=60000)
-        if success:
-            with suppress(PlaywrightTimeout):
-                await page.wait_for_selector(
-                    'div[data-testid="SideNav_AccountSwitcher_Button"]', timeout=10000
-                )
-            log("Login successful.")
-            await ensure_on_x_domain(page)
-            return await confirm_login_success(page)
-
-        print("[ERROR] Login timeout — please sign in manually")
-        sys.stdout.flush()
-        log(
-            "Login confirmation not detected within 60 seconds.",
-            level="ERROR",
-        )
-
-        if attempt < max_attempts:
-            log("Retrying automated login sequence.")
-            await page.goto("https://x.com/login", wait_until="networkidle")
-            await page.wait_for_timeout(1000)
-            continue
-
-        try:
-            await wait_for_manual_login(page, timeout_ms=5 * 60 * 1000)
-            log("Manual login detected after timeout. Continuing run.")
-            await ensure_on_x_domain(page)
-            return await confirm_login_success(page)
-        except PlaywrightTimeout as manual_exc:  # noqa: PERF203 - deliberate handling
-            raise RuntimeError(
-                "Unable to confirm X login. Check credentials, 2FA, or network conditions."
-            ) from manual_exc
-
-    return False
-
-
-async def start_engagement_workflow(browser, page, state: dict) -> None:
-    print("[INFO] Login success — continuing workflow")
-    sys.stdout.flush()
-    log("Authentication confirmed. Preparing engagement cycle.")
-
-    print("[INFO] Starting engagement cycle...")
-    sys.stdout.flush()
-    log("Engagement cycle initialized.")
-
-    await run_engagement_cycle(browser, page, state)
-
-
-async def run_engagement_cycle(browser, page, state: dict) -> None:
-    log("Engagement loop entered.")
-
-    while True:
-        if browser.is_closed():
-            log("Browser context closed; stopping engagement cycle.", level="WARN")
-            break
-
-        try:
-            print("[INFO] Searching for posts...")
-            sys.stdout.flush()
-            if SEARCH_TOPICS:
-                print("[INFO] Searching for topics...")
-                sys.stdout.flush()
-                for topic in SEARCH_TOPICS:
-                    log(f"Starting topic scan for '{topic}'.")
-                    await process_topic(page, topic, state)
-            else:
-                print("[INFO] Scanning home timeline...")
-                sys.stdout.flush()
-                log("Starting home timeline scan cycle.")
-                await process_home_timeline(page, state)
-        except (PlaywrightTimeout, PlaywrightError) as err:
-            log(f"Playwright issue encountered during engagement cycle: {err}", level="WARN")
-            await asyncio.sleep(10)
-            continue
-
-        log(f"Cycle complete. Sleeping for {LOOP_DELAY} seconds before next pass.")
-        await asyncio.sleep(LOOP_DELAY)
-
-
-async def collect_tweets(page, *, limit: int = 20) -> list[dict]:
-    tweets_data: list[dict] = []
-    tweets = page.locator('article[data-testid="tweet"]')
-    count = await tweets.count()
-    for index in range(min(count, limit)):
-        tweet = tweets.nth(index)
-        href = await tweet.evaluate(
-            '''(node) => node.querySelector("a[href*='/status/']")?.getAttribute("href") || ""'''
-        )
-        if not href:
-            continue
-        path_parts = [part for part in href.split("/") if part]
-        tweet_id = path_parts[-1].split("?")[0] if path_parts else ""
-        if not tweet_id:
-            continue
-        handle_raw = await tweet.evaluate(
-            '''(node) => node.querySelector("div[data-testid='User-Name'] a[href^='/']")?.getAttribute("href") || ""'''
-        )
-        handle = f"@{handle_raw.lstrip('/')}" if handle_raw else None
-        if not handle and len(path_parts) >= 2:
-            handle = f"@{path_parts[-2]}"
-        text_content = await tweet.evaluate(
-            '''(node) => node.querySelector("div[data-testid='tweetText']")?.innerText || ""'''
-        )
-        tweets_data.append(
-            {
-                "tweet_id": tweet_id,
-                "href": href,
-                "handle": handle,
-                "text": text_content.strip(),
-                "element": tweet,
-            }
-        )
-    return tweets_data
-
-
-async def reply_to_tweet(tweet: dict, message: str) -> bool:
-    element = tweet.get("element")
-    if element is None:
-        return False
+    if X_USERNAME and X_PASSWORD:
+        log("Attempting credential-based login...")
+        if await login_with_credentials(page):
+            return True
+    log("Please log in manually in the opened browser.")
     try:
-        await element.hover()
-        reply_button = element.locator('div[data-testid="reply"]')
-        await reply_button.click()
-        page = element.page
-        textarea = await page.wait_for_selector('div[data-testid="tweetTextarea_0"] div[contenteditable="true"]', timeout=10000)
-        await textarea.click()
-        await textarea.type(message, delay=20)
-        await page.click('div[data-testid="tweetButtonInline"]')
-        log(f"Replied to tweet {tweet['tweet_id']} from {tweet.get('handle','unknown')}.")
+        await page.wait_for_selector("a[aria-label='Profile']", timeout=300000)
+        log("Manual login detected.")
         return True
     except PlaywrightTimeout:
-        log(f"Reply UI timeout for tweet {tweet.get('tweet_id')}.", level="WARN")
+        log("Manual login timed out.", level="WARN")
+        return False
+
+
+async def wait_for_tweets(page) -> bool:
+    try:
+        await page.wait_for_selector("article[data-testid='tweet']", timeout=20000)
+        return True
+    except PlaywrightTimeout:
+        log("No tweets found on page.", level="WARN")
+        return False
+
+
+async def extract_candidate(tweet_locator) -> TweetCandidate | None:
+    try:
+        text_locator = tweet_locator.locator("div[data-testid='tweetText']")
+        text = await text_locator.inner_text()
+    except PlaywrightError:
+        return None
+    try:
+        author_link = tweet_locator.locator("a[role='link'][href*='/status/']").first
+        tweet_href = await author_link.get_attribute("href")
+    except PlaywrightError:
+        tweet_href = None
+    try:
+        user_link = tweet_locator.locator("a[role='link'][href^='https://x.com/']").first
+        user_href = await user_link.get_attribute("href")
+    except PlaywrightError:
+        user_href = None
+    if not text:
+        return None
+    tweet_url = tweet_href or ""
+    tweet_id = tweet_url.rsplit("/", maxsplit=1)[-1] if tweet_url else f"tweet-{int(time.time()*1000)}"
+    if user_href and "https://x.com/" in user_href:
+        author_handle = user_href.split("https://x.com/")[-1].split("/")[0]
+    elif tweet_href and "/status/" in tweet_href:
+        author_handle = tweet_href.split("/status/")[0].split("/")[-1]
+    else:
+        author_handle = ""
+    return TweetCandidate(
+        tweet_id=tweet_id,
+        url=f"https://x.com{tweet_href}" if tweet_href and tweet_href.startswith("/") else (tweet_href or ""),
+        author_handle=author_handle,
+        text=text,
+    )
+
+
+async def send_reply(page, tweet_locator, message: str) -> bool:
+    try:
+        await tweet_locator.locator("div[data-testid='reply']").click()
+        composer = page.locator("div[data-testid='tweetTextarea_0']")
+        await composer.wait_for(timeout=10000)
+        await composer.click()
+        await page.keyboard.press("Control+A")
+        await page.keyboard.press("Backspace")
+        await page.keyboard.insert_text(message)
+        await page.locator("div[data-testid='tweetButtonInline']").click()
+        await page.wait_for_timeout(2000)
+        log("Reply posted.")
+        return True
+    except PlaywrightTimeout:
+        log("Timeout while composing reply.", level="WARN")
     except PlaywrightError as exc:
         log(f"Failed to send reply: {exc}", level="WARN")
     return False
 
 
-async def process_topic(page, topic: str, state: dict) -> None:
-    query = quote_plus(topic)
-    url = f"https://x.com/search?q={query}&src=typed_query&f=live"
-    log(f"Navigating to search topic '{topic}'. URL={url}")
-    await page.goto(url, wait_until="networkidle")
-    await page.wait_for_timeout(2000)
-
-    tweets = await collect_tweets(page)
-    replies_sent = 0
-
-    for tweet in tweets:
-        tweet_id = tweet["tweet_id"]
-        if tweet_id in state.get("replied_ids", []):
-            continue
-        handle = tweet.get("handle") or ""
-        if is_my_tweet(handle):
-            continue
-        text = tweet.get("text", "")
-        if should_skip_text(text):
-            continue
-
-        focus = detect_focus(text, topic)
-        message = choose_reply(topic, focus)
-        if await reply_to_tweet(tweet, message):
-            state.setdefault("replied_ids", []).append(tweet_id)
-            save_state(state)
-            replies_sent += 1
-
-            if ENABLE_DMS:
-                maybe_send_dm(tweet, state)
-
-            delay = random.randint(ACTION_DELAY_MIN, ACTION_DELAY_MAX)
-            log(f"Sleeping {delay} seconds before next action.")
-            await asyncio.sleep(delay)
-
-        if replies_sent >= MAX_REPLIES_PER_TOPIC:
-            break
-
-    if replies_sent == 0:
-        log(f"No suitable tweets found for topic '{topic}'.")
-
-
-def maybe_send_dm(tweet: dict, state: dict) -> None:
-    if not ENABLE_DMS:
-        return
-    text = tweet.get("text", "")
-    if len(text) < DM_TRIGGER_LENGTH:
-        return
-    score = parse_interest_score(text)
-    if score < DM_INTEREST_THRESHOLD:
-        return
-    tweet_id = tweet.get("tweet_id")
-    if not tweet_id:
-        return
-    if tweet_id in state.get("dm_ids", []):
-        return
-
-    if not DM_TEMPLATES:
-        log("DM triggered but no templates configured. Skipping.", level="WARN")
-        return
-
-    template = random.choice(DM_TEMPLATES)
+async def send_dm_from_tweet(page, tweet_locator, message: str) -> bool:
     try:
-        message = template.format(ref_link=REFERRAL_LINK, topic=text[:80])
-    except Exception:
-        message = template
+        dm_button = tweet_locator.locator("div[data-testid='sendDMFromTweet']")
+        if not await dm_button.is_visible():
+            return False
+        await dm_button.click()
+        await page.wait_for_selector("div[role='dialog'] div[role='textbox']", timeout=10000)
+        composer = page.locator("div[role='dialog'] div[role='textbox']").last
+        await composer.click()
+        await page.keyboard.press("Control+A")
+        await page.keyboard.press("Backspace")
+        await page.keyboard.insert_text(message)
+        await page.locator("div[data-testid='dmComposerSendButton']").click()
+        await page.wait_for_timeout(2000)
+        with suppress(PlaywrightError, PlaywrightTimeout):
+            await page.locator("div[role='dialog'] div[aria-label='Close']").click()
+        log("DM sent from tweet.")
+        return True
+    except PlaywrightTimeout:
+        log("Timeout while sending DM.", level="WARN")
+    except PlaywrightError as exc:
+        log(f"Failed to send DM: {exc}", level="WARN")
+    return False
 
-    log(
-        "DM trigger criteria met but automated DM sending requires recipient IDs. "
-        "Please review manually.",
-        level="WARN",
-    )
-    log(f"Suggested DM content: {message}")
-    state.setdefault("dm_ids", []).append(tweet_id)
-    save_state(state)
 
-
-async def process_home_timeline(page, state: dict) -> None:
-    log("Using home timeline (no SEARCH_TOPICS configured).")
-    await page.goto("https://x.com/home", wait_until="networkidle")
-    await page.wait_for_timeout(2000)
-
-    tweets = await collect_tweets(page)
+async def process_page_tweets(page, topic: str | None = None) -> None:
+    if not await wait_for_tweets(page):
+        return
+    tweets_locator = page.locator("article[data-testid='tweet']")
+    count = await tweets_locator.count()
     replies_sent = 0
-
-    for tweet in tweets:
-        tweet_id = tweet["tweet_id"]
-        if tweet_id in state.get("replied_ids", []):
-            continue
-        handle = tweet.get("handle") or ""
-        if is_my_tweet(handle):
-            continue
-        text = tweet.get("text", "")
-        if should_skip_text(text):
-            continue
-
-        focus = detect_focus(text, "timeline")
-        message = choose_reply("timeline", focus)
-        if await reply_to_tweet(tweet, message):
-            state.setdefault("replied_ids", []).append(tweet_id)
-            save_state(state)
-            replies_sent += 1
-
-            if ENABLE_DMS:
-                maybe_send_dm(tweet, state)
-
-            delay = random.randint(ACTION_DELAY_MIN, ACTION_DELAY_MAX)
-            log(f"Sleeping {delay} seconds before next action.")
-            await asyncio.sleep(delay)
-
-        if replies_sent >= MAX_REPLIES_PER_TOPIC:
+    for index in range(count):
+        if topic is not None and replies_sent >= MAX_REPLIES_PER_TOPIC:
             break
+        tweet_locator = tweets_locator.nth(index)
+        candidate = await extract_candidate(tweet_locator)
+        if not candidate:
+            continue
+        identifier = candidate.url or candidate.tweet_id
+        if identifier in MESSAGE_REGISTRY["replied"]:
+            continue
+        if should_skip_candidate(candidate):
+            continue
+        reply_text = build_reply(topic, candidate.text)
+        if await send_reply(page, tweet_locator, reply_text):
+            mark_replied(identifier)
+            replies_sent += 1
+            await asyncio.sleep(random_delay_seconds())
+        if ENABLE_DMS and candidate.author_handle and candidate.author_handle not in MESSAGE_REGISTRY["dm"]:
+            score = dm_interest_score(candidate.text)
+            if score >= DM_INTEREST_THRESHOLD:
+                dm_text = build_dm(candidate.text, topic)
+                if await send_dm_from_tweet(page, tweet_locator, dm_text):
+                    mark_dm(candidate.author_handle)
+                    await asyncio.sleep(random_delay_seconds())
 
-    if replies_sent == 0:
-        log("No suitable tweets found in home timeline.")
+
+async def run_engagement_loop(context, page) -> None:
+    while True:
+        try:
+            if SEARCH_TOPICS:
+                for topic in SEARCH_TOPICS:
+                    search_url = (
+                        "https://x.com/search?q="
+                        + quote_plus(topic)
+                        + "&src=typed_query&f=live"
+                    )
+                    log(f"Exploring topic '{topic}'.")
+                    await page.goto(search_url, wait_until="domcontentloaded", timeout=60000)
+                    await page.wait_for_timeout(2000)
+                    await process_page_tweets(page, topic)
+            else:
+                log("Exploring home timeline.")
+                await page.goto("https://x.com/home", wait_until="domcontentloaded", timeout=60000)
+                await page.wait_for_timeout(2000)
+                await process_page_tweets(page, None)
+            log(f"Cycle complete. Sleeping for {LOOP_DELAY} seconds.")
+            await asyncio.sleep(LOOP_DELAY)
+        except PlaywrightTimeout as exc:
+            log(f"Playwright timeout during engagement loop: {exc}", level="WARN")
+            await asyncio.sleep(15)
+        except PlaywrightError as exc:
+            log(f"Playwright error during engagement loop: {exc}", level="WARN")
+            await asyncio.sleep(30)
+        except Exception as exc:  # noqa: BLE001
+            log(f"Unhandled error in engagement loop: {exc}", level="ERROR")
+            await asyncio.sleep(30)
+
+
+# == Entry Point ===============================================================
 
 
 async def main() -> None:
-    log(f"Startup config: {summarize_config()}")
-    state = load_state()
-
-    profile_dir = Path(PW_PROFILE_DIR).expanduser()
-    profile_dir.mkdir(parents=True, exist_ok=True)
-
+    pw = None
+    context = None
     try:
-        log("Initializing Playwright and Chromium context.")
-        async with async_playwright() as p:
-            headless_mode = HEADLESS if not DEBUG else False
-            if headless_mode:
-                log(
-                    "HEADLESS mode requested but overridden to ensure visible browser window.",
-                    level="WARN",
-                )
-                headless_mode = False
-
-            log(
-                f"Opening browser profile at {profile_dir} (headless={headless_mode})."
-            )
-            browser = await p.chromium.launch_persistent_context(
-                str(profile_dir),
-                headless=headless_mode,
-                args=[
-                    "--disable-blink-features=AutomationControlled",
-                    "--start-maximized",
-                ],
-                slow_mo=50,
-            )
-
-            page = browser.pages[0] if browser.pages else await browser.new_page()
-            log("Ensuring authenticated session before starting engagement loop.")
-            login_success = await ensure_logged_in(page)
-            if not login_success:
-                raise RuntimeError("Login flow completed without reaching x.com home feed.")
-
-            try:
-                await start_engagement_workflow(browser, page, state)
-            except (PlaywrightTimeout, PlaywrightError) as err:
-                log(f"Fatal Playwright issue encountered: {err}", level="ERROR")
-                raise
-    except RuntimeError as exc:
-        log(f"Fatal error: {exc}", level="ERROR")
-        sys.exit(1)
+        pw, context, page = await create_browser()
+        logged_in = await ensure_logged_in(page)
+        if not logged_in:
+            log("Could not confirm login. Exiting.", level="ERROR")
+            return
+        log("Login success — starting engagement loop...")
+        await run_engagement_loop(context, page)
+    except KeyboardInterrupt:
+        log("Shutting down by user request.")
     except Exception as exc:  # noqa: BLE001
-        log(f"Unexpected fatal error: {exc}", level="ERROR")
-        sys.exit(1)
+        log(f"Unhandled exception: {exc}", level="ERROR")
+    finally:
+        if context is not None:
+            with suppress(Exception):
+                await context.close()
+        if pw is not None:
+            with suppress(Exception):
+                await pw.stop()
 
 
 if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        log("Interrupted by user. Shutting down.", level="WARN")
+    asyncio.run(main())
