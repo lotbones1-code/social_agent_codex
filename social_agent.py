@@ -30,7 +30,7 @@ try:  # Playwright 1.49 exports TargetClosedError; older builds may not.
 except ImportError:  # pragma: no cover - fallback for minimal builds.
     TargetClosedError = PlaywrightError  # type: ignore
 
-AUTH_FILE = "auth.json"
+DEFAULT_AUTH_FILE = "auth.json"
 DEFAULT_REPLY_TEMPLATES = [
     "Been riffing with other builders about {topic}, and this {focus} breakdown keeps delivering wins. Shortcut link: {ref_link}",
     "Every time {topic} comes up, I point people to this {focus} playbook: {ref_link}",
@@ -39,6 +39,15 @@ DEFAULT_SEARCH_TOPICS = ["AI automation"]
 MESSAGE_LOG_PATH = Path("logs/replied.json")
 MESSAGE_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
 _DM_NOTICE_LOGGED = False
+
+
+def ensure_auth_storage_path(auth_file: str, logger: logging.Logger) -> str:
+    path = Path(auth_file).expanduser()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        logger.debug("Unable to create directory for auth file '%s': %s", path.parent, exc)
+    return str(path)
 
 
 @dataclass
@@ -65,6 +74,7 @@ class BotConfig:
     video_provider: str
     video_model: str
     enable_video: bool
+    auth_file: str
 
 
 def _parse_bool(value: Optional[str], *, default: bool = False) -> bool:
@@ -158,6 +168,8 @@ def load_config() -> BotConfig:
     video_model = (os.getenv("VIDEO_MODEL") or "").strip()
     enable_video = video_provider not in {"", "none", "disabled"}
 
+    auth_file = (os.getenv("AUTH_FILE") or DEFAULT_AUTH_FILE).strip() or DEFAULT_AUTH_FILE
+
     return BotConfig(
         search_topics=search_topics,
         relevant_keywords=relevant_keywords,
@@ -181,6 +193,7 @@ def load_config() -> BotConfig:
         video_provider=video_provider,
         video_model=video_model,
         enable_video=enable_video,
+        auth_file=auth_file,
     )
 
 
@@ -325,24 +338,28 @@ def wait_for_manual_login(
     context: BrowserContext,
     page: Page,
     logger: logging.Logger,
+    auth_file: str,
     *,
     timeout_seconds: int = 600,
 ) -> bool:
-    logger.info("No saved session. Please log in manually in the opened browser.")
+    logger.info("[INFO] No saved session detected; please complete the login in the opened browser.")
     deadline = time.time() + timeout_seconds
     last_status_log = 0.0
     while time.time() < deadline:
         if is_logged_in(page):
-            logger.info("Manual login detected; saving authenticated state to %s.", AUTH_FILE)
+            logger.info("[INFO] Login success detected; waiting before persisting session.")
+            time.sleep(6)
+            auth_path = ensure_auth_storage_path(auth_file, logger)
+            logger.info("[INFO] Saving authenticated state to %s.", auth_path)
             try:
-                context.storage_state(path=AUTH_FILE)
+                context.storage_state(path=auth_path)
             except PlaywrightError as exc:
                 logger.error("Failed to persist authentication state: %s", exc)
                 return False
             return True
         now = time.time()
         if now - last_status_log > 15:
-            logger.info("Waiting for manual login... (%d seconds remaining)", int(deadline - now))
+            logger.info("[INFO] Waiting for manual login... (%d seconds remaining)", int(deadline - now))
             last_status_log = now
         time.sleep(3)
     logger.error("Timed out waiting for manual login. Please rerun and complete login promptly.")
@@ -356,6 +373,7 @@ def ensure_logged_in(
     logger: logging.Logger,
     *,
     automated_attempt: bool,
+    auth_file: str,
 ) -> bool:
     try:
         page.goto("https://x.com/home", wait_until="domcontentloaded", timeout=60000)
@@ -369,14 +387,18 @@ def ensure_logged_in(
         return True
 
     if automated_attempt and automated_login(page, config, logger):
+        logger.info("[INFO] Automated login completed; waiting before saving session.")
+        time.sleep(6)
+        auth_path = ensure_auth_storage_path(auth_file, logger)
         try:
-            context.storage_state(path=AUTH_FILE)
+            context.storage_state(path=auth_path)
         except PlaywrightError as exc:
             logger.error("Failed to persist authentication state after automated login: %s", exc)
             return False
+        logger.info("[INFO] Session saved after automated login to %s.", auth_path)
         return True
 
-    return wait_for_manual_login(context, page, logger)
+    return wait_for_manual_login(context, page, logger, auth_file)
 
 
 def load_tweets(page: Page, logger: logging.Logger) -> list[Locator]:
@@ -450,6 +472,7 @@ def send_reply(page: Page, tweet: Locator, message: str, logger: logging.Logger)
         page.keyboard.insert_text(message)
         page.locator("div[data-testid='tweetButtonInline']").click()
         time.sleep(2)
+        logger.info("[INFO] Reply posted successfully.")
         return True
     except PlaywrightTimeout:
         logger.warning("Timeout while composing reply.")
@@ -535,7 +558,7 @@ def process_tweets(
 
         if skip_reasons:
             logger.info(
-                "Skipping tweet %s from @%s: reason=%s",
+                "[INFO] Skipping tweet %s from @%s: reason=%s",
                 data['id'],
                 data['handle'] or 'unknown',
                 ",".join(skip_reasons),
@@ -553,7 +576,7 @@ def process_tweets(
             logger.warning("Generated empty reply. Skipping tweet.")
             continue
 
-        logger.info("Replying to @%s for topic '%s'.", data['handle'] or 'unknown', topic)
+        logger.info("[INFO] Replying to @%s for topic '%s'.", data['handle'] or 'unknown', topic)
 
         if send_reply(page, tweet, message, logger):
             registry.add(identifier)
@@ -561,14 +584,14 @@ def process_tweets(
             video_service.maybe_generate(topic, data["text"])
             maybe_send_dm(config, page, data, logger)
             delay = random.randint(config.action_delay_min, config.action_delay_max)
-            logger.info("Sleeping for %s seconds before next action.", delay)
+            logger.info("[INFO] Sleeping for %s seconds before next action.", delay)
             time.sleep(delay)
         else:
             logger.warning("Reply attempt failed; not recording tweet as replied.")
 
         if replies >= config.max_replies_per_topic:
             logger.info(
-                "Reached MAX_REPLIES_PER_TOPIC=%s for '%s'. Moving to next topic.",
+                "[INFO] Reached MAX_REPLIES_PER_TOPIC=%s for '%s'. Moving to next topic.",
                 config.max_replies_per_topic,
                 topic,
             )
@@ -583,7 +606,7 @@ def handle_topic(
     topic: str,
     logger: logging.Logger,
 ) -> None:
-    logger.info("Topic '%s' - loading search results...", topic)
+    logger.info("[INFO] Topic '%s' - loading search results...", topic)
     url = f"https://x.com/search?q={quote_plus(topic)}&src=typed_query&f=live"
     try:
         page.goto(url, wait_until="networkidle", timeout=60000)
@@ -595,7 +618,7 @@ def handle_topic(
         return
 
     tweets = load_tweets(page, logger)
-    logger.info("Loaded %s tweets for topic '%s'.", len(tweets), topic)
+    logger.info("[INFO] Loaded %s tweets for topic '%s'.", len(tweets), topic)
     if not tweets:
         logger.warning("No eligible tweets for topic '%s'.", topic)
         return
@@ -610,7 +633,7 @@ def run_engagement_loop(
     video_service: VideoService,
     logger: logging.Logger,
 ) -> None:
-    logger.info("Starting engagement loop with %s topic(s).", len(config.search_topics))
+    logger.info("[INFO] Starting engagement loop with %s topic(s).", len(config.search_topics))
     while True:
         try:
             if page.is_closed():
@@ -626,7 +649,7 @@ def run_engagement_loop(
         else:
             logger.info("No search topics configured. Sleeping before next cycle.")
 
-        logger.info("Cycle complete. Sleeping for %s seconds.", config.loop_delay_seconds)
+        logger.info("[INFO] Cycle complete. Sleeping for %s seconds.", config.loop_delay_seconds)
         try:
             time.sleep(config.loop_delay_seconds)
         except KeyboardInterrupt:
@@ -637,15 +660,16 @@ def start_browser_with_saved_session(
     playwright,
     config: BotConfig,
     logger: logging.Logger,
+    auth_file: str,
 ) -> Optional[tuple[Browser, BrowserContext, Page]]:
     try:
         browser = playwright.chromium.launch(
             headless=config.headless,
             args=["--start-maximized", "--no-sandbox"],
         )
-        context = browser.new_context(storage_state=AUTH_FILE)
+        context = browser.new_context(storage_state=auth_file)
         page = context.new_page()
-        logger.info("Launched browser with saved session (headless=%s).", config.headless)
+        logger.info("[INFO] Launched browser with saved session (headless=%s).", config.headless)
         return browser, context, page
     except FileNotFoundError:
         logger.debug("Saved session file missing when attempting to load.")
@@ -666,7 +690,7 @@ def start_browser_for_manual_login(
         context = browser.new_context()
         page = context.new_page()
         page.goto("https://x.com/login", wait_until="domcontentloaded", timeout=60000)
-        logger.info("Browser opened for manual login.")
+        logger.info("[INFO] Browser opened for manual login.")
         return browser, context, page
     except PlaywrightError as exc:
         logger.error("Failed to launch browser for manual login: %s", exc)
@@ -690,6 +714,71 @@ def close_resources(
         logger.debug("Error while closing browser: %s", exc)
 
 
+def prepare_authenticated_session(
+    playwright,
+    config: BotConfig,
+    logger: logging.Logger,
+) -> Optional[tuple[Browser, BrowserContext, Page]]:
+    auth_path = ensure_auth_storage_path(config.auth_file, logger)
+    auth_file = Path(auth_path)
+
+    session_loaded = auth_file.exists()
+    if session_loaded:
+        logger.info("[INFO] Saved session detected at %s. Attempting reuse.", auth_path)
+        session = start_browser_with_saved_session(playwright, config, logger, auth_path)
+        if session:
+            browser, context, page = session
+            try:
+                if page:
+                    page.goto("https://x.com/home", wait_until="domcontentloaded", timeout=60000)
+                if page and is_logged_in(page):
+                    logger.info("[INFO] Session restored from %s.", auth_path)
+                    try:
+                        context.storage_state(path=auth_path)
+                    except PlaywrightError as exc:
+                        logger.debug("Unable to refresh auth state: %s", exc)
+                    return browser, context, page
+                logger.error("Saved session appears logged out. Falling back to manual login.")
+            except (PlaywrightTimeout, PlaywrightError, TargetClosedError) as exc:
+                logger.error("Error verifying saved session: %s", exc)
+            close_resources(browser, context, logger)
+        else:
+            logger.warning("Saved session could not be loaded. Initiating manual login.")
+
+        try:
+            auth_file.unlink()
+            logger.warning("Removed stale auth file at %s.", auth_path)
+        except OSError:
+            logger.debug("Auth file not removed; it may not exist or be locked.")
+
+    logger.info("[INFO] Starting authentication flow.")
+    session = start_browser_for_manual_login(playwright, logger)
+    if not session:
+        logger.error("Unable to start browser for manual login.")
+        return None
+
+    browser, context, page = session
+    if not page or not context:
+        logger.error("Browser session not initialized correctly.")
+        close_resources(browser, context, logger)
+        return None
+
+    if not ensure_logged_in(
+        context,
+        page,
+        config,
+        logger,
+        automated_attempt=True,
+        auth_file=auth_path,
+    ):
+        logger.error("Login process did not complete successfully.")
+        close_resources(browser, context, logger)
+        return None
+
+    logger.info("[INFO] Authentication complete; proceeding to engagement loop.")
+    return browser, context, page
+
+
 def run_social_agent() -> None:
     load_dotenv()
     config = load_config()
@@ -708,85 +797,53 @@ def run_social_agent() -> None:
     registry = MessageRegistry(MESSAGE_LOG_PATH)
     video_service = VideoService(config)
 
-    with sync_playwright() as playwright:
-        browser: Optional[Browser] = None
-        context: Optional[BrowserContext] = None
-        page: Optional[Page] = None
-
-        session_loaded = os.path.exists(AUTH_FILE)
-        if session_loaded:
-            logger.info("Saved session detected at %s. Attempting reuse.", AUTH_FILE)
-            session = start_browser_with_saved_session(playwright, config, logger)
-            if session:
-                browser, context, page = session
-                try:
-                    if page:
-                        page.goto("https://x.com/home", wait_until="domcontentloaded", timeout=60000)
-                    if page and not is_logged_in(page):
-                        logger.error("Saved session appears logged out. Falling back to manual login.")
-                        close_resources(browser, context, logger)
-                        browser = context = page = None
-                        session_loaded = False
-                        try:
-                            os.remove(AUTH_FILE)
-                            logger.warning("Removed stale auth file at %s.", AUTH_FILE)
-                        except OSError:
-                            logger.debug("Auth file not removed; it may not exist or be locked.")
-                    elif page and context:
-                        try:
-                            context.storage_state(path=AUTH_FILE)
-                        except PlaywrightError as exc:
-                            logger.debug("Unable to refresh auth state: %s", exc)
-                except (PlaywrightTimeout, PlaywrightError, TargetClosedError) as exc:
-                    logger.error("Error verifying saved session: %s", exc)
-                    close_resources(browser, context, logger)
-                    browser = context = page = None
-                    session_loaded = False
-                    try:
-                        os.remove(AUTH_FILE)
-                        logger.warning("Removed stale auth file at %s due to verification error.", AUTH_FILE)
-                    except OSError:
-                        logger.debug("Auth file not removed after verification error.")
-
-        if not session_loaded:
-            logger.info("Starting first-run authentication flow.")
-            session = start_browser_for_manual_login(playwright, logger)
-            if not session:
-                logger.error("Unable to start browser for manual login. Exiting.")
-                return
-            browser, context, page = session
-            if not page or not context:
-                logger.error("Browser session not initialized correctly. Exiting.")
-                close_resources(browser, context, logger)
-                return
-            if not ensure_logged_in(context, page, config, logger, automated_attempt=True):
-                logger.error("Login process did not complete successfully. Exiting.")
-                close_resources(browser, context, logger)
-                return
-            logger.info("Authentication complete; proceeding to engagement loop.")
-        else:
-            if not (browser and context and page):
-                logger.error("Failed to load saved session. Exiting.")
-                return
-            logger.info("Saved session verified. Proceeding directly to engagement loop.")
-
+    max_attempts = 3
+    attempt = 0
+    while attempt < max_attempts:
         try:
-            if not page:
-                logger.error("Browser page unavailable. Exiting.")
-                return
-            run_engagement_loop(config, registry, page, video_service, logger)
+            with sync_playwright() as playwright:
+                browser: Optional[Browser] = None
+                context: Optional[BrowserContext] = None
+                page: Optional[Page] = None
+
+                try:
+                    session = prepare_authenticated_session(playwright, config, logger)
+                    if not session:
+                        logger.error("Unable to establish an authenticated session. Exiting run.")
+                        return
+
+                    browser, context, page = session
+                    if not page:
+                        logger.error("Browser page unavailable. Exiting run.")
+                        return
+
+                    logger.info("[INFO] Session ready; entering engagement workflow.")
+                    run_engagement_loop(config, registry, page, video_service, logger)
+                    return
+                finally:
+                    close_resources(browser, context, logger)
         except KeyboardInterrupt:
             logger.info("Shutdown requested by user.")
-        except (PlaywrightTimeout, PlaywrightError, TargetClosedError) as exc:
+            raise
+        except (PlaywrightTimeout, TargetClosedError) as exc:
+            attempt += 1
+            logger.warning("[WARN] Retrying after connection loss… (%s/%s)", attempt, max_attempts)
+            if attempt >= max_attempts:
+                logger.error("Maximum retry attempts reached after connection issues: %s", exc)
+                break
+            time.sleep(5)
+            continue
+        except PlaywrightError as exc:
             logger.error("Playwright error: %s", exc)
             if config.debug:
                 logger.exception("Detailed Playwright exception")
+            break
         except Exception as exc:  # noqa: BLE001
             logger.error("Unhandled exception: %s", exc)
             if config.debug:
                 logger.exception("Unhandled exception")
-        finally:
-            close_resources(browser, context, logger)
+            break
+
 
 
 if __name__ == "__main__":
