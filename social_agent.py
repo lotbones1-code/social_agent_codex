@@ -339,31 +339,72 @@ def wait_for_manual_login(
     page: Page,
     logger: logging.Logger,
     auth_file: str,
-    *,
-    timeout_seconds: int = 600,
 ) -> bool:
-    logger.info("[INFO] No saved session detected; please complete the login in the opened browser.")
-    deadline = time.time() + timeout_seconds
-    last_status_log = 0.0
-    while time.time() < deadline:
-        if is_logged_in(page):
-            logger.info("[INFO] Login success detected; waiting before persisting session.")
-            time.sleep(6)
-            auth_path = ensure_auth_storage_path(auth_file, logger)
-            try:
-                context.storage_state(path=auth_path)
-            except PlaywrightError as exc:
-                logger.error("Failed to persist authentication state: %s", exc)
-                return False
-            logger.info("[INFO] Session saved to %s", auth_path)
-            return True
-        now = time.time()
-        if now - last_status_log > 15:
-            logger.info("[INFO] Waiting for manual login... (%d seconds remaining)", int(deadline - now))
-            last_status_log = now
-        time.sleep(3)
-    logger.error("Timed out waiting for manual login. Please rerun and complete login promptly.")
-    return False
+    print("\n" + "="*70)
+    print("MANUAL LOGIN REQUIRED")
+    print("="*70)
+    print("\nA browser window should now be open showing the X/Twitter login page.")
+    print("\nPlease complete the following steps:")
+    print("  1. Log in to your X/Twitter account in the browser")
+    print("  2. Complete any 2FA or security checks if prompted")
+    print("  3. Wait until you see your Twitter/X home feed")
+    print("  4. Come back to this terminal and press ENTER")
+    print("\nIMPORTANT NOTES:")
+    print("  • If you see a rate limit error, wait a few minutes before trying")
+    print("  • If you get 'unusual activity' warnings, complete the verification")
+    print("  • The browser will stay open - don't close it manually")
+    print("  • Take your time - there's no rush!")
+    print("\n" + "="*70)
+    print("\nWaiting for you to complete login...")
+    print("(Press ENTER after you've successfully logged in)")
+    print("="*70 + "\n")
+
+    try:
+        input()  # Wait for user to press Enter
+    except (KeyboardInterrupt, EOFError):
+        logger.error("Manual login cancelled by user.")
+        return False
+
+    logger.info("[INFO] Checking login status and saving session...")
+    time.sleep(2)  # Give page a moment to stabilize
+
+    # Verify they're actually logged in
+    if not is_logged_in(page):
+        print("\n" + "!"*70)
+        print("WARNING: Login verification failed!")
+        print("!"*70)
+        print("\nIt looks like you might not be logged in yet.")
+        print("Please check the browser and make sure you:")
+        print("  - Completed the login successfully")
+        print("  - Can see your Twitter/X home feed")
+        print("  - Are not stuck on a security check page")
+        print("\nPress ENTER to try saving the session anyway, or Ctrl+C to cancel.")
+        print("!"*70 + "\n")
+        try:
+            input()
+        except (KeyboardInterrupt, EOFError):
+            logger.error("Session save cancelled by user.")
+            return False
+
+    # Save the session
+    logger.info("[INFO] Saving session...")
+    time.sleep(3)  # Wait a bit longer to ensure session is stable
+    auth_path = ensure_auth_storage_path(auth_file, logger)
+    try:
+        context.storage_state(path=auth_path)
+    except PlaywrightError as exc:
+        logger.error("Failed to persist authentication state: %s", exc)
+        return False
+
+    print("\n" + "="*70)
+    print("✓ SESSION SAVED SUCCESSFULLY!")
+    print("="*70)
+    print(f"\nYour session has been saved to: {auth_path}")
+    print("Next time you run this script, you won't need to log in again.")
+    print("="*70 + "\n")
+
+    logger.info("[INFO] Session saved to %s", auth_path)
+    return True
 
 
 def ensure_logged_in(
@@ -681,12 +722,25 @@ def prepare_authenticated_session(
     storage_env = (os.getenv("AUTH_FILE") or config.auth_file).strip() or config.auth_file
     auth_path = ensure_auth_storage_path(storage_env, logger)
 
+    # Check if we need to do manual login (no saved session exists)
+    storage_exists = os.path.exists(auth_path)
+    has_credentials = config.x_username and config.x_password
+
+    # Force non-headless mode if manual login will be required
+    # (no saved session AND no credentials for automated login)
+    use_headless = config.headless
+    if not storage_exists and not has_credentials:
+        use_headless = False
+        if config.headless:
+            logger.info("[INFO] No saved session found and no credentials provided.")
+            logger.info("[INFO] Launching browser in visible mode for manual login...")
+
     try:
-        user_data_dir = str(Path.home() / ".social_agent_codex/browser_session/")                
+        user_data_dir = str(Path.home() / ".social_agent_codex/browser_session/")
         os.makedirs(user_data_dir, exist_ok=True)
         browser = playwright.chromium.launch_persistent_context(
-                        user_data_dir=user_data_dir,
-            headless=config.headless,
+            user_data_dir=user_data_dir,
+            headless=use_headless,
             args=["--start-maximized", "--no-sandbox"],
         )
     except PlaywrightError as exc:
