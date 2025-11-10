@@ -443,7 +443,12 @@ def ensure_logged_in(
     automated_attempt: bool,
     auth_file: str,
 ) -> bool:
-    # First check if already logged in by going to home
+    # For manual login, skip all checks and go straight to wait_for_manual_login
+    if not automated_attempt:
+        logger.info("[INFO] Manual login mode - no automation will be attempted")
+        return wait_for_manual_login(context, page, logger, auth_file)
+
+    # Only for automated login: check if already logged in
     try:
         page.goto("https://x.com/home", wait_until="domcontentloaded", timeout=60000)
     except PlaywrightTimeout:
@@ -455,13 +460,12 @@ def ensure_logged_in(
         logger.info("[INFO] Session restored successfully")
         return True
 
-    # If automated login is enabled and credentials exist, try it
-    if automated_attempt and config.x_username and config.x_password:
+    # Try automated login
+    if config.x_username and config.x_password:
         logger.info("[INFO] Attempting automated login...")
         if automated_login(page, config, logger):
             logger.info("[INFO] Automated login completed! Session will be saved automatically.")
             time.sleep(3)  # Wait for session to stabilize
-            # With persistent context, session is automatically saved to user_data_dir
             logger.info("[INFO] Session persisted to browser profile")
             return True
         else:
