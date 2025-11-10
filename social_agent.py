@@ -342,21 +342,38 @@ def wait_for_manual_login(
 ) -> bool:
     del auth_file  # Not used with persistent context
 
+    # Ensure we're on a clean login page
+    logger.info("[INFO] Preparing clean login page for manual login...")
+    try:
+        current_url = page.url
+        if "login" not in current_url:
+            logger.info("[INFO] Navigating to login page...")
+            page.goto("https://x.com/login", wait_until="domcontentloaded", timeout=60000)
+            time.sleep(2)
+    except PlaywrightError as exc:
+        logger.warning("Could not verify login page: %s", exc)
+
     print("\n" + "="*70)
     print("MANUAL LOGIN REQUIRED")
     print("="*70)
-    print("\nA browser window should now be open showing the X/Twitter login page.")
+    print("\nA browser window is open showing the X/Twitter login page.")
+    print("\nThe script will NOT touch any form fields or buttons.")
+    print("You have complete control of the browser.")
     print("\nPlease complete the following steps:")
     print("  1. Log in to your X/Twitter account in the browser")
     print("  2. Complete any 2FA or security checks if prompted")
     print("  3. Wait until you see your Twitter/X home feed")
     print("  4. Come back to this terminal and press ENTER")
     print("\nIMPORTANT NOTES:")
-    print("  • If you see a rate limit error, wait a few minutes before trying")
+    print("  • The script is completely hands-off - it won't interfere")
+    print("  • If you see rate limit errors, wait a few minutes before trying")
     print("  • If you get 'unusual activity' warnings, complete the verification")
     print("  • The browser will stay open - don't close it manually")
     print("  • Take your time - there's no rush!")
     print("  • Your session will be saved AUTOMATICALLY after login")
+    print("\nTROUBLESHOOTING:")
+    print("  • If automated login keeps interfering, remove X_USERNAME and")
+    print("    X_PASSWORD from your .env file, OR set FORCE_MANUAL_LOGIN=true")
     print("\n" + "="*70)
     print("\nWaiting for you to complete login...")
     print("(Press ENTER after you've successfully logged in)")
@@ -426,6 +443,7 @@ def ensure_logged_in(
     automated_attempt: bool,
     auth_file: str,
 ) -> bool:
+    # First check if already logged in by going to home
     try:
         page.goto("https://x.com/home", wait_until="domcontentloaded", timeout=60000)
     except PlaywrightTimeout:
@@ -437,12 +455,24 @@ def ensure_logged_in(
         logger.info("[INFO] Session restored successfully")
         return True
 
-    if automated_attempt and automated_login(page, config, logger):
-        logger.info("[INFO] Automated login completed! Session will be saved automatically.")
-        time.sleep(3)  # Wait for session to stabilize
-        # With persistent context, session is automatically saved to user_data_dir
-        logger.info("[INFO] Session persisted to browser profile")
-        return True
+    # If automated login is enabled and credentials exist, try it
+    if automated_attempt and config.x_username and config.x_password:
+        logger.info("[INFO] Attempting automated login...")
+        if automated_login(page, config, logger):
+            logger.info("[INFO] Automated login completed! Session will be saved automatically.")
+            time.sleep(3)  # Wait for session to stabilize
+            # With persistent context, session is automatically saved to user_data_dir
+            logger.info("[INFO] Session persisted to browser profile")
+            return True
+        else:
+            logger.warning("[WARN] Automated login failed. Falling back to manual login.")
+            logger.info("[INFO] Navigating to fresh login page for manual login...")
+            # Navigate to fresh login page to clear any automation artifacts
+            try:
+                page.goto("https://x.com/login", wait_until="domcontentloaded", timeout=60000)
+                time.sleep(2)  # Give page time to fully load
+            except (PlaywrightTimeout, PlaywrightError) as exc:
+                logger.warning("Error loading fresh login page: %s", exc)
 
     return wait_for_manual_login(context, page, logger, auth_file)
 
@@ -788,6 +818,7 @@ def prepare_authenticated_session(
     # Navigate to login page
     try:
         page.goto("https://x.com/login", wait_until="domcontentloaded", timeout=60000)
+        time.sleep(2)  # Give page time to fully load and settle
     except PlaywrightTimeout:
         logger.warning("Timeout while opening login page. Proceeding to login checks.")
     except PlaywrightError as exc:
@@ -795,14 +826,22 @@ def prepare_authenticated_session(
         context.close()
         return None
 
-    # Attempt login (automated or manual)
+    # Check if user wants to force manual login (via environment variable)
+    force_manual = _parse_bool(os.getenv("FORCE_MANUAL_LOGIN"), default=False)
+
+    # Attempt login (automated only if not forced manual and credentials exist)
     auth_file = (os.getenv("AUTH_FILE") or config.auth_file).strip() or config.auth_file
+    attempt_automated = not force_manual and has_credentials
+
+    if force_manual:
+        logger.info("[INFO] FORCE_MANUAL_LOGIN is enabled - skipping automated login")
+
     if not ensure_logged_in(
         context,
         page,
         config,
         logger,
-        automated_attempt=True,
+        automated_attempt=attempt_automated,
         auth_file=auth_file,
     ):
         logger.error("Login process did not complete successfully.")
