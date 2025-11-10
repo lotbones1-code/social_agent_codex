@@ -790,6 +790,14 @@ def prepare_authenticated_session(
         logger.error("Failed to create user data directory: %s", exc)
         return None
 
+    # Check for imported cookies from regular browser
+    storage_state_file = Path(user_data_dir) / "storage_state.json"
+    storage_state_arg = str(storage_state_file) if storage_state_file.exists() else None
+
+    if storage_state_arg:
+        logger.info("[INFO] Found imported cookies from regular browser!")
+        logger.info("[INFO] This will bypass Twitter's bot detection")
+
     # Launch persistent context - this IS the context, not a browser
     # The persistent context automatically saves cookies/sessions to user_data_dir
     logger.info(f"[INFO] Launching browser context...")
@@ -803,6 +811,7 @@ def prepare_authenticated_session(
             headless=use_headless,
             viewport={"width": 1920, "height": 1080},
             user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:121.0) Gecko/20100101 Firefox/121.0",
+            storage_state=storage_state_arg,
         )
         logger.info("[INFO] Firefox browser context launched successfully!")
     except PlaywrightError as firefox_exc:
@@ -821,6 +830,7 @@ def prepare_authenticated_session(
             ],
             viewport={"width": 1920, "height": 1080},
             user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            storage_state=storage_state_arg,
         )
         logger.info("[INFO] Chromium browser context launched successfully!")
     except PlaywrightError as exc:
