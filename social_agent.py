@@ -795,7 +795,19 @@ def prepare_authenticated_session(
     logger.info(f"[INFO] Launching browser context...")
     logger.info(f"[INFO] User data directory: {user_data_dir}")
     logger.info(f"[INFO] Headless: {use_headless}")
+    # Try Firefox first as it's less likely to be flagged by Twitter
     try:
+        logger.info("[INFO] Attempting to launch Firefox browser...")
+        context = playwright.firefox.launch_persistent_context(
+            user_data_dir=user_data_dir,
+            headless=use_headless,
+            viewport={"width": 1920, "height": 1080},
+            user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:121.0) Gecko/20100101 Firefox/121.0",
+        )
+        logger.info("[INFO] Firefox browser context launched successfully!")
+    except PlaywrightError as firefox_exc:
+        logger.warning("Firefox failed, falling back to Chromium: %s", firefox_exc)
+        # Fall back to Chromium if Firefox fails
         context = playwright.chromium.launch_persistent_context(
             user_data_dir=user_data_dir,
             headless=use_headless,
@@ -810,7 +822,7 @@ def prepare_authenticated_session(
             viewport={"width": 1920, "height": 1080},
             user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         )
-        logger.info("[INFO] Browser context launched successfully!")
+        logger.info("[INFO] Chromium browser context launched successfully!")
     except PlaywrightError as exc:
         logger.error("Failed to launch browser context: %s", exc)
         logger.exception("Full exception details:")
