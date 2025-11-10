@@ -35,5 +35,28 @@ This repository hosts the automation agent for posting via Playwright and Chrome
    RUN=1 bash ./run.sh
    ```
 
+## Alternative: Use Your Existing Chrome Browser
+
+If you prefer to use your existing Chrome browser where you're already logged into x.com:
+
+1. Start Chrome with remote debugging (in a separate terminal):
+   ```bash
+   ./start_chrome_debug.sh
+   ```
+   This will open Chrome and navigate to x.com. Log in if you're not already.
+
+2. Run the agent with your Chrome session:
+   ```bash
+   python run_in_my_chrome.py
+   ```
+
+See [CHROME_SETUP.md](CHROME_SETUP.md) for detailed instructions and troubleshooting.
+
+**Benefits of this approach:**
+- No need to provide X credentials
+- Works with 2FA and other security features
+- Watch the bot work in real-time
+- Uses your existing Chrome profile and cookies
+
 ## Sanity check
 Set `SOCIAL_AGENT_MOCK_LOGIN=1` to run the bot in a mocked mode that exercises the startup flow without a real browser session. This prints the "Logged in & ready" banner once the initialization succeeds and is useful when credentials are unavailable.
