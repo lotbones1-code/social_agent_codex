@@ -340,6 +340,8 @@ def wait_for_manual_login(
     logger: logging.Logger,
     auth_file: str,
 ) -> bool:
+    del auth_file  # Not used with persistent context
+
     print("\n" + "="*70)
     print("MANUAL LOGIN REQUIRED")
     print("="*70)
@@ -354,6 +356,7 @@ def wait_for_manual_login(
     print("  • If you get 'unusual activity' warnings, complete the verification")
     print("  • The browser will stay open - don't close it manually")
     print("  • Take your time - there's no rush!")
+    print("  • Your session will be saved AUTOMATICALLY after login")
     print("\n" + "="*70)
     print("\nWaiting for you to complete login...")
     print("(Press ENTER after you've successfully logged in)")
@@ -365,46 +368,53 @@ def wait_for_manual_login(
         logger.error("Manual login cancelled by user.")
         return False
 
-    logger.info("[INFO] Checking login status and saving session...")
+    logger.info("[INFO] Verifying login status...")
     time.sleep(2)  # Give page a moment to stabilize
 
     # Verify they're actually logged in
-    if not is_logged_in(page):
-        print("\n" + "!"*70)
-        print("WARNING: Login verification failed!")
-        print("!"*70)
-        print("\nIt looks like you might not be logged in yet.")
-        print("Please check the browser and make sure you:")
-        print("  - Completed the login successfully")
-        print("  - Can see your Twitter/X home feed")
-        print("  - Are not stuck on a security check page")
-        print("\nPress ENTER to try saving the session anyway, or Ctrl+C to cancel.")
-        print("!"*70 + "\n")
-        try:
-            input()
-        except (KeyboardInterrupt, EOFError):
-            logger.error("Session save cancelled by user.")
-            return False
+    max_retries = 3
+    for attempt in range(max_retries):
+        if is_logged_in(page):
+            # Wait a bit for session to stabilize
+            logger.info("[INFO] Login verified! Waiting for session to stabilize...")
+            time.sleep(3)
 
-    # Save the session
-    logger.info("[INFO] Saving session...")
-    time.sleep(3)  # Wait a bit longer to ensure session is stable
-    auth_path = ensure_auth_storage_path(auth_file, logger)
+            print("\n" + "="*70)
+            print("✓ LOGIN SUCCESSFUL!")
+            print("="*70)
+            print("\nYour session has been saved automatically.")
+            print("The browser profile is stored in: ~/.social_agent_codex/browser_session/")
+            print("Next time you run this script, you won't need to log in again.")
+            print("="*70 + "\n")
+
+            logger.info("[INFO] Manual login completed successfully")
+            return True
+        else:
+            if attempt < max_retries - 1:
+                logger.info("[INFO] Login not detected yet, retrying in 2 seconds...")
+                time.sleep(2)
+
+    # If we get here, login verification failed
+    print("\n" + "!"*70)
+    print("WARNING: Login verification failed!")
+    print("!"*70)
+    print("\nIt looks like you might not be logged in yet.")
+    print("Please check the browser and make sure you:")
+    print("  - Completed the login successfully")
+    print("  - Can see your Twitter/X home feed")
+    print("  - Are not stuck on a security check page")
+    print("\nOptions:")
+    print("  1. Press ENTER to proceed anyway (if you're sure you're logged in)")
+    print("  2. Press Ctrl+C to cancel and try again")
+    print("!"*70 + "\n")
+
     try:
-        context.storage_state(path=auth_path)
-    except PlaywrightError as exc:
-        logger.error("Failed to persist authentication state: %s", exc)
+        input()
+        logger.warning("Proceeding despite login verification failure (user override)")
+        return True
+    except (KeyboardInterrupt, EOFError):
+        logger.error("Login cancelled by user.")
         return False
-
-    print("\n" + "="*70)
-    print("✓ SESSION SAVED SUCCESSFULLY!")
-    print("="*70)
-    print(f"\nYour session has been saved to: {auth_path}")
-    print("Next time you run this script, you won't need to log in again.")
-    print("="*70 + "\n")
-
-    logger.info("[INFO] Session saved to %s", auth_path)
-    return True
 
 
 def ensure_logged_in(
@@ -428,15 +438,10 @@ def ensure_logged_in(
         return True
 
     if automated_attempt and automated_login(page, config, logger):
-        logger.info("[INFO] Automated login completed; waiting before saving session.")
-        time.sleep(6)
-        auth_path = ensure_auth_storage_path(auth_file, logger)
-        try:
-            context.storage_state(path=auth_path)
-        except PlaywrightError as exc:
-            logger.error("Failed to persist authentication state after automated login: %s", exc)
-            return False
-        logger.info("[INFO] Session saved to %s", auth_path)
+        logger.info("[INFO] Automated login completed! Session will be saved automatically.")
+        time.sleep(3)  # Wait for session to stabilize
+        # With persistent context, session is automatically saved to user_data_dir
+        logger.info("[INFO] Session persisted to browser profile")
         return True
 
     return wait_for_manual_login(context, page, logger, auth_file)
@@ -702,14 +707,20 @@ def close_resources(
     context: Optional[BrowserContext],
     logger: logging.Logger,
 ) -> None:
+    # When using persistent context, browser is None and we only close the context
+    # The persistent context handles all cleanup automatically
     try:
         if context:
             context.close()
+            logger.debug("Browser context closed")
     except PlaywrightError as exc:
         logger.debug("Error while closing context: %s", exc)
+
+    # Browser is None when using persistent context, only close if it exists
     try:
         if browser:
             browser.close()
+            logger.debug("Browser closed")
     except PlaywrightError as exc:
         logger.debug("Error while closing browser: %s", exc)
 
@@ -719,93 +730,94 @@ def prepare_authenticated_session(
     config: BotConfig,
     logger: logging.Logger,
 ) -> Optional[tuple[Browser, BrowserContext, Page]]:
-    storage_env = (os.getenv("AUTH_FILE") or config.auth_file).strip() or config.auth_file
-    auth_path = ensure_auth_storage_path(storage_env, logger)
-
-    # Check if we need to do manual login (no saved session exists)
-    storage_exists = os.path.exists(auth_path)
+    # Determine if we need manual login
+    user_data_dir = str(Path.home() / ".social_agent_codex/browser_session/")
+    session_marker = Path(user_data_dir) / ".session_exists"
     has_credentials = config.x_username and config.x_password
+    has_saved_session = session_marker.exists()
 
     # Force non-headless mode if manual login will be required
-    # (no saved session AND no credentials for automated login)
     use_headless = config.headless
-    if not storage_exists and not has_credentials:
+    if not has_saved_session and not has_credentials:
         use_headless = False
         if config.headless:
             logger.info("[INFO] No saved session found and no credentials provided.")
             logger.info("[INFO] Launching browser in visible mode for manual login...")
 
+    # Create user data directory
     try:
-        user_data_dir = str(Path.home() / ".social_agent_codex/browser_session/")
         os.makedirs(user_data_dir, exist_ok=True)
-        browser = playwright.chromium.launch_persistent_context(
+    except OSError as exc:
+        logger.error("Failed to create user data directory: %s", exc)
+        return None
+
+    # Launch persistent context - this IS the context, not a browser
+    # The persistent context automatically saves cookies/sessions to user_data_dir
+    try:
+        context = playwright.chromium.launch_persistent_context(
             user_data_dir=user_data_dir,
             headless=use_headless,
             args=["--start-maximized", "--no-sandbox"],
         )
     except PlaywrightError as exc:
-        logger.error("Failed to launch browser: %s", exc)
+        logger.error("Failed to launch browser context: %s", exc)
         return None
 
-    storage_file = auth_path
-    context: BrowserContext
-    session_loaded = False
+    # Create a page from the persistent context
+    try:
+        page = context.new_page()
+    except PlaywrightError as exc:
+        logger.error("Failed to create page: %s", exc)
+        context.close()
+        return None
 
-    storage_exists = os.path.exists(storage_file)
-    if storage_exists:
-        logger.info("[INFO] Restoring saved session from %s", storage_file)
-        try:
-            context = browser.new_context(storage_state=storage_file)
-            session_loaded = True
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("[WARN] auth.json missing or invalid — regenerating login session")
-            logger.debug("Storage state recovery error: %s", exc)
-            context = browser.new_context()
-            session_loaded = False
-    else:
-        logger.info("[INFO] No session found — creating new context for manual login.")
-        context = browser.new_context()
-
-    page = context.new_page()
-
-    if session_loaded:
+    # Check if we already have a valid session
+    if has_saved_session:
+        logger.info("[INFO] Attempting to restore previous session...")
         try:
             page.goto("https://x.com/home", wait_until="domcontentloaded", timeout=60000)
-        except PlaywrightTimeout:
-            logger.warning("Timeout while verifying restored session; prompting login.")
-        except (PlaywrightError, TargetClosedError) as exc:
-            logger.warning("Error while verifying restored session: %s", exc)
-        else:
             if is_logged_in(page):
-                logger.info("[INFO] Session restored successfully")
-                try:
-                    context.storage_state(path=storage_file)
-                except PlaywrightError as exc:
-                    logger.debug("Unable to refresh storage state: %s", exc)
-                return browser, context, page
-            logger.warning("Saved session present but user is logged out; manual login required.")
+                logger.info("[INFO] Session restored successfully!")
+                # Return None as browser since we're using persistent context
+                return None, context, page
+            else:
+                logger.warning("[WARN] Previous session expired, need to login again.")
+        except (PlaywrightTimeout, PlaywrightError) as exc:
+            logger.warning("Error verifying session: %s. Will attempt login.", exc)
 
+    # Navigate to login page
     try:
         page.goto("https://x.com/login", wait_until="domcontentloaded", timeout=60000)
     except PlaywrightTimeout:
         logger.warning("Timeout while opening login page. Proceeding to login checks.")
     except PlaywrightError as exc:
         logger.error("Failed to load login page: %s", exc)
+        context.close()
+        return None
 
+    # Attempt login (automated or manual)
+    auth_file = (os.getenv("AUTH_FILE") or config.auth_file).strip() or config.auth_file
     if not ensure_logged_in(
         context,
         page,
         config,
         logger,
         automated_attempt=True,
-        auth_file=storage_file,
+        auth_file=auth_file,
     ):
         logger.error("Login process did not complete successfully.")
-        close_resources(browser, context, logger)
+        context.close()
         return None
 
+    # Mark that we have a saved session now
+    try:
+        session_marker.touch()
+        logger.info("[INFO] Session marker created at %s", session_marker)
+    except OSError as exc:
+        logger.debug("Could not create session marker: %s", exc)
+
     logger.info("[INFO] Authentication complete; proceeding to engagement loop.")
-    return browser, context, page
+    return None, context, page
 
 
 def run_social_agent() -> None:
