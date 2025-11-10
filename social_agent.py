@@ -770,13 +770,18 @@ def prepare_authenticated_session(
     has_credentials = config.x_username and config.x_password
     has_saved_session = session_marker.exists()
 
+    # Check if user wants to force manual login
+    force_manual = _parse_bool(os.getenv("FORCE_MANUAL_LOGIN"), default=True)  # Default to True for safety
+
     # Force non-headless mode if manual login will be required
+    # Manual login needed if: no saved session AND (no credentials OR force manual)
     use_headless = config.headless
-    if not has_saved_session and not has_credentials:
+    if not has_saved_session and (not has_credentials or force_manual):
         use_headless = False
-        if config.headless:
-            logger.info("[INFO] No saved session found and no credentials provided.")
-            logger.info("[INFO] Launching browser in visible mode for manual login...")
+        logger.info("[INFO] Manual login will be required")
+        logger.info("[INFO] Launching browser in VISIBLE mode...")
+
+    logger.info(f"[INFO] Browser mode: {'HEADLESS' if use_headless else 'VISIBLE'}")
 
     # Create user data directory
     try:
@@ -787,14 +792,23 @@ def prepare_authenticated_session(
 
     # Launch persistent context - this IS the context, not a browser
     # The persistent context automatically saves cookies/sessions to user_data_dir
+    logger.info(f"[INFO] Launching browser context...")
+    logger.info(f"[INFO] User data directory: {user_data_dir}")
+    logger.info(f"[INFO] Headless: {use_headless}")
     try:
         context = playwright.chromium.launch_persistent_context(
             user_data_dir=user_data_dir,
             headless=use_headless,
             args=["--start-maximized", "--no-sandbox"],
         )
+        logger.info("[INFO] Browser context launched successfully!")
     except PlaywrightError as exc:
         logger.error("Failed to launch browser context: %s", exc)
+        logger.exception("Full exception details:")
+        return None
+    except Exception as exc:
+        logger.error("Unexpected error launching browser: %s", exc)
+        logger.exception("Full exception details:")
         return None
 
     # Create a page from the persistent context
