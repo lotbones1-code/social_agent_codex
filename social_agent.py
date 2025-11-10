@@ -350,12 +350,12 @@ def wait_for_manual_login(
             logger.info("[INFO] Login success detected; waiting before persisting session.")
             time.sleep(6)
             auth_path = ensure_auth_storage_path(auth_file, logger)
-            logger.info("[INFO] Saving authenticated state to %s.", auth_path)
             try:
                 context.storage_state(path=auth_path)
             except PlaywrightError as exc:
                 logger.error("Failed to persist authentication state: %s", exc)
                 return False
+            logger.info("[INFO] Session saved to %s", auth_path)
             return True
         now = time.time()
         if now - last_status_log > 15:
@@ -383,7 +383,7 @@ def ensure_logged_in(
         logger.warning("Error while loading home timeline: %s", exc)
 
     if is_logged_in(page):
-        logger.info("Session already authenticated.")
+        logger.info("[INFO] Session restored successfully")
         return True
 
     if automated_attempt and automated_login(page, config, logger):
@@ -395,7 +395,7 @@ def ensure_logged_in(
         except PlaywrightError as exc:
             logger.error("Failed to persist authentication state after automated login: %s", exc)
             return False
-        logger.info("[INFO] Session saved after automated login to %s.", auth_path)
+        logger.info("[INFO] Session saved to %s", auth_path)
         return True
 
     return wait_for_manual_login(context, page, logger, auth_file)
@@ -656,47 +656,6 @@ def run_engagement_loop(
             raise
 
 
-def start_browser_with_saved_session(
-    playwright,
-    config: BotConfig,
-    logger: logging.Logger,
-    auth_file: str,
-) -> Optional[tuple[Browser, BrowserContext, Page]]:
-    try:
-        browser = playwright.chromium.launch(
-            headless=config.headless,
-            args=["--start-maximized", "--no-sandbox"],
-        )
-        context = browser.new_context(storage_state=auth_file)
-        page = context.new_page()
-        logger.info("[INFO] Launched browser with saved session (headless=%s).", config.headless)
-        return browser, context, page
-    except FileNotFoundError:
-        logger.debug("Saved session file missing when attempting to load.")
-    except PlaywrightError as exc:
-        logger.error("Failed to launch browser with saved session: %s", exc)
-    return None
-
-
-def start_browser_for_manual_login(
-    playwright,
-    logger: logging.Logger,
-) -> Optional[tuple[Browser, BrowserContext, Page]]:
-    try:
-        browser = playwright.chromium.launch(
-            headless=False,
-            args=["--start-maximized", "--no-sandbox"],
-        )
-        context = browser.new_context()
-        page = context.new_page()
-        page.goto("https://x.com/login", wait_until="domcontentloaded", timeout=60000)
-        logger.info("[INFO] Browser opened for manual login.")
-        return browser, context, page
-    except PlaywrightError as exc:
-        logger.error("Failed to launch browser for manual login: %s", exc)
-        return None
-
-
 def close_resources(
     browser: Optional[Browser],
     context: Optional[BrowserContext],
@@ -719,49 +678,62 @@ def prepare_authenticated_session(
     config: BotConfig,
     logger: logging.Logger,
 ) -> Optional[tuple[Browser, BrowserContext, Page]]:
-    auth_path = ensure_auth_storage_path(config.auth_file, logger)
-    auth_file = Path(auth_path)
+    storage_env = (os.getenv("AUTH_FILE") or config.auth_file).strip() or config.auth_file
+    auth_path = ensure_auth_storage_path(storage_env, logger)
 
-    session_loaded = auth_file.exists()
-    if session_loaded:
-        logger.info("[INFO] Saved session detected at %s. Attempting reuse.", auth_path)
-        session = start_browser_with_saved_session(playwright, config, logger, auth_path)
-        if session:
-            browser, context, page = session
-            try:
-                if page:
-                    page.goto("https://x.com/home", wait_until="domcontentloaded", timeout=60000)
-                if page and is_logged_in(page):
-                    logger.info("[INFO] Session restored from %s.", auth_path)
-                    try:
-                        context.storage_state(path=auth_path)
-                    except PlaywrightError as exc:
-                        logger.debug("Unable to refresh auth state: %s", exc)
-                    return browser, context, page
-                logger.error("Saved session appears logged out. Falling back to manual login.")
-            except (PlaywrightTimeout, PlaywrightError, TargetClosedError) as exc:
-                logger.error("Error verifying saved session: %s", exc)
-            close_resources(browser, context, logger)
-        else:
-            logger.warning("Saved session could not be loaded. Initiating manual login.")
+    try:
+        browser = playwright.chromium.launch(
+            headless=config.headless,
+            args=["--start-maximized", "--no-sandbox"],
+        )
+    except PlaywrightError as exc:
+        logger.error("Failed to launch browser: %s", exc)
+        return None
 
+    storage_file = auth_path
+    context: BrowserContext
+    session_loaded = False
+
+    storage_exists = os.path.exists(storage_file)
+    if storage_exists:
+        logger.info("[INFO] Restoring saved session from %s", storage_file)
         try:
-            auth_file.unlink()
-            logger.warning("Removed stale auth file at %s.", auth_path)
-        except OSError:
-            logger.debug("Auth file not removed; it may not exist or be locked.")
+            context = browser.new_context(storage_state=storage_file)
+            session_loaded = True
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[WARN] auth.json missing or invalid — regenerating login session")
+            logger.debug("Storage state recovery error: %s", exc)
+            context = browser.new_context()
+            session_loaded = False
+    else:
+        logger.info("[INFO] No session found — creating new context for manual login.")
+        context = browser.new_context()
 
-    logger.info("[INFO] Starting authentication flow.")
-    session = start_browser_for_manual_login(playwright, logger)
-    if not session:
-        logger.error("Unable to start browser for manual login.")
-        return None
+    page = context.new_page()
 
-    browser, context, page = session
-    if not page or not context:
-        logger.error("Browser session not initialized correctly.")
-        close_resources(browser, context, logger)
-        return None
+    if session_loaded:
+        try:
+            page.goto("https://x.com/home", wait_until="domcontentloaded", timeout=60000)
+        except PlaywrightTimeout:
+            logger.warning("Timeout while verifying restored session; prompting login.")
+        except (PlaywrightError, TargetClosedError) as exc:
+            logger.warning("Error while verifying restored session: %s", exc)
+        else:
+            if is_logged_in(page):
+                logger.info("[INFO] Session restored successfully")
+                try:
+                    context.storage_state(path=storage_file)
+                except PlaywrightError as exc:
+                    logger.debug("Unable to refresh storage state: %s", exc)
+                return browser, context, page
+            logger.warning("Saved session present but user is logged out; manual login required.")
+
+    try:
+        page.goto("https://x.com/login", wait_until="domcontentloaded", timeout=60000)
+    except PlaywrightTimeout:
+        logger.warning("Timeout while opening login page. Proceeding to login checks.")
+    except PlaywrightError as exc:
+        logger.error("Failed to load login page: %s", exc)
 
     if not ensure_logged_in(
         context,
@@ -769,7 +741,7 @@ def prepare_authenticated_session(
         config,
         logger,
         automated_attempt=True,
-        auth_file=auth_path,
+        auth_file=storage_file,
     ):
         logger.error("Login process did not complete successfully.")
         close_resources(browser, context, logger)
