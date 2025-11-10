@@ -823,6 +823,38 @@ def prepare_authenticated_session(
     # Create a page from the persistent context
     try:
         page = context.new_page()
+
+        # Inject JavaScript to hide automation completely
+        page.add_init_script("""
+            // Remove webdriver property
+            Object.defineProperty(navigator, 'webdriver', {
+                get: () => undefined
+            });
+
+            // Override plugins to look real
+            Object.defineProperty(navigator, 'plugins', {
+                get: () => [1, 2, 3, 4, 5]
+            });
+
+            // Override languages
+            Object.defineProperty(navigator, 'languages', {
+                get: () => ['en-US', 'en']
+            });
+
+            // Make chrome object appear real
+            window.chrome = {
+                runtime: {}
+            };
+
+            // Override permissions
+            const originalQuery = window.navigator.permissions.query;
+            window.navigator.permissions.query = (parameters) => (
+                parameters.name === 'notifications' ?
+                    Promise.resolve({ state: Notification.permission }) :
+                    originalQuery(parameters)
+            );
+        """)
+
     except PlaywrightError as exc:
         logger.error("Failed to create page: %s", exc)
         context.close()
