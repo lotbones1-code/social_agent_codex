@@ -1,40 +1,42 @@
 #!/usr/bin/env python3
-"""Production-ready social agent for engaging with X (Twitter)."""
+"""Sync Playwright social agent with persistent X session handling."""
 
 from __future__ import annotations
 
-import asyncio
 import json
+import logging
 import os
 import random
 import sys
-import traceback
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 from urllib.parse import quote_plus
 
 from dotenv import load_dotenv
-from playwright.async_api import (
+from playwright.sync_api import (
+    Browser,
     BrowserContext,
     Error as PlaywrightError,
     Locator,
     Page,
-    Playwright,
     TimeoutError as PlaywrightTimeout,
-    async_playwright,
+    sync_playwright,
 )
 
-load_dotenv()
+try:  # Playwright 1.49 exports TargetClosedError; older builds may not.
+    from playwright.sync_api import TargetClosedError  # type: ignore
+except ImportError:  # pragma: no cover - fallback for minimal builds.
+    TargetClosedError = PlaywrightError  # type: ignore
 
+AUTH_FILE = "auth.json"
 DEFAULT_REPLY_TEMPLATES = [
     "Been riffing with other builders about {topic}, and this {focus} breakdown keeps delivering wins. Shortcut link: {ref_link}",
     "Every time {topic} comes up, I point people to this {focus} playbook: {ref_link}",
 ]
 DEFAULT_SEARCH_TOPICS = ["AI automation"]
 MESSAGE_LOG_PATH = Path("logs/replied.json")
-PROFILE_DIR = Path(os.getenv("PW_PROFILE_DIR", ".pwprofile"))
-PROFILE_DIR.mkdir(parents=True, exist_ok=True)
 MESSAGE_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
 _DM_NOTICE_LOGGED = False
 
@@ -91,7 +93,9 @@ def _parse_int(name: str, default: int) -> int:
     try:
         return int(raw.strip())
     except ValueError:
-        print(f"[WARN] Invalid value for {name!r} -> {raw!r}. Using {default} instead.")
+        logging.getLogger(__name__).warning(
+            "Invalid value for %s -> %r. Using %s instead.", name, raw, default
+        )
         return default
 
 
@@ -102,7 +106,9 @@ def _parse_float(name: str, default: float) -> float:
     try:
         return float(raw.strip())
     except ValueError:
-        print(f"[WARN] Invalid value for {name!r} -> {raw!r}. Using {default} instead.")
+        logging.getLogger(__name__).warning(
+            "Invalid value for %s -> %r. Using %s instead.", name, raw, default
+        )
         return default
 
 
@@ -119,13 +125,15 @@ def load_config() -> BotConfig:
     loop_delay_seconds = _parse_int("LOOP_DELAY_SECONDS", 120)
 
     if action_delay_max < action_delay_min:
-        print(
-            "[WARN] ACTION_DELAY_MAX_SECONDS < ACTION_DELAY_MIN_SECONDS. Aligning maximum to minimum."
+        logging.getLogger(__name__).warning(
+            "ACTION_DELAY_MAX_SECONDS < ACTION_DELAY_MIN_SECONDS. Aligning maximum to minimum."
         )
         action_delay_max = action_delay_min
 
     if loop_delay_seconds < 0:
-        print("[WARN] LOOP_DELAY_SECONDS was negative. Using default of 120.")
+        logging.getLogger(__name__).warning(
+            "LOOP_DELAY_SECONDS was negative. Using default of 120."
+        )
         loop_delay_seconds = 120
 
     headless = _parse_bool(os.getenv("HEADLESS"), default=True)
@@ -205,7 +213,7 @@ class MessageRegistry:
             with self._path.open("w", encoding="utf-8") as handle:
                 json.dump(sorted(self._entries), handle, indent=2)
         except OSError as exc:
-            print(f"[WARN] Failed to persist registry: {exc}")
+            logging.getLogger(__name__).warning("Failed to persist registry: %s", exc)
 
 
 class VideoService:
@@ -223,48 +231,41 @@ class VideoService:
             try:
                 import replicate  # type: ignore
             except ImportError:
-                print(
-                    "[WARN] VIDEO_PROVIDER=replicate but 'replicate' package missing. Video features disabled."
+                logging.getLogger(__name__).warning(
+                    "VIDEO_PROVIDER=replicate but 'replicate' package missing. Video features disabled."
                 )
                 return
             if not token:
-                print(
-                    "[WARN] VIDEO_PROVIDER=replicate but REPLICATE_API_TOKEN missing. Video features disabled."
+                logging.getLogger(__name__).warning(
+                    "VIDEO_PROVIDER=replicate but REPLICATE_API_TOKEN missing. Video features disabled."
                 )
                 return
             self._client = replicate
             self.enabled = True
         elif self.provider:
-            print(f"[WARN] VIDEO_PROVIDER={self.provider} is not supported. Video features disabled.")
+            logging.getLogger(__name__).warning(
+                "VIDEO_PROVIDER=%s is not supported. Video features disabled.", self.provider
+            )
 
-    async def maybe_generate(self, topic: str, tweet_text: str) -> None:
+    def maybe_generate(self, topic: str, tweet_text: str) -> None:
         if not self.enabled:
             return
-        print(
-            f"[INFO] Video generation requested for topic '{topic}' using provider '{self.provider}'."
+        logger = logging.getLogger(__name__)
+        logger.info(
+            "Video generation requested for topic '%s' using provider '%s'.",
+            topic,
+            self.provider,
         )
         if self._client is None:
-            print("[WARN] Video client unavailable. Skipping generation.")
+            logger.warning("Video client unavailable. Skipping generation.")
             return
         try:
-            # Placeholder for integration; real generation should be implemented as needed.
             _ = topic, tweet_text
         except Exception as exc:  # noqa: BLE001
-            print(f"[WARN] Video generation failed: {exc}")
+            logger.warning("Video generation failed: %s", exc)
 
 
-async def create_browser(config: BotConfig) -> tuple[Playwright, BrowserContext, Page]:
-    playwright = await async_playwright().start()
-    context: BrowserContext = await playwright.chromium.launch_persistent_context(
-        str(PROFILE_DIR),
-        headless=config.headless,
-        args=["--no-sandbox"],
-    )
-    page: Page = await context.new_page()
-    return playwright, context, page
-
-
-async def is_logged_in(page: Page) -> bool:
+def is_logged_in(page: Page) -> bool:
     try:
         if page.is_closed():
             return False
@@ -279,7 +280,7 @@ async def is_logged_in(page: Page) -> bool:
     for selector in selectors:
         try:
             locator = page.locator(selector)
-            if await locator.is_visible(timeout=2000):
+            if locator.is_visible(timeout=2000):
                 return True
         except PlaywrightError:
             continue
@@ -291,82 +292,113 @@ async def is_logged_in(page: Page) -> bool:
     return "x.com/home" in current_url or "twitter.com/home" in current_url
 
 
-async def ensure_logged_in(page: Page, config: BotConfig) -> bool:
-    try:
-        await page.goto("https://x.com/home", wait_until="domcontentloaded", timeout=60000)
-    except PlaywrightTimeout:
-        print("[WARN] Timeout while loading home timeline during login check.")
-    except PlaywrightError as exc:
-        print(f"[WARN] Error while loading home timeline: {exc}")
-
-    if await is_logged_in(page):
-        print("[INFO] Session already authenticated.")
-        return True
-
+def automated_login(page: Page, config: BotConfig, logger: logging.Logger) -> bool:
     username = config.x_username
     password = config.x_password
+    if not username or not password:
+        return False
 
-    if username and password:
-        print("[INFO] Attempting automated login with provided credentials.")
-        try:
-            await page.goto("https://x.com/login", wait_until="domcontentloaded", timeout=60000)
-            await page.fill("input[name='text']", username)
-            await page.keyboard.press("Enter")
-            await page.wait_for_selector("input[name='password']", timeout=30000)
-            await page.fill("input[name='password']", password)
-            await page.keyboard.press("Enter")
-            await page.wait_for_url("**/home", timeout=60000)
-            await asyncio.sleep(3)
-            if await is_logged_in(page):
-                print("[INFO] Automated login succeeded.")
-                return True
-            print("[ERROR] Automated X login failed to reach authenticated state.")
-            print(
-                "[ERROR] Automated X login failed; please check credentials or log in manually once."
-            )
-            return False
-        except PlaywrightTimeout:
-            print("[ERROR] Automated X login timed out. Please verify credentials or log in manually once.")
-            return False
-        except PlaywrightError as exc:
-            print(f"[ERROR] Playwright error during automated login: {exc}")
-            return False
-
-    print("[INFO] No X credentials provided. Waiting for manual login.")
+    logger.info("Attempting automated login with provided credentials.")
     try:
-        await page.goto("https://x.com/login", wait_until="domcontentloaded", timeout=60000)
-    except PlaywrightError as exc:
-        print(f"[WARN] Unable to open login page: {exc}")
-
-    deadline = asyncio.get_running_loop().time() + 120
-    while asyncio.get_running_loop().time() < deadline:
-        if await is_logged_in(page):
-            print("[INFO] Manual login detected.")
+        page.goto("https://x.com/login", wait_until="domcontentloaded", timeout=60000)
+        page.fill("input[name='text']", username)
+        page.keyboard.press("Enter")
+        page.wait_for_selector("input[name='password']", timeout=30000)
+        page.fill("input[name='password']", password)
+        page.keyboard.press("Enter")
+        page.wait_for_url("**/home", timeout=60000)
+        time.sleep(3)
+        if is_logged_in(page):
+            logger.info("Automated login succeeded.")
             return True
-        await asyncio.sleep(3)
+        logger.error("Automated X login failed to reach authenticated state.")
+        return False
+    except PlaywrightTimeout:
+        logger.error("Automated X login timed out. Please verify credentials or log in manually once.")
+        return False
+    except PlaywrightError as exc:
+        logger.error("Playwright error during automated login: %s", exc)
+        return False
 
-    print(
-        "[ERROR] Not logged into X. Start the bot with HEADLESS=false, log in in the opened browser once, then rerun."
-    )
+
+def wait_for_manual_login(
+    context: BrowserContext,
+    page: Page,
+    logger: logging.Logger,
+    *,
+    timeout_seconds: int = 600,
+) -> bool:
+    logger.info("No saved session. Please log in manually in the opened browser.")
+    deadline = time.time() + timeout_seconds
+    last_status_log = 0.0
+    while time.time() < deadline:
+        if is_logged_in(page):
+            logger.info("Manual login detected; saving authenticated state to %s.", AUTH_FILE)
+            try:
+                context.storage_state(path=AUTH_FILE)
+            except PlaywrightError as exc:
+                logger.error("Failed to persist authentication state: %s", exc)
+                return False
+            return True
+        now = time.time()
+        if now - last_status_log > 15:
+            logger.info("Waiting for manual login... (%d seconds remaining)", int(deadline - now))
+            last_status_log = now
+        time.sleep(3)
+    logger.error("Timed out waiting for manual login. Please rerun and complete login promptly.")
     return False
 
 
-async def get_tweet_elements(page: Page) -> list[Locator]:
+def ensure_logged_in(
+    context: BrowserContext,
+    page: Page,
+    config: BotConfig,
+    logger: logging.Logger,
+    *,
+    automated_attempt: bool,
+) -> bool:
     try:
-        await page.wait_for_selector("article[data-testid='tweet']", timeout=15000)
+        page.goto("https://x.com/home", wait_until="domcontentloaded", timeout=60000)
     except PlaywrightTimeout:
-        print("[INFO] No tweets loaded within 15 seconds.")
+        logger.warning("Timeout while loading home timeline during login check.")
+    except PlaywrightError as exc:
+        logger.warning("Error while loading home timeline: %s", exc)
+
+    if is_logged_in(page):
+        logger.info("Session already authenticated.")
+        return True
+
+    if automated_attempt and automated_login(page, config, logger):
+        try:
+            context.storage_state(path=AUTH_FILE)
+        except PlaywrightError as exc:
+            logger.error("Failed to persist authentication state after automated login: %s", exc)
+            return False
+        return True
+
+    return wait_for_manual_login(context, page, logger)
+
+
+def load_tweets(page: Page, logger: logging.Logger) -> list[Locator]:
+    try:
+        page.wait_for_selector("article[data-testid='tweet']", timeout=15000)
+    except PlaywrightTimeout:
+        logger.info("No tweets loaded within 15 seconds.")
         return []
     except PlaywrightError as exc:
-        print(f"[WARN] Playwright error while waiting for tweets: {exc}")
+        logger.warning("Playwright error while waiting for tweets: %s", exc)
         return []
-    return await page.locator("article[data-testid='tweet']").all()
+    try:
+        return page.locator("article[data-testid='tweet']").all()
+    except PlaywrightError as exc:
+        logger.warning("Failed to collect tweet locators: %s", exc)
+        return []
 
 
-async def extract_tweet_data(tweet: Locator) -> dict[str, str] | None:
+def extract_tweet_data(tweet: Locator) -> Optional[dict[str, str]]:
     try:
         text_locator = tweet.locator("div[data-testid='tweetText']")
-        text = (await text_locator.inner_text()).strip()
+        text = text_locator.inner_text().strip()
     except PlaywrightError:
         return None
 
@@ -376,14 +408,14 @@ async def extract_tweet_data(tweet: Locator) -> dict[str, str] | None:
     tweet_href = ""
     try:
         link = tweet.locator("a[href*='/status/']").first
-        tweet_href = (await link.get_attribute("href")) or ""
+        tweet_href = (link.get_attribute("href") or "").strip()
     except PlaywrightError:
         tweet_href = ""
 
     author_handle = ""
     try:
         user_link = tweet.locator("div[data-testid='User-Name'] a").first
-        href = await user_link.get_attribute("href")
+        href = user_link.get_attribute("href")
         if href:
             author_handle = href.rstrip("/").split("/")[-1]
     except PlaywrightError:
@@ -407,84 +439,72 @@ async def extract_tweet_data(tweet: Locator) -> dict[str, str] | None:
     }
 
 
-async def send_reply(page: Page, tweet: Locator, message: str) -> bool:
+def send_reply(page: Page, tweet: Locator, message: str, logger: logging.Logger) -> bool:
     try:
-        await tweet.locator("div[data-testid='reply']").click()
+        tweet.locator("div[data-testid='reply']").click()
         composer = page.locator("div[data-testid^='tweetTextarea_']").first
-        await composer.wait_for(timeout=10000)
-        await composer.click()
-        await page.keyboard.press("Control+A")
-        await page.keyboard.press("Backspace")
-        await page.keyboard.insert_text(message)
-        await page.locator("div[data-testid='tweetButtonInline']").click()
-        await asyncio.sleep(2)
+        composer.wait_for(timeout=10000)
+        composer.click()
+        page.keyboard.press("Control+A")
+        page.keyboard.press("Backspace")
+        page.keyboard.insert_text(message)
+        page.locator("div[data-testid='tweetButtonInline']").click()
+        time.sleep(2)
         return True
     except PlaywrightTimeout:
-        print("[WARN] Timeout while composing reply.")
+        logger.warning("Timeout while composing reply.")
     except PlaywrightError as exc:
-        print(f"[WARN] Failed to send reply: {exc}")
+        logger.warning("Failed to send reply: %s", exc)
     return False
 
 
-async def maybe_send_dm(config: BotConfig, page: Page, tweet_data: dict[str, str]) -> None:
+def maybe_send_dm(config: BotConfig, page: Page, tweet_data: dict[str, str], logger: logging.Logger) -> None:
+    del page, tweet_data  # Unused placeholders for future DM workflows.
+
     global _DM_NOTICE_LOGGED
+
     if not config.enable_dms:
         return
     if not config.dm_templates:
         if not _DM_NOTICE_LOGGED:
-            print("[INFO] DM support enabled but no DM_TEMPLATES configured. Skipping DM attempt.")
+            logger.info(
+                "DM support enabled but no DM_TEMPLATES configured. Skipping DM attempt."
+            )
             _DM_NOTICE_LOGGED = True
         return
+
     if not _DM_NOTICE_LOGGED:
-        print(
-            "[INFO] DM feature enabled, but automated DM workflows are not implemented in this build."
-        )
+        logger.info("DM feature enabled, but automated DM workflows are not implemented in this build.")
         _DM_NOTICE_LOGGED = True
 
 
-async def handle_topic(
-    config: BotConfig,
-    registry: MessageRegistry,
-    page: Page,
-    video_service: VideoService,
-    topic: str,
-) -> None:
-    print(f"[INFO] Topic '{topic}' - loading search results...")
-    url = f"https://x.com/search?q={quote_plus(topic)}&src=typed_query&f=live"
-    try:
-        await page.goto(url, wait_until="networkidle", timeout=60000)
-    except PlaywrightTimeout:
-        print(f"[WARN] Timeout while loading topic '{topic}'.")
-        return
-    except PlaywrightError as exc:
-        print(f"[WARN] Error while loading topic '{topic}': {exc}")
-        return
-
-    tweets = await get_tweet_elements(page)
-    print(f"[INFO] Loaded {len(tweets)} tweets for topic '{topic}'.")
-    if not tweets:
-        print(f"[INFO] No eligible tweets for topic '{topic}'.")
-        return
-
-    await process_tweets(config, registry, page, video_service, tweets, topic)
+def text_focus(text: str, *, max_length: int = 80) -> str:
+    cleaned = " ".join(text.split())
+    if len(cleaned) <= max_length:
+        return cleaned
+    return f"{cleaned[: max_length - 3]}..."
 
 
-async def process_tweets(
+def process_tweets(
     config: BotConfig,
     registry: MessageRegistry,
     page: Page,
     video_service: VideoService,
     tweets: list[Locator],
     topic: str,
+    logger: logging.Logger,
 ) -> None:
-    candidates: list[tuple[dict[str, str], Locator]] = []
-
+    replies = 0
     for tweet in tweets:
-        if page.is_closed():
-            print("[INFO] Page closed while processing tweets.")
+        try:
+            if page.is_closed():
+                logger.info("Page closed while processing tweets.")
+                return
+        except PlaywrightError:
+            logger.info("Page unavailable while processing tweets.")
             return
 
-        data = await extract_tweet_data(tweet)
+        data = extract_tweet_data(tweet)
         if not data:
             continue
 
@@ -514,23 +534,13 @@ async def process_tweets(
             skip_reasons.append("already-replied")
 
         if skip_reasons:
-            print(
-                f"[INFO] Skipping tweet {data['id']} from @{data['handle'] or 'unknown'}: reason={','.join(skip_reasons)}"
+            logger.info(
+                "Skipping tweet %s from @%s: reason=%s",
+                data['id'],
+                data['handle'] or 'unknown',
+                ",".join(skip_reasons),
             )
             continue
-
-        candidates.append((data, tweet))
-
-    print(f"[INFO] {len(candidates)} eligible tweets for topic '{topic}' after filtering.")
-
-    if not candidates:
-        print(f"[INFO] No eligible tweets for topic '{topic}'.")
-        return
-
-    replies = 0
-    for data, tweet in candidates:
-        if replies >= config.max_replies_per_topic:
-            break
 
         template = random.choice(config.reply_templates)
         message = template.format(
@@ -540,120 +550,248 @@ async def process_tweets(
         ).strip()
 
         if not message:
-            print("[WARN] Generated empty reply. Skipping tweet.")
+            logger.warning("Generated empty reply. Skipping tweet.")
             continue
 
-        print(f"[INFO] Replying to @{data['handle'] or 'unknown'} for topic '{topic}'.")
+        logger.info("Replying to @%s for topic '%s'.", data['handle'] or 'unknown', topic)
 
-        if await send_reply(page, tweet, message):
+        if send_reply(page, tweet, message, logger):
             registry.add(identifier)
             replies += 1
-            await video_service.maybe_generate(topic, data["text"])
-            await maybe_send_dm(config, page, data)
+            video_service.maybe_generate(topic, data["text"])
+            maybe_send_dm(config, page, data, logger)
             delay = random.randint(config.action_delay_min, config.action_delay_max)
-            print(f"[INFO] Sleeping for {delay} seconds before next action.")
-            await asyncio.sleep(delay)
+            logger.info("Sleeping for %s seconds before next action.", delay)
+            time.sleep(delay)
         else:
-            print("[WARN] Reply attempt failed; not recording tweet as replied.")
+            logger.warning("Reply attempt failed; not recording tweet as replied.")
+
+        if replies >= config.max_replies_per_topic:
+            logger.info(
+                "Reached MAX_REPLIES_PER_TOPIC=%s for '%s'. Moving to next topic.",
+                config.max_replies_per_topic,
+                topic,
+            )
+            return
 
 
-def text_focus(text: str, *, max_length: int = 80) -> str:
-    cleaned = " ".join(text.split())
-    if len(cleaned) <= max_length:
-        return cleaned
-    return f"{cleaned[: max_length - 3]}..."
-
-
-async def run_engagement_loop(
+def handle_topic(
     config: BotConfig,
     registry: MessageRegistry,
     page: Page,
     video_service: VideoService,
+    topic: str,
+    logger: logging.Logger,
 ) -> None:
-    print(f"[INFO] Starting engagement loop with {len(config.search_topics)} topic(s).")
+    logger.info("Topic '%s' - loading search results...", topic)
+    url = f"https://x.com/search?q={quote_plus(topic)}&src=typed_query&f=live"
+    try:
+        page.goto(url, wait_until="networkidle", timeout=60000)
+    except PlaywrightTimeout:
+        logger.warning("Timeout while loading topic '%s'.", topic)
+        return
+    except PlaywrightError as exc:
+        logger.warning("Error while loading topic '%s': %s", topic, exc)
+        return
+
+    tweets = load_tweets(page, logger)
+    logger.info("Loaded %s tweets for topic '%s'.", len(tweets), topic)
+    if not tweets:
+        logger.warning("No eligible tweets for topic '%s'.", topic)
+        return
+
+    process_tweets(config, registry, page, video_service, tweets, topic, logger)
+
+
+def run_engagement_loop(
+    config: BotConfig,
+    registry: MessageRegistry,
+    page: Page,
+    video_service: VideoService,
+    logger: logging.Logger,
+) -> None:
+    logger.info("Starting engagement loop with %s topic(s).", len(config.search_topics))
     while True:
         try:
             if page.is_closed():
-                print("[INFO] Browser page closed. Exiting engagement loop.")
+                logger.info("Browser page closed. Exiting engagement loop.")
                 return
+        except PlaywrightError:
+            logger.info("Browser page unavailable. Exiting engagement loop.")
+            return
 
-            if config.search_topics:
-                for topic in config.search_topics:
-                    await handle_topic(config, registry, page, video_service, topic)
-            else:
-                print("[INFO] No search topics configured. Sleeping before next cycle.")
+        if config.search_topics:
+            for topic in config.search_topics:
+                handle_topic(config, registry, page, video_service, topic, logger)
+        else:
+            logger.info("No search topics configured. Sleeping before next cycle.")
 
-            print(f"[INFO] Cycle complete. Sleeping for {config.loop_delay_seconds} seconds.")
-            await asyncio.sleep(config.loop_delay_seconds)
+        logger.info("Cycle complete. Sleeping for %s seconds.", config.loop_delay_seconds)
+        try:
+            time.sleep(config.loop_delay_seconds)
         except KeyboardInterrupt:
             raise
-        except PlaywrightTimeout as exc:
-            print(f"[ERROR] Playwright timeout in engagement loop: {exc}")
-            if config.debug:
-                traceback.print_exc()
-            await asyncio.sleep(10)
-        except PlaywrightError as exc:
-            print(f"[ERROR] Playwright error in engagement loop: {exc}")
-            if config.debug:
-                traceback.print_exc()
-            await asyncio.sleep(10)
-        except Exception as exc:  # noqa: BLE001
-            print(f"[ERROR] Unexpected error in engagement loop: {exc}")
-            if config.debug:
-                traceback.print_exc()
-            await asyncio.sleep(10)
 
 
-async def main() -> None:
+def start_browser_with_saved_session(
+    playwright,
+    config: BotConfig,
+    logger: logging.Logger,
+) -> Optional[tuple[Browser, BrowserContext, Page]]:
+    try:
+        browser = playwright.chromium.launch(
+            headless=config.headless,
+            args=["--start-maximized", "--no-sandbox"],
+        )
+        context = browser.new_context(storage_state=AUTH_FILE)
+        page = context.new_page()
+        logger.info("Launched browser with saved session (headless=%s).", config.headless)
+        return browser, context, page
+    except FileNotFoundError:
+        logger.debug("Saved session file missing when attempting to load.")
+    except PlaywrightError as exc:
+        logger.error("Failed to launch browser with saved session: %s", exc)
+    return None
+
+
+def start_browser_for_manual_login(
+    playwright,
+    logger: logging.Logger,
+) -> Optional[tuple[Browser, BrowserContext, Page]]:
+    try:
+        browser = playwright.chromium.launch(
+            headless=False,
+            args=["--start-maximized", "--no-sandbox"],
+        )
+        context = browser.new_context()
+        page = context.new_page()
+        page.goto("https://x.com/login", wait_until="domcontentloaded", timeout=60000)
+        logger.info("Browser opened for manual login.")
+        return browser, context, page
+    except PlaywrightError as exc:
+        logger.error("Failed to launch browser for manual login: %s", exc)
+        return None
+
+
+def close_resources(
+    browser: Optional[Browser],
+    context: Optional[BrowserContext],
+    logger: logging.Logger,
+) -> None:
+    try:
+        if context:
+            context.close()
+    except PlaywrightError as exc:
+        logger.debug("Error while closing context: %s", exc)
+    try:
+        if browser:
+            browser.close()
+    except PlaywrightError as exc:
+        logger.debug("Error while closing browser: %s", exc)
+
+
+def run_social_agent() -> None:
+    load_dotenv()
     config = load_config()
-    print(f"[INFO] Search topics configured: {', '.join(config.search_topics)}")
-    print(f"[INFO] HEADLESS={config.headless}, DEBUG={config.debug}")
+
+    logging.basicConfig(
+        level=logging.DEBUG if config.debug else logging.INFO,
+        format="[%(asctime)s] [%(levelname)s] %(message)s",
+    )
+    logger = logging.getLogger("social_agent")
+
+    logger.info("Search topics configured: %s", ", ".join(config.search_topics))
+    logger.info("HEADLESS=%s, DEBUG=%s", config.headless, config.debug)
     if config.enable_dms:
-        print("[INFO] ENABLE_DMS=true")
+        logger.info("ENABLE_DMS=true")
+
     registry = MessageRegistry(MESSAGE_LOG_PATH)
     video_service = VideoService(config)
 
-    playwright = context = page = None
-    try:
-        playwright, context, page = await create_browser(config)
-        print(f"[INFO] Browser launched (headless={config.headless}).")
-        logged_in = await ensure_logged_in(page, config)
-        if not logged_in:
-            return
-        print("[INFO] Login verified. Starting engagement loop.")
-        await run_engagement_loop(config, registry, page, video_service)
-    except KeyboardInterrupt:
-        print("[INFO] Shutdown requested by user.")
-    except PlaywrightTimeout as exc:
-        print(f"[ERROR] Playwright timeout: {exc}")
-        if config.debug:
-            traceback.print_exc()
-    except PlaywrightError as exc:
-        print(f"[ERROR] Playwright error: {exc}")
-        if config.debug:
-            traceback.print_exc()
-    except Exception as exc:  # noqa: BLE001
-        print(f"[ERROR] Unhandled exception: {exc}")
-        if config.debug:
-            traceback.print_exc()
-    finally:
-        if context:
-            try:
-                await context.close()
-            except Exception as exc:  # noqa: BLE001
-                if config.debug:
-                    print(f"[WARN] Failed to close browser context: {exc}")
-        if playwright:
-            try:
-                await playwright.stop()
-            except Exception as exc:  # noqa: BLE001
-                if config.debug:
-                    print(f"[WARN] Failed to stop Playwright: {exc}")
+    with sync_playwright() as playwright:
+        browser: Optional[Browser] = None
+        context: Optional[BrowserContext] = None
+        page: Optional[Page] = None
+
+        session_loaded = os.path.exists(AUTH_FILE)
+        if session_loaded:
+            logger.info("Saved session detected at %s. Attempting reuse.", AUTH_FILE)
+            session = start_browser_with_saved_session(playwright, config, logger)
+            if session:
+                browser, context, page = session
+                try:
+                    if page:
+                        page.goto("https://x.com/home", wait_until="domcontentloaded", timeout=60000)
+                    if page and not is_logged_in(page):
+                        logger.error("Saved session appears logged out. Falling back to manual login.")
+                        close_resources(browser, context, logger)
+                        browser = context = page = None
+                        session_loaded = False
+                        try:
+                            os.remove(AUTH_FILE)
+                            logger.warning("Removed stale auth file at %s.", AUTH_FILE)
+                        except OSError:
+                            logger.debug("Auth file not removed; it may not exist or be locked.")
+                    elif page and context:
+                        try:
+                            context.storage_state(path=AUTH_FILE)
+                        except PlaywrightError as exc:
+                            logger.debug("Unable to refresh auth state: %s", exc)
+                except (PlaywrightTimeout, PlaywrightError, TargetClosedError) as exc:
+                    logger.error("Error verifying saved session: %s", exc)
+                    close_resources(browser, context, logger)
+                    browser = context = page = None
+                    session_loaded = False
+                    try:
+                        os.remove(AUTH_FILE)
+                        logger.warning("Removed stale auth file at %s due to verification error.", AUTH_FILE)
+                    except OSError:
+                        logger.debug("Auth file not removed after verification error.")
+
+        if not session_loaded:
+            logger.info("Starting first-run authentication flow.")
+            session = start_browser_for_manual_login(playwright, logger)
+            if not session:
+                logger.error("Unable to start browser for manual login. Exiting.")
+                return
+            browser, context, page = session
+            if not page or not context:
+                logger.error("Browser session not initialized correctly. Exiting.")
+                close_resources(browser, context, logger)
+                return
+            if not ensure_logged_in(context, page, config, logger, automated_attempt=True):
+                logger.error("Login process did not complete successfully. Exiting.")
+                close_resources(browser, context, logger)
+                return
+            logger.info("Authentication complete; proceeding to engagement loop.")
+        else:
+            if not (browser and context and page):
+                logger.error("Failed to load saved session. Exiting.")
+                return
+            logger.info("Saved session verified. Proceeding directly to engagement loop.")
+
+        try:
+            if not page:
+                logger.error("Browser page unavailable. Exiting.")
+                return
+            run_engagement_loop(config, registry, page, video_service, logger)
+        except KeyboardInterrupt:
+            logger.info("Shutdown requested by user.")
+        except (PlaywrightTimeout, PlaywrightError, TargetClosedError) as exc:
+            logger.error("Playwright error: %s", exc)
+            if config.debug:
+                logger.exception("Detailed Playwright exception")
+        except Exception as exc:  # noqa: BLE001
+            logger.error("Unhandled exception: %s", exc)
+            if config.debug:
+                logger.exception("Unhandled exception")
+        finally:
+            close_resources(browser, context, logger)
 
 
 if __name__ == "__main__":
     try:
-        asyncio.run(main())
+        run_social_agent()
     except KeyboardInterrupt:
-        print("[INFO] Shutdown requested by user.")
+        logging.getLogger("social_agent").info("Shutdown requested by user.")
         sys.exit(0)
