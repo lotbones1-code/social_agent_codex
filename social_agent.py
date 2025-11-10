@@ -799,7 +799,16 @@ def prepare_authenticated_session(
         context = playwright.chromium.launch_persistent_context(
             user_data_dir=user_data_dir,
             headless=use_headless,
-            args=["--start-maximized", "--no-sandbox"],
+            args=[
+                "--start-maximized",
+                "--no-sandbox",
+                "--disable-blink-features=AutomationControlled",  # Hide automation
+                "--disable-dev-shm-usage",
+                "--disable-web-security",
+                "--disable-features=IsolateOrigins,site-per-process",
+            ],
+            viewport={"width": 1920, "height": 1080},
+            user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         )
         logger.info("[INFO] Browser context launched successfully!")
     except PlaywrightError as exc:
