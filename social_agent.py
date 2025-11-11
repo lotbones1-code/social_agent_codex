@@ -467,20 +467,37 @@ def send_reply(page: Page, tweet: Locator, message: str, logger: logging.Logger)
         tweet.scroll_into_view_if_needed()
         time.sleep(0.5)
 
-        logger.debug("Clicking reply button...")
-        reply_btn = tweet.locator("div[data-testid='reply']")
-        reply_btn.click(force=True)
-        time.sleep(1)
+        logger.debug("Looking for reply button...")
+        reply_btn = tweet.locator("div[data-testid='reply']").first
 
-        logger.debug("Waiting for composer to appear...")
+        # Check if reply button exists and is visible
+        try:
+            reply_btn.wait_for(timeout=3000, state="visible")
+            logger.debug("Reply button found and visible")
+        except PlaywrightTimeout:
+            logger.warning("Reply button not found or not visible!")
+            return False
+
+        logger.debug("Clicking reply button...")
+        reply_btn.click(timeout=5000)
+        logger.debug("Reply button clicked, waiting for composer...")
+        time.sleep(2)
+
         # Try multiple possible selectors for the composer
+        logger.debug("Looking for composer...")
         try:
             composer = page.locator("div[data-testid='tweetTextarea_0']").first
             composer.wait_for(timeout=5000, state="visible")
+            logger.debug("Found composer with tweetTextarea_0")
         except PlaywrightTimeout:
             logger.debug("Trying alternative composer selector...")
-            composer = page.locator("div[contenteditable='true'][role='textbox']").first
-            composer.wait_for(timeout=5000, state="visible")
+            try:
+                composer = page.locator("div[contenteditable='true'][role='textbox']").first
+                composer.wait_for(timeout=5000, state="visible")
+                logger.debug("Found composer with contenteditable selector")
+            except PlaywrightTimeout:
+                logger.warning("Composer never appeared after clicking reply!")
+                return False
 
         logger.debug("Clicking into composer and typing message...")
         composer.click()
@@ -496,8 +513,8 @@ def send_reply(page: Page, tweet: Locator, message: str, logger: logging.Logger)
         time.sleep(3)
         logger.info("[INFO] Reply posted successfully.")
         return True
-    except PlaywrightTimeout:
-        logger.warning("Timeout while composing reply - composer may not have appeared.")
+    except PlaywrightTimeout as exc:
+        logger.warning("Timeout during reply: %s", exc)
     except PlaywrightError as exc:
         logger.warning("Failed to send reply: %s", exc)
     return False
