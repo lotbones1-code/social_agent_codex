@@ -528,16 +528,31 @@ def send_reply(page: Page, tweet: Locator, message: str, logger: logging.Logger)
         page.keyboard.insert_text(message)
         time.sleep(1)
 
-        logger.debug("Looking for send button...")
-        send_btn = page.locator("button[data-testid='tweetButtonInline']").first
-        try:
-            send_btn.wait_for(timeout=3000, state="visible")
-            logger.debug("Send button found and visible")
-        except PlaywrightTimeout:
-            logger.warning("Send button not visible!")
+        logger.debug("Looking for Reply/Post button...")
+        # Try multiple selectors for the reply post button (not save draft!)
+        post_selectors = [
+            "button[data-testid='tweetButton']",  # Main tweet button (for replies too)
+            "div[data-testid='tweetButton']",
+            "button:has-text('Reply')",
+            "button:has-text('Post')",
+        ]
+
+        send_btn = None
+        for selector in post_selectors:
+            try:
+                btn = page.locator(selector).first
+                btn.wait_for(timeout=2000, state="visible")
+                send_btn = btn
+                logger.debug(f"Post button found with selector: {selector}")
+                break
+            except PlaywrightTimeout:
+                continue
+
+        if not send_btn:
+            logger.warning("Post button not found with any selector!")
             return False
 
-        logger.debug("Clicking send button...")
+        logger.debug("Clicking post button...")
         send_btn.click(force=True)
         time.sleep(4)  # Wait for reply to post
         logger.info("[INFO] Reply posted successfully.")
