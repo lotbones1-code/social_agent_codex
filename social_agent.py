@@ -722,6 +722,50 @@ def create_original_post(page: Page, message: str, logger: logging.Logger) -> bo
     return False
 
 
+def follow_user(page: Page, tweet: Locator, logger: logging.Logger) -> bool:
+    """
+    Follow a user from their tweet.
+    NEW FUNCTION - completely separate from reply code!
+    """
+    try:
+        # Find the Follow button within the tweet
+        logger.debug("Looking for Follow button...")
+
+        follow_selectors = [
+            "div[data-testid='follow']",
+            "button[data-testid='follow']",
+            "button:has-text('Follow')",
+        ]
+
+        follow_btn = None
+        for selector in follow_selectors:
+            try:
+                btn = tweet.locator(selector).first
+                btn.wait_for(timeout=2000, state="visible")
+                follow_btn = btn
+                logger.debug(f"Follow button found with selector: {selector}")
+                break
+            except PlaywrightTimeout:
+                continue
+            except PlaywrightError:
+                continue
+
+        if not follow_btn:
+            logger.debug("No Follow button found (already following or profile issue)")
+            return False
+
+        logger.debug("Clicking Follow button...")
+        follow_btn.click(force=True)
+        time.sleep(random.uniform(1, 2))
+
+        logger.info("[INFO] ✓ Followed user successfully!")
+        return True
+
+    except PlaywrightError as exc:
+        logger.debug(f"Failed to follow user: {exc}")
+        return False
+
+
 def maybe_send_dm(config: BotConfig, page: Page, tweet_data: dict[str, str], logger: logging.Logger) -> None:
     del page, tweet_data  # Unused placeholders for future DM workflows.
 
@@ -931,6 +975,15 @@ def process_tweets(
             logger.info("[INFO] ✓ Success! Stats: %d/%d replies (%.1f%% success rate)", replies, attempts, success_rate)
             video_service.maybe_generate(topic, data["text"])
             maybe_send_dm(config, page, data, logger)
+
+            # Follow user occasionally (30% chance) to grow followers
+            if random.random() < 0.3:
+                logger.info("[INFO] 👥 Attempting to follow @%s...", data['handle'] or 'unknown')
+                if follow_user(page, tweet, logger):
+                    logger.info("[INFO] Successfully followed!")
+                    time.sleep(random.uniform(2, 4))  # Extra delay after following
+                else:
+                    logger.debug("Follow skipped (already following or unavailable)")
 
             # More human-like timing: occasionally take longer breaks (10% chance)
             if random.random() < 0.1:
