@@ -682,10 +682,7 @@ def prepare_authenticated_session(
     auth_path = ensure_auth_storage_path(storage_env, logger)
 
     try:
-        user_data_dir = str(Path.home() / ".social_agent_codex/browser_session/")                
-        os.makedirs(user_data_dir, exist_ok=True)
-        browser = playwright.chromium.launch_persistent_context(
-                        user_data_dir=user_data_dir,
+        browser = playwright.chromium.launch(
             headless=config.headless,
             args=["--start-maximized", "--no-sandbox"],
         )
