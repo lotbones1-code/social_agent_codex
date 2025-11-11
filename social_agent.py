@@ -483,21 +483,13 @@ def send_reply(page: Page, tweet: Locator, message: str, logger: logging.Logger)
         # Navigate to the tweet's detail page
         logger.debug(f"Navigating to tweet: {tweet_url}")
         page.goto(tweet_url, wait_until="domcontentloaded", timeout=15000)
-        time.sleep(2)
+        time.sleep(3)
 
-        # Find and click the reply button on the tweet detail page
-        logger.debug("Looking for reply button on tweet page...")
-        reply_button = page.locator("div[data-testid='reply']").first
-        reply_button.wait_for(state="visible", timeout=10000)
-        reply_button.scroll_into_view_if_needed()
-        time.sleep(0.5)
-        reply_button.click(timeout=5000)
-        time.sleep(2)
-
-        # Find the composer
-        logger.debug("Waiting for reply composer...")
+        # On tweet detail pages, look for the inline reply box first
+        logger.debug("Looking for inline reply composer...")
         composer_selectors = [
             "div[data-testid='tweetTextarea_0']",
+            "div[data-testid='tweetTextarea_1']",
             "div[role='textbox'][contenteditable='true']",
         ]
 
@@ -505,30 +497,82 @@ def send_reply(page: Page, tweet: Locator, message: str, logger: logging.Logger)
         for selector in composer_selectors:
             try:
                 comp = page.locator(selector).first
-                comp.wait_for(state="visible", timeout=5000)
-                composer = comp
-                logger.debug(f"Found composer with: {selector}")
-                break
-            except PlaywrightTimeout:
+                if comp.is_visible(timeout=3000):
+                    composer = comp
+                    logger.debug(f"Found inline reply box with: {selector}")
+                    break
+            except PlaywrightError:
                 continue
 
+        # If no inline composer found, try clicking the reply button
         if not composer:
-            logger.error("Could not find reply composer")
+            logger.debug("No inline composer, trying to click reply button...")
+            try:
+                # Try to find and click reply button
+                reply_selectors = [
+                    "div[data-testid='reply']",
+                    "button[aria-label*='Reply']",
+                    "div[aria-label*='Reply']",
+                ]
+
+                for reply_sel in reply_selectors:
+                    try:
+                        reply_btn = page.locator(reply_sel).first
+                        if reply_btn.is_visible(timeout=3000):
+                            reply_btn.scroll_into_view_if_needed()
+                            time.sleep(0.5)
+                            reply_btn.click(timeout=5000)
+                            logger.debug(f"Clicked reply button: {reply_sel}")
+                            time.sleep(2)
+                            break
+                    except PlaywrightError:
+                        continue
+
+                # Now look for composer again
+                for selector in composer_selectors:
+                    try:
+                        comp = page.locator(selector).first
+                        comp.wait_for(state="visible", timeout=5000)
+                        composer = comp
+                        logger.debug(f"Found composer after clicking: {selector}")
+                        break
+                    except PlaywrightTimeout:
+                        continue
+            except Exception as e:
+                logger.debug(f"Error trying to click reply: {e}")
+
+        if not composer:
+            logger.error("Could not find reply composer with any method")
             page.screenshot(path="logs/debug_no_composer.png")
             return False
 
-        # Type the message
+        # Click the composer and type the message
         logger.debug("Typing reply...")
         composer.click()
-        time.sleep(0.5)
-        composer.fill(message)
         time.sleep(1)
+        composer.fill(message)
+        time.sleep(1.5)
 
-        # Click the Reply button
-        logger.debug("Clicking Reply button...")
-        post_button = page.locator("button[data-testid='tweetButton']").first
-        post_button.wait_for(state="visible", timeout=5000)
-        post_button.click(timeout=5000)
+        # Find and click the Reply/Post button
+        logger.debug("Looking for Reply button...")
+        post_selectors = [
+            "button[data-testid='tweetButton']",
+            "button[data-testid='tweetButtonInline']",
+            "div[data-testid='tweetButton']",
+            "button:has-text('Reply')",
+            "button:has-text('Post')",
+        ]
+
+        for selector in post_selectors:
+            try:
+                btn = page.locator(selector).first
+                if btn.is_visible(timeout=2000):
+                    btn.click(timeout=5000)
+                    logger.debug(f"Clicked post button: {selector}")
+                    break
+            except PlaywrightError:
+                continue
+
         time.sleep(3)
 
         logger.info("[INFO] Reply posted successfully.")
