@@ -756,32 +756,77 @@ def follow_user(page: Page, tweet: Locator, logger: logging.Logger) -> bool:
         # Find the Follow button within the tweet
         logger.debug("Looking for Follow button...")
 
+        # Try multiple strategies to find the Follow button
         follow_selectors = [
+            # Most common - inside the tweet card
             "div[data-testid='follow']",
             "button[data-testid='follow']",
-            "button:has-text('Follow')",
+
+            # Sometimes in User-Name area
+            "div[data-testid='User-Name'] button[data-testid='follow']",
+            "div[data-testid='User-Name'] div[data-testid='follow']",
+
+            # Text-based fallbacks
+            "button:has-text('Follow'):not(:has-text('Following'))",
+            "div[role='button']:has-text('Follow'):not(:has-text('Following'))",
+
+            # Aria label approach
+            "button[aria-label*='Follow']",
         ]
 
         follow_btn = None
         for selector in follow_selectors:
             try:
                 btn = tweet.locator(selector).first
-                btn.wait_for(timeout=2000, state="visible")
-                follow_btn = btn
-                logger.debug(f"Follow button found with selector: {selector}")
-                break
+                btn.wait_for(timeout=1500, state="visible")
+
+                # Get button text to verify it's "Follow" not "Following"
+                try:
+                    btn_text = btn.inner_text()
+                    logger.debug(f"Found button with selector {selector}, text: '{btn_text}'")
+
+                    # Make sure it's Follow, not Following
+                    if "following" in btn_text.lower() and "follow" in btn_text.lower():
+                        logger.debug("Button says 'Following' - already following this user")
+                        continue
+
+                    if "follow" in btn_text.lower():
+                        follow_btn = btn
+                        logger.debug(f"✓ Follow button confirmed with selector: {selector}")
+                        break
+                except Exception:
+                    # If we can't get text, try the button anyway
+                    follow_btn = btn
+                    logger.debug(f"Follow button found (no text check): {selector}")
+                    break
+
             except PlaywrightTimeout:
                 continue
             except PlaywrightError:
                 continue
 
         if not follow_btn:
+            # Debug: Show what buttons ARE visible in the tweet
+            try:
+                all_buttons = tweet.locator("button, div[role='button']").all()
+                logger.debug(f"DEBUG: Found {len(all_buttons)} buttons/clickables in tweet")
+                for i, btn in enumerate(all_buttons[:5]):  # Show first 5
+                    try:
+                        text = btn.inner_text() or ""
+                        testid = btn.get_attribute("data-testid") or "no-testid"
+                        aria = btn.get_attribute("aria-label") or "no-aria"
+                        logger.debug(f"  Button {i+1}: text='{text[:20]}', testid='{testid}', aria='{aria[:30]}'")
+                    except:
+                        pass
+            except:
+                pass
+
             logger.debug("No Follow button found (already following or profile issue)")
             return False
 
         logger.debug("Clicking Follow button...")
         follow_btn.click(force=True)
-        time.sleep(random.uniform(1, 2))
+        time.sleep(random.uniform(1.5, 2.5))
 
         logger.info("[INFO] ✓ Followed user successfully!")
         return True
