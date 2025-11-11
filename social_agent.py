@@ -530,6 +530,10 @@ def send_reply(page: Page, tweet: Locator, message: str, logger: logging.Logger)
         time.sleep(random.uniform(0.5, 1.5))
 
         logger.debug("Looking for Reply/Post button...")
+
+        # Wait a moment for button to be ready
+        time.sleep(1)
+
         # Try multiple selectors for the reply post button (not save draft!)
         # IMPORTANT: Look for specific Reply button text to avoid Save button
         post_selectors = [
@@ -543,7 +547,7 @@ def send_reply(page: Page, tweet: Locator, message: str, logger: logging.Logger)
         for selector in post_selectors:
             try:
                 btn = page.locator(selector).first
-                btn.wait_for(timeout=2000, state="visible")
+                btn.wait_for(timeout=3000, state="visible")
 
                 # Make sure button is enabled (not disabled due to long message)
                 is_disabled = btn.get_attribute("disabled")
@@ -551,20 +555,50 @@ def send_reply(page: Page, tweet: Locator, message: str, logger: logging.Logger)
                     logger.debug(f"Button found but disabled with selector: {selector}, trying next...")
                     continue
 
+                # Check button text to confirm it's not Save
+                button_text = btn.inner_text()
+                logger.debug(f"Found button with text: '{button_text}' using selector: {selector}")
+
+                if "save" in button_text.lower():
+                    logger.debug("This is a Save button, skipping...")
+                    continue
+
                 send_btn = btn
-                logger.debug(f"Post button found with selector: {selector}")
+                logger.debug(f"✓ Post button confirmed with selector: {selector}")
                 break
             except PlaywrightTimeout:
+                logger.debug(f"Timeout waiting for selector: {selector}")
                 continue
-            except PlaywrightError:
+            except PlaywrightError as e:
+                logger.debug(f"Error with selector {selector}: {e}")
                 continue
 
         if not send_btn:
             logger.warning("Post button not found or all buttons disabled!")
+            # Debug: show what buttons ARE visible
+            try:
+                all_buttons = page.locator("button").all()
+                logger.debug(f"DEBUG: Found {len(all_buttons)} total buttons on page")
+                for i, btn in enumerate(all_buttons[:10]):  # Show first 10
+                    try:
+                        text = btn.inner_text()
+                        testid = btn.get_attribute("data-testid") or "no-testid"
+                        logger.debug(f"  Button {i+1}: text='{text}', testid='{testid}'")
+                    except:
+                        pass
+            except:
+                pass
             return False
 
-        logger.debug("Clicking post button...")
-        send_btn.click(force=True)
+        logger.debug("Clicking post button NOW...")
+        try:
+            send_btn.click(timeout=3000)
+            logger.debug("✓ Click successful!")
+        except PlaywrightError as e:
+            logger.warning(f"Normal click failed: {e}, trying force click...")
+            send_btn.click(force=True)
+            logger.debug("✓ Force click successful!")
+
         time.sleep(3)  # Wait for reply to post
 
         # Check for error messages (rate limits, etc)
@@ -869,13 +903,8 @@ def process_tweets(
             logger.warning("Generated empty reply. Skipping tweet.")
             continue
 
-        # Add hashtags if there's room (50% chance to keep it varied)
-        if random.random() < 0.5:
-            hashtags = generate_hashtags(topic, max_hashtags=random.randint(1, 2))
-            # Only add if it fits within 280 chars
-            if len(message) + len(hashtags) + 1 <= 280:
-                message = message + " " + hashtags
-                logger.debug("Added hashtags: %s", hashtags)
+        # NOTE: No hashtags in replies - they look spammy
+        # Hashtags only in original posts where they look natural
 
         # Twitter/X has a 280 character limit
         if len(message) > 280:
