@@ -953,11 +953,7 @@ def close_resources(
             context.close()
     except PlaywrightError as exc:
         logger.debug("Error while closing context: %s", exc)
-    try:
-        if browser:
-            browser.close()
-    except PlaywrightError as exc:
-        logger.debug("Error while closing browser: %s", exc)
+    # With persistent context, browser is None, so we don't need to close it separately
 
 
 def prepare_authenticated_session(
@@ -969,10 +965,11 @@ def prepare_authenticated_session(
     auth_path = ensure_auth_storage_path(storage_env, logger)
 
     try:
-        user_data_dir = str(Path.home() / ".social_agent_codex/browser_session/")                
+        user_data_dir = str(Path.home() / ".social_agent_codex/browser_session/")
         os.makedirs(user_data_dir, exist_ok=True)
-        browser = playwright.chromium.launch_persistent_context(
-                        user_data_dir=user_data_dir,
+        # launch_persistent_context returns a BrowserContext directly
+        context = playwright.chromium.launch_persistent_context(
+            user_data_dir=user_data_dir,
             headless=config.headless,
             args=["--start-maximized", "--no-sandbox"],
         )
@@ -981,49 +978,25 @@ def prepare_authenticated_session(
         return None
 
     storage_file = auth_path
-    context: BrowserContext
-    session_loaded = False
+    logger.info("[INFO] Browser session started with persistent context")
 
-    storage_exists = os.path.exists(storage_file)
-    if storage_exists:
-        logger.info("[INFO] Restoring saved session from %s", storage_file)
-        try:
-            context = browser.new_context(storage_state=storage_file)
-            session_loaded = True
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("[WARN] auth.json missing or invalid — regenerating login session")
-            logger.debug("Storage state recovery error: %s", exc)
-            context = browser.new_context()
-            session_loaded = False
-    else:
-        logger.info("[INFO] No session found — creating new context for manual login.")
-        context = browser.new_context()
-
+    # With persistent context, we use the context directly (it persists sessions automatically)
     page = context.new_page()
 
-    if session_loaded:
-        try:
-            page.goto("https://x.com/home", wait_until="domcontentloaded", timeout=60000)
-        except PlaywrightTimeout:
-            logger.warning("Timeout while verifying restored session; prompting login.")
-        except (PlaywrightError, TargetClosedError) as exc:
-            logger.warning("Error while verifying restored session: %s", exc)
-        else:
-            if is_logged_in(page):
-                logger.info("[INFO] Session restored successfully")
-                try:
-                    context.storage_state(path=storage_file)
-                except PlaywrightError as exc:
-                    logger.debug("Unable to refresh storage state: %s", exc)
-                return browser, context, page
-            logger.warning("Saved session present but user is logged out; manual login required.")
-
+    # Check if we're already logged in
     try:
-        page.goto("https://x.com/login", wait_until="domcontentloaded", timeout=60000)
+        page.goto("https://x.com/home", wait_until="domcontentloaded", timeout=60000)
     except PlaywrightTimeout:
-        logger.warning("Timeout while opening login page. Proceeding to login checks.")
+        logger.warning("Timeout while loading home timeline during login check.")
     except PlaywrightError as exc:
-        logger.error("Failed to load login page: %s", exc)
+        logger.warning("Error while loading home timeline: %s", exc)
+
+    if is_logged_in(page):
+        logger.info("[INFO] Session restored successfully from persistent context")
+        return None, context, page  # No separate browser object with persistent context
+
+    # Not logged in, try automated login or wait for manual login
+    logger.info("[INFO] No active session found; attempting login")
 
     if not ensure_logged_in(
         context,
@@ -1034,11 +1007,14 @@ def prepare_authenticated_session(
         auth_file=storage_file,
     ):
         logger.error("Login process did not complete successfully.")
-        close_resources(browser, context, logger)
+        try:
+            context.close()
+        except PlaywrightError as exc:
+            logger.debug("Error while closing context: %s", exc)
         return None
 
     logger.info("[INFO] Authentication complete; proceeding to engagement loop.")
-    return browser, context, page
+    return None, context, page  # No separate browser object with persistent context
 
 
 def run_social_agent() -> None:
