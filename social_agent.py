@@ -609,7 +609,8 @@ def handle_topic(
     logger.info("[INFO] Topic '%s' - loading search results...", topic)
     url = f"https://x.com/search?q={quote_plus(topic)}&src=typed_query&f=live"
     try:
-        page.goto(url, wait_until="networkidle", timeout=60000)
+        page.goto(url, wait_until="domcontentloaded", timeout=30000)
+        logger.info("[INFO] Search page loaded for topic '%s'", topic)
     except PlaywrightTimeout:
         logger.warning("Timeout while loading topic '%s'.", topic)
         return
