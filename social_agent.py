@@ -468,14 +468,34 @@ def send_reply(page: Page, tweet: Locator, message: str, logger: logging.Logger)
         time.sleep(0.5)
 
         logger.debug("Looking for reply button...")
-        reply_btn = tweet.locator("div[data-testid='reply']").first
 
-        # Check if reply button exists and is visible
-        try:
-            reply_btn.wait_for(timeout=3000, state="visible")
-            logger.debug("Reply button found and visible")
-        except PlaywrightTimeout:
-            logger.warning("Reply button not found or not visible!")
+        # Try multiple selectors for the reply button
+        reply_selectors = [
+            "div[data-testid='reply']",
+            "button[data-testid='reply']",
+            "[aria-label*='Reply']",
+            "[data-testid='reply'] button",
+        ]
+
+        reply_btn = None
+        for selector in reply_selectors:
+            try:
+                btn = tweet.locator(selector).first
+                btn.wait_for(timeout=1000, state="visible")
+                reply_btn = btn
+                logger.debug(f"Reply button found with selector: {selector}")
+                break
+            except PlaywrightTimeout:
+                continue
+
+        if not reply_btn:
+            logger.warning("Reply button not found with any selector!")
+            # Take screenshot for debugging
+            try:
+                page.screenshot(path="/tmp/tweet_debug.png")
+                logger.debug("Screenshot saved to /tmp/tweet_debug.png")
+            except Exception:
+                pass
             return False
 
         logger.debug("Clicking reply button...")
