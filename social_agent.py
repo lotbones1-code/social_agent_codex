@@ -569,7 +569,8 @@ def maybe_send_dm(config: BotConfig, page: Page, tweet_data: dict[str, str], log
         _DM_NOTICE_LOGGED = True
 
 
-def text_focus(text: str, *, max_length: int = 80) -> str:
+def text_focus(text: str, *, max_length: int = 40) -> str:
+    """Extract focus text from tweet, keeping it short to fit in reply templates."""
     cleaned = " ".join(text.split())
     if len(cleaned) <= max_length:
         return cleaned
@@ -644,8 +645,22 @@ def process_tweets(
             logger.warning("Generated empty reply. Skipping tweet.")
             continue
 
+        # Twitter/X has a 280 character limit
+        if len(message) > 280:
+            logger.warning("Message too long (%d chars), truncating to 280...", len(message))
+            # Keep the referral link if present
+            ref_link = config.referral_link or ""
+            if ref_link and ref_link in message:
+                # Truncate the text part but keep the link
+                available_chars = 280 - len(ref_link) - 4  # -4 for "... "
+                message_without_link = message.replace(ref_link, "").strip()
+                if len(message_without_link) > available_chars:
+                    message = message_without_link[:available_chars].strip() + "... " + ref_link
+            else:
+                message = message[:277] + "..."
+
         logger.info("[INFO] Replying to @%s for topic '%s'.", data['handle'] or 'unknown', topic)
-        logger.debug("Generated message: %s", message)
+        logger.debug("Generated message (%d chars): %s", len(message), message)
 
         if send_reply(page, tweet, message, logger):
             registry.add(identifier)
