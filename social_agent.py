@@ -25,6 +25,12 @@ from playwright.sync_api import (
     sync_playwright,
 )
 
+try:
+    import anthropic
+    ANTHROPIC_AVAILABLE = True
+except ImportError:
+    ANTHROPIC_AVAILABLE = False
+
 try:  # Playwright 1.49 exports TargetClosedError; older builds may not.
     from playwright.sync_api import TargetClosedError  # type: ignore
 except ImportError:  # pragma: no cover - fallback for minimal builds.
@@ -75,6 +81,11 @@ class BotConfig:
     video_model: str
     enable_video: bool
     auth_file: str
+    enable_ai_replies: bool
+    ai_model: str
+    enable_posting: bool
+    posts_per_cycle: int
+    post_topics: list[str]
 
 
 def _parse_bool(value: Optional[str], *, default: bool = False) -> bool:
@@ -170,6 +181,13 @@ def load_config() -> BotConfig:
 
     auth_file = (os.getenv("AUTH_FILE") or DEFAULT_AUTH_FILE).strip() or DEFAULT_AUTH_FILE
 
+    enable_ai_replies = _parse_bool(os.getenv("ENABLE_AI_REPLIES"), default=True)
+    ai_model = (os.getenv("AI_MODEL") or "claude-3-5-sonnet-20241022").strip()
+
+    enable_posting = _parse_bool(os.getenv("ENABLE_POSTING"), default=False)
+    posts_per_cycle = _parse_int("POSTS_PER_CYCLE", 2)
+    post_topics = _split_env("POST_TOPICS") or search_topics
+
     return BotConfig(
         search_topics=search_topics,
         relevant_keywords=relevant_keywords,
@@ -194,6 +212,11 @@ def load_config() -> BotConfig:
         video_model=video_model,
         enable_video=enable_video,
         auth_file=auth_file,
+        enable_ai_replies=enable_ai_replies,
+        ai_model=ai_model,
+        enable_posting=enable_posting,
+        posts_per_cycle=posts_per_cycle,
+        post_topics=post_topics,
     )
 
 
@@ -227,6 +250,124 @@ class MessageRegistry:
                 json.dump(sorted(self._entries), handle, indent=2)
         except OSError as exc:
             logging.getLogger(__name__).warning("Failed to persist registry: %s", exc)
+
+
+class AIService:
+    def __init__(self, config: BotConfig) -> None:
+        self.enabled = False
+        self.model = config.ai_model
+        self._client = None
+
+        if not config.enable_ai_replies:
+            return
+
+        if not ANTHROPIC_AVAILABLE:
+            logging.getLogger(__name__).warning(
+                "ENABLE_AI_REPLIES=true but 'anthropic' package missing. AI features disabled."
+            )
+            return
+
+        api_key = (os.getenv("ANTHROPIC_API_KEY") or "").strip()
+        if not api_key:
+            logging.getLogger(__name__).warning(
+                "ENABLE_AI_REPLIES=true but ANTHROPIC_API_KEY missing. AI features disabled."
+            )
+            return
+
+        try:
+            self._client = anthropic.Anthropic(api_key=api_key)
+            self.enabled = True
+        except Exception as exc:  # noqa: BLE001
+            logging.getLogger(__name__).warning("Failed to initialize AI client: %s", exc)
+
+    def generate_reply(self, tweet_text: str, topic: str, referral_link: Optional[str]) -> Optional[str]:
+        """Generate an AI-powered contextual reply to a tweet."""
+        if not self.enabled or not self._client:
+            return None
+
+        logger = logging.getLogger(__name__)
+
+        prompt = f"""You are a helpful and engaging social media account that shares valuable resources about {topic}.
+
+Someone posted this tweet:
+"{tweet_text}"
+
+Write a short, authentic reply (max 280 characters) that:
+- Genuinely engages with their point
+- Sounds natural and conversational
+- References your experience with {topic}
+- Naturally includes this resource link: {referral_link or 'https://example.com'}
+- Avoids sounding spammy or salesy
+- Uses casual language and occasional slang
+
+Just output the reply text, nothing else."""
+
+        try:
+            message = self._client.messages.create(
+                model=self.model,
+                max_tokens=150,
+                temperature=0.8,
+                messages=[{"role": "user", "content": prompt}]
+            )
+
+            reply = message.content[0].text.strip()
+            # Remove quotes if AI wrapped the response
+            if reply.startswith('"') and reply.endswith('"'):
+                reply = reply[1:-1]
+            if reply.startswith("'") and reply.endswith("'"):
+                reply = reply[1:-1]
+
+            if len(reply) > 280:
+                reply = reply[:277] + "..."
+
+            logger.debug("AI generated reply: %s", reply)
+            return reply
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("AI reply generation failed: %s", exc)
+            return None
+
+    def generate_post(self, topic: str, referral_link: Optional[str]) -> Optional[str]:
+        """Generate an original post about a topic."""
+        if not self.enabled or not self._client:
+            return None
+
+        logger = logging.getLogger(__name__)
+
+        prompt = f"""You are a social media account that shares valuable insights about {topic}.
+
+Create an engaging original tweet (max 280 characters) that:
+- Shares a specific insight, tip, or observation about {topic}
+- Sounds authentic and based on real experience
+- Is conversational and uses casual language
+- Naturally includes this resource link: {referral_link or 'https://example.com'}
+- Provides genuine value to readers
+- Avoids being overly promotional
+
+Just output the tweet text, nothing else."""
+
+        try:
+            message = self._client.messages.create(
+                model=self.model,
+                max_tokens=150,
+                temperature=0.9,
+                messages=[{"role": "user", "content": prompt}]
+            )
+
+            post = message.content[0].text.strip()
+            # Remove quotes if AI wrapped the response
+            if post.startswith('"') and post.endswith('"'):
+                post = post[1:-1]
+            if post.startswith("'") and post.endswith("'"):
+                post = post[1:-1]
+
+            if len(post) > 280:
+                post = post[:277] + "..."
+
+            logger.debug("AI generated post: %s", post)
+            return post
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("AI post generation failed: %s", exc)
+            return None
 
 
 class VideoService:
@@ -512,6 +653,7 @@ def process_tweets(
     config: BotConfig,
     registry: MessageRegistry,
     page: Page,
+    ai_service: AIService,
     video_service: VideoService,
     tweets: list[Locator],
     topic: str,
@@ -565,12 +707,19 @@ def process_tweets(
             )
             continue
 
-        template = random.choice(config.reply_templates)
-        message = template.format(
-            topic=topic,
-            focus=text_focus(data["text"]),
-            ref_link=config.referral_link or "",
-        ).strip()
+        # Try AI-generated reply first, fall back to template
+        message = None
+        if ai_service.enabled:
+            logger.debug("[DEBUG] Attempting AI-generated reply for @%s", data['handle'] or 'unknown')
+            message = ai_service.generate_reply(data["text"], topic, config.referral_link)
+
+        if not message:
+            logger.debug("[DEBUG] Using template-based reply for @%s", data['handle'] or 'unknown')
+            template = random.choice(config.reply_templates)
+            message = template.format(
+                topic=topic,
+                ref_link=config.referral_link or "",
+            ).strip()
 
         if not message:
             logger.warning("Generated empty reply. Skipping tweet.")
@@ -598,10 +747,56 @@ def process_tweets(
             return
 
 
+def create_post(page: Page, message: str, logger: logging.Logger) -> bool:
+    """Create an original post/tweet."""
+    try:
+        # Navigate to home to ensure we're in a good state
+        page.goto("https://x.com/home", wait_until="domcontentloaded", timeout=30000)
+        time.sleep(2)
+
+        # Click the compose button
+        compose_button = page.locator("a[href='/compose/post']").first
+        if not compose_button.is_visible(timeout=5000):
+            # Try alternative: click the "What's happening" text area
+            text_area = page.locator("div[data-testid='tweetTextarea_0']").first
+            if text_area.is_visible(timeout=5000):
+                text_area.click()
+            else:
+                logger.warning("Could not find compose button or text area.")
+                return False
+        else:
+            compose_button.click()
+            time.sleep(1)
+
+        # Find and fill the tweet composer
+        composer = page.locator("div[data-testid^='tweetTextarea_']").first
+        composer.wait_for(timeout=10000)
+        composer.click()
+        page.keyboard.press("Control+A")
+        page.keyboard.press("Backspace")
+        page.keyboard.insert_text(message)
+
+        # Click post button
+        post_button = page.locator("div[data-testid='tweetButton']").first
+        if not post_button.is_visible(timeout=5000):
+            post_button = page.locator("div[data-testid='tweetButtonInline']").first
+
+        post_button.click()
+        time.sleep(3)
+        logger.info("[INFO] Post published successfully.")
+        return True
+    except PlaywrightTimeout:
+        logger.warning("Timeout while creating post.")
+    except PlaywrightError as exc:
+        logger.warning("Failed to create post: %s", exc)
+    return False
+
+
 def handle_topic(
     config: BotConfig,
     registry: MessageRegistry,
     page: Page,
+    ai_service: AIService,
     video_service: VideoService,
     topic: str,
     logger: logging.Logger,
@@ -623,13 +818,14 @@ def handle_topic(
         logger.warning("No eligible tweets for topic '%s'.", topic)
         return
 
-    process_tweets(config, registry, page, video_service, tweets, topic, logger)
+    process_tweets(config, registry, page, ai_service, video_service, tweets, topic, logger)
 
 
 def run_engagement_loop(
     config: BotConfig,
     registry: MessageRegistry,
     page: Page,
+    ai_service: AIService,
     video_service: VideoService,
     logger: logging.Logger,
 ) -> None:
@@ -643,9 +839,28 @@ def run_engagement_loop(
             logger.info("Browser page unavailable. Exiting engagement loop.")
             return
 
+        # Create original posts if enabled
+        if config.enable_posting and ai_service.enabled:
+            logger.info("[INFO] Creating %s original post(s)...", config.posts_per_cycle)
+            for i in range(config.posts_per_cycle):
+                post_topic = random.choice(config.post_topics)
+                logger.info("[INFO] Generating post %s/%s about '%s'", i + 1, config.posts_per_cycle, post_topic)
+
+                post_message = ai_service.generate_post(post_topic, config.referral_link)
+                if post_message:
+                    if create_post(page, post_message, logger):
+                        delay = random.randint(config.action_delay_min, config.action_delay_max)
+                        logger.info("[INFO] Sleeping for %s seconds before next action.", delay)
+                        time.sleep(delay)
+                    else:
+                        logger.warning("Failed to create post.")
+                else:
+                    logger.warning("Failed to generate post content for topic '%s'.", post_topic)
+
+        # Reply to tweets
         if config.search_topics:
             for topic in config.search_topics:
-                handle_topic(config, registry, page, video_service, topic, logger)
+                handle_topic(config, registry, page, ai_service, video_service, topic, logger)
         else:
             logger.info("No search topics configured. Sleeping before next cycle.")
 
@@ -770,6 +985,7 @@ def run_social_agent() -> None:
         logger.info("ENABLE_DMS=true")
 
     registry = MessageRegistry(MESSAGE_LOG_PATH)
+    ai_service = AIService(config)
     video_service = VideoService(config)
 
     max_attempts = 3
@@ -793,7 +1009,7 @@ def run_social_agent() -> None:
                         return
 
                     logger.info("[INFO] Session ready; entering engagement workflow.")
-                    run_engagement_loop(config, registry, page, video_service, logger)
+                    run_engagement_loop(config, registry, page, ai_service, video_service, logger)
                     return
                 finally:
                     close_resources(browser, context, logger)

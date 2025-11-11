@@ -35,5 +35,45 @@ This repository hosts the automation agent for posting via Playwright and Chrome
    RUN=1 bash ./run.sh
    ```
 
+## AI-Powered Features
+
+This agent now supports AI-powered content generation for higher quality, more natural interactions:
+
+### AI Reply Generation
+- **Enabled by default** - Set `ENABLE_AI_REPLIES=true` in your `.env`
+- Requires `ANTHROPIC_API_KEY` environment variable
+- Generates contextual, natural-sounding replies using Claude AI
+- Falls back to template-based replies if AI is unavailable
+- Configurable model via `AI_MODEL` (default: `claude-3-5-sonnet-20241022`)
+
+### Original Post Creation
+- **Enable with** `ENABLE_POSTING=true` in your `.env`
+- Creates AI-generated original posts/tweets each cycle
+- Configure posts per cycle with `POSTS_PER_CYCLE` (default: 2)
+- Set topics with `POST_TOPICS` (uses `SEARCH_TOPICS` by default)
+
+### Configuration Example
+```bash
+# AI Configuration
+ANTHROPIC_API_KEY=your_api_key_here
+ENABLE_AI_REPLIES=true
+AI_MODEL=claude-3-5-sonnet-20241022
+
+# Posting Configuration
+ENABLE_POSTING=true
+POSTS_PER_CYCLE=2
+POST_TOPICS="AI automation||growth hacking||product launches"
+
+# Activity Settings
+LOOP_DELAY_SECONDS=300
+MAX_REPLIES_PER_TOPIC=10
+```
+
+### Benefits
+- **Higher quality content**: AI generates natural, contextual responses instead of rigid templates
+- **More engagement**: Post original content AND reply to others
+- **Better conversion**: Authentic-sounding messages that naturally include your referral link
+- **Increased activity**: Configurable to reply more frequently (10 replies per topic vs 3)
+
 ## Sanity check
 Set `SOCIAL_AGENT_MOCK_LOGIN=1` to run the bot in a mocked mode that exercises the startup flow without a real browser session. This prints the "Logged in & ready" banner once the initialization succeeds and is useful when credentials are unavailable.
