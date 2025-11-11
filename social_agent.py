@@ -463,19 +463,37 @@ def extract_tweet_data(tweet: Locator) -> Optional[dict[str, str]]:
 
 def send_reply(page: Page, tweet: Locator, message: str, logger: logging.Logger) -> bool:
     try:
-        tweet.locator("div[data-testid='reply']").click()
+        # Scroll tweet into view and click reply button
+        tweet.scroll_into_view_if_needed()
+        time.sleep(0.5)
+
+        reply_button = tweet.locator("div[data-testid='reply']")
+        logger.debug("Clicking reply button...")
+        reply_button.click()
+        time.sleep(2)  # Wait for reply composer to open
+
+        # Wait for and focus the composer
+        logger.debug("Waiting for reply composer...")
         composer = page.locator("div[data-testid^='tweetTextarea_']").first
-        composer.wait_for(timeout=10000)
+        composer.wait_for(state="visible", timeout=15000)
         composer.click()
-        page.keyboard.press("Control+A")
-        page.keyboard.press("Backspace")
-        page.keyboard.insert_text(message)
-        page.locator("div[data-testid='tweetButtonInline']").click()
-        time.sleep(2)
+        time.sleep(0.5)
+
+        # Type the message
+        logger.debug("Typing reply message...")
+        composer.fill(message)  # Use fill instead of keyboard to be more reliable
+        time.sleep(1)
+
+        # Click the reply button
+        logger.debug("Clicking post button...")
+        post_button = page.locator("div[data-testid='tweetButton']").or_(page.locator("div[data-testid='tweetButtonInline']"))
+        post_button.click(timeout=5000)
+        time.sleep(3)  # Wait for reply to post
+
         logger.info("[INFO] Reply posted successfully.")
         return True
-    except PlaywrightTimeout:
-        logger.warning("Timeout while composing reply.")
+    except PlaywrightTimeout as exc:
+        logger.warning("Timeout while composing reply: %s", exc)
     except PlaywrightError as exc:
         logger.warning("Failed to send reply: %s", exc)
     return False
