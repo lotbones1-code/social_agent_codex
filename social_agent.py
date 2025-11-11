@@ -463,13 +463,17 @@ def extract_tweet_data(tweet: Locator) -> Optional[dict[str, str]]:
 
 def send_reply(page: Page, tweet: Locator, message: str, logger: logging.Logger) -> bool:
     try:
+        logger.debug("Clicking reply button...")
         tweet.locator("div[data-testid='reply']").click()
+        logger.debug("Waiting for composer to appear...")
         composer = page.locator("div[data-testid^='tweetTextarea_']").first
         composer.wait_for(timeout=10000)
+        logger.debug("Clicking into composer and typing message...")
         composer.click()
         page.keyboard.press("Control+A")
         page.keyboard.press("Backspace")
         page.keyboard.insert_text(message)
+        logger.debug("Clicking send button...")
         page.locator("div[data-testid='tweetButtonInline']").click()
         time.sleep(2)
         logger.info("[INFO] Reply posted successfully.")
@@ -577,6 +581,7 @@ def process_tweets(
             continue
 
         logger.info("[INFO] Replying to @%s for topic '%s'.", data['handle'] or 'unknown', topic)
+        logger.debug("Generated message: %s", message)
 
         if send_reply(page, tweet, message, logger):
             registry.add(identifier)
