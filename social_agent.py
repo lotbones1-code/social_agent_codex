@@ -686,11 +686,17 @@ def prepare_authenticated_session(
         os.makedirs(user_data_dir, exist_ok=True)
 
         # Use actual Chrome browser with persistent profile
+        # Hide automation to pass Google's security checks
         context = playwright.chromium.launch_persistent_context(
             user_data_dir=user_data_dir,
             channel="chrome",  # Use installed Chrome, not Chromium
             headless=config.headless,
-            args=["--start-maximized", "--no-sandbox"],
+            args=[
+                "--start-maximized",
+                "--no-sandbox",
+                "--disable-blink-features=AutomationControlled",  # Hide automation from Google
+                "--disable-dev-shm-usage",
+            ],
         )
         browser = None  # persistent context doesn't have a browser object
         logger.info("[INFO] Launched Chrome browser with persistent profile at %s", user_data_dir)
@@ -700,6 +706,13 @@ def prepare_authenticated_session(
 
     storage_file = auth_path
     page = context.new_page()
+
+    # Hide webdriver property to make browser look real to Google
+    page.add_init_script("""
+        Object.defineProperty(navigator, 'webdriver', {
+            get: () => undefined
+        });
+    """)
 
     # Check if already logged in
     try:
