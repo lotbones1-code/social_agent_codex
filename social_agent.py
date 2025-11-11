@@ -589,6 +589,104 @@ def send_reply(page: Page, tweet: Locator, message: str, logger: logging.Logger)
     return False
 
 
+def create_original_post(page: Page, message: str, logger: logging.Logger) -> bool:
+    """
+    Create an original tweet/post (not a reply).
+    NEW FUNCTION - doesn't touch reply code!
+    """
+    try:
+        logger.debug("Looking for Post/Tweet button...")
+
+        # Try to find the main post button
+        post_btn_selectors = [
+            "a[href='/compose/tweet']",
+            "a[data-testid='SideNav_NewTweet_Button']",
+            "[aria-label='Post']",
+            "button:has-text('Post')",
+        ]
+
+        post_btn = None
+        for selector in post_btn_selectors:
+            try:
+                btn = page.locator(selector).first
+                btn.wait_for(timeout=2000, state="visible")
+                post_btn = btn
+                logger.debug(f"Post button found with selector: {selector}")
+                break
+            except PlaywrightTimeout:
+                continue
+
+        if not post_btn:
+            logger.warning("Post button not found - cannot create original post")
+            return False
+
+        logger.debug("Clicking post button...")
+        post_btn.click(force=True)
+        time.sleep(random.uniform(1, 2))
+
+        # Wait for composer
+        logger.debug("Looking for composer...")
+        try:
+            composer = page.locator("div[data-testid='tweetTextarea_0']").first
+            composer.wait_for(timeout=5000, state="visible")
+            logger.debug("Found composer")
+        except PlaywrightTimeout:
+            logger.warning("Composer didn't appear for original post")
+            return False
+
+        # Type message
+        logger.debug("Typing original post...")
+        composer.click()
+        time.sleep(random.uniform(0.3, 0.7))
+        page.keyboard.type(message, delay=random.randint(10, 30))
+        time.sleep(random.uniform(0.5, 1.5))
+
+        # Click post button
+        logger.debug("Looking for send button...")
+        send_btn = page.locator("button[data-testid='tweetButton']").first
+        try:
+            send_btn.wait_for(timeout=3000, state="visible")
+            logger.debug("Send button found")
+        except PlaywrightTimeout:
+            logger.warning("Send button not visible for original post")
+            return False
+
+        logger.debug("Posting tweet...")
+        send_btn.click(force=True)
+        time.sleep(3)
+
+        # Check for errors
+        try:
+            error_selectors = [
+                "text=/rate limit/i",
+                "text=/try again later/i",
+                "text=/something went wrong/i",
+            ]
+            for error_sel in error_selectors:
+                if page.locator(error_sel).count() > 0:
+                    logger.warning("Detected error message on page - original post may have failed")
+                    return False
+        except Exception:
+            pass
+
+        logger.info("[INFO] ✅ Original post created successfully!")
+
+        # Close modal
+        try:
+            page.keyboard.press("Escape")
+            time.sleep(0.5)
+        except Exception:
+            pass
+
+        return True
+
+    except PlaywrightTimeout as exc:
+        logger.warning("Timeout during original post: %s", exc)
+    except PlaywrightError as exc:
+        logger.warning("Failed to create original post: %s", exc)
+    return False
+
+
 def maybe_send_dm(config: BotConfig, page: Page, tweet_data: dict[str, str], logger: logging.Logger) -> None:
     del page, tweet_data  # Unused placeholders for future DM workflows.
 
@@ -630,6 +728,31 @@ def text_focus(text: str, *, max_length: int = 40) -> str:
         return truncated[:last_space].strip() + "..."
 
     return truncated + "..."
+
+
+def generate_original_post_content(topic: str) -> str:
+    """Generate content for an original post about a topic."""
+    post_templates = [
+        "Just discovered an interesting approach to {topic}. The key is focusing on practical implementation over theory. 🚀",
+        "Hot take: Most people overcomplicate {topic}. Start simple, iterate fast, measure results. That's it.",
+        "3 lessons I learned about {topic} this week:\n1. Start small\n2. Test everything\n3. Double down on what works",
+        "If you're working on {topic}, here's what actually moves the needle: consistent execution > perfect strategy.",
+        "Quick thought on {topic}: The difference between good and great is often just persistence and attention to detail.",
+        "Real talk about {topic}: It's not about having the best tools, it's about using what you have effectively.",
+        "The biggest mistake I see with {topic}? Trying to do everything at once. Focus wins every time.",
+        "{topic} tip: Measure twice, cut once. Data-driven decisions beat gut feelings 9 times out of 10.",
+    ]
+
+    template = random.choice(post_templates)
+    content = template.format(topic=topic)
+
+    # Add hashtags (70% chance)
+    if random.random() < 0.7:
+        hashtags = generate_hashtags(topic, max_hashtags=2)
+        if len(content) + len(hashtags) + 1 <= 280:
+            content = content + " " + hashtags
+
+    return content
 
 
 def generate_hashtags(topic: str, max_hashtags: int = 2) -> str:
@@ -855,6 +978,17 @@ def run_engagement_loop(
         if config.search_topics:
             for topic in config.search_topics:
                 handle_topic(config, registry, page, video_service, topic, logger)
+
+            # Create 1 original post per cycle (20% chance to keep it natural)
+            if random.random() < 0.2:
+                selected_topic = random.choice(config.search_topics)
+                logger.info("[INFO] 📝 Creating original post about '%s'...", selected_topic)
+                post_content = generate_original_post_content(selected_topic)
+                if create_original_post(page, post_content, logger):
+                    logger.info("[INFO] Original post created! Taking a short break...")
+                    time.sleep(random.randint(30, 60))
+                else:
+                    logger.warning("Failed to create original post, continuing...")
         else:
             logger.info("No search topics configured. Sleeping before next cycle.")
 
