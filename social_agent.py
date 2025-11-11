@@ -462,31 +462,43 @@ def extract_tweet_data(tweet: Locator) -> Optional[dict[str, str]]:
 
 
 def send_reply(page: Page, tweet: Locator, message: str, logger: logging.Logger) -> bool:
+    """Send a reply by navigating to the tweet's page and using the reply box."""
     try:
-        # Scroll tweet into view and click reply button
-        tweet.scroll_into_view_if_needed()
-        time.sleep(1)
-
-        reply_button = tweet.locator("div[data-testid='reply']")
-        logger.debug("Clicking reply button...")
-        reply_button.click()
-        time.sleep(3)  # Wait for reply composer to open
-
-        # Take screenshot for debugging
+        # Extract the tweet URL first
+        tweet_url = None
         try:
-            page.screenshot(path="logs/debug_after_click.png")
-            logger.debug("Screenshot saved to logs/debug_after_click.png")
-        except Exception:
-            pass
+            link = tweet.locator("a[href*='/status/']").first
+            href = link.get_attribute("href", timeout=5000)
+            if href:
+                tweet_url = f"https://x.com{href}" if href.startswith("/") else href
+                logger.debug(f"Tweet URL: {tweet_url}")
+        except PlaywrightError as exc:
+            logger.warning(f"Could not extract tweet URL: {exc}")
+            return False
 
-        # Try multiple possible selectors for the composer
+        if not tweet_url:
+            logger.warning("No tweet URL found, skipping")
+            return False
+
+        # Navigate to the tweet's detail page
+        logger.debug(f"Navigating to tweet: {tweet_url}")
+        page.goto(tweet_url, wait_until="domcontentloaded", timeout=15000)
+        time.sleep(2)
+
+        # Find and click the reply button on the tweet detail page
+        logger.debug("Looking for reply button on tweet page...")
+        reply_button = page.locator("div[data-testid='reply']").first
+        reply_button.wait_for(state="visible", timeout=10000)
+        reply_button.scroll_into_view_if_needed()
+        time.sleep(0.5)
+        reply_button.click(timeout=5000)
+        time.sleep(2)
+
+        # Find the composer
         logger.debug("Waiting for reply composer...")
-
-        # Look for the actual textarea element
         composer_selectors = [
             "div[data-testid='tweetTextarea_0']",
-            "div[role='textbox'][data-testid^='tweetTextarea']",
-            "div[contenteditable='true'][role='textbox']",
+            "div[role='textbox'][contenteditable='true']",
         ]
 
         composer = None
@@ -495,67 +507,43 @@ def send_reply(page: Page, tweet: Locator, message: str, logger: logging.Logger)
                 comp = page.locator(selector).first
                 comp.wait_for(state="visible", timeout=5000)
                 composer = comp
-                logger.debug(f"Found composer with selector: {selector}")
+                logger.debug(f"Found composer with: {selector}")
                 break
             except PlaywrightTimeout:
                 continue
 
         if not composer:
-            logger.error("Could not find reply composer with any selector")
+            logger.error("Could not find reply composer")
             page.screenshot(path="logs/debug_no_composer.png")
             return False
 
-        # Click and type
+        # Type the message
+        logger.debug("Typing reply...")
         composer.click()
+        time.sleep(0.5)
+        composer.fill(message)
         time.sleep(1)
 
-        # Clear any existing text and type message
-        composer.fill("")
-        time.sleep(0.5)
-        composer.type(message, delay=50)  # Type with slight delay between characters
-        time.sleep(2)
-
-        # Take screenshot before clicking post
-        try:
-            page.screenshot(path="logs/debug_before_post.png")
-        except Exception:
-            pass
-
-        # Click the post/reply button
-        logger.debug("Clicking post button...")
-        post_selectors = [
-            "button[data-testid='tweetButton']",
-            "button[data-testid='tweetButtonInline']",
-            "div[data-testid='tweetButton']",
-            "div[data-testid='tweetButtonInline']",
-        ]
-
-        for selector in post_selectors:
-            try:
-                btn = page.locator(selector)
-                if btn.is_visible(timeout=2000):
-                    btn.click(timeout=3000)
-                    logger.debug(f"Clicked post button: {selector}")
-                    break
-            except PlaywrightError:
-                continue
-
-        time.sleep(3)  # Wait for reply to post
+        # Click the Reply button
+        logger.debug("Clicking Reply button...")
+        post_button = page.locator("button[data-testid='tweetButton']").first
+        post_button.wait_for(state="visible", timeout=5000)
+        post_button.click(timeout=5000)
+        time.sleep(3)
 
         logger.info("[INFO] Reply posted successfully.")
         return True
+
     except PlaywrightTimeout as exc:
-        logger.warning("Timeout while composing reply: %s", exc)
+        logger.warning(f"Timeout while replying: {exc}")
         try:
             page.screenshot(path="logs/debug_timeout.png")
-            logger.warning("Debug screenshot saved to logs/debug_timeout.png")
         except Exception:
             pass
     except PlaywrightError as exc:
-        logger.warning("Failed to send reply: %s", exc)
+        logger.warning(f"Error while replying: {exc}")
         try:
             page.screenshot(path="logs/debug_error.png")
-            logger.warning("Debug screenshot saved to logs/debug_error.png")
         except Exception:
             pass
     return False
