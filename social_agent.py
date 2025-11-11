@@ -572,6 +572,15 @@ def send_reply(page: Page, tweet: Locator, message: str, logger: logging.Logger)
             pass  # Ignore errors while checking for errors
 
         logger.info("[INFO] Reply posted successfully.")
+
+        # Close the reply modal to clean up UI
+        try:
+            page.keyboard.press("Escape")
+            time.sleep(0.5)
+            logger.debug("Closed reply modal")
+        except Exception:
+            pass  # Non-critical if it fails
+
         return True
     except PlaywrightTimeout as exc:
         logger.warning("Timeout during reply: %s", exc)
@@ -633,6 +642,7 @@ def process_tweets(
     logger: logging.Logger,
 ) -> None:
     replies = 0
+    attempts = 0
     for tweet in tweets:
         try:
             if page.is_closed():
@@ -671,6 +681,22 @@ def process_tweets(
         if registry.contains(identifier):
             skip_reasons.append("already-replied")
 
+        # Bot/spam account detection
+        handle = data["handle"] or ""
+        if handle:
+            # Check for excessive numbers in handle (common bot pattern)
+            num_digits = sum(c.isdigit() for c in handle)
+            if len(handle) > 0 and num_digits / len(handle) > 0.4:
+                skip_reasons.append("bot-like-handle")
+
+            # Check for very long random-looking handles
+            if len(handle) > 20:
+                skip_reasons.append("suspicious-handle-length")
+
+        # Check for low-quality tweet patterns
+        if text.count('http') > 3:  # Too many links
+            skip_reasons.append("excessive-links")
+
         if skip_reasons:
             logger.info(
                 "[INFO] Skipping tweet %s from @%s: reason=%s",
@@ -708,16 +734,26 @@ def process_tweets(
         logger.info("[INFO] Replying to @%s for topic '%s'.", data['handle'] or 'unknown', topic)
         logger.debug("Generated message (%d chars): %s", len(message), message)
 
+        attempts += 1
         if send_reply(page, tweet, message, logger):
             registry.add(identifier)
             replies += 1
+            success_rate = (replies / attempts) * 100
+            logger.info("[INFO] ✓ Success! Stats: %d/%d replies (%.1f%% success rate)", replies, attempts, success_rate)
             video_service.maybe_generate(topic, data["text"])
             maybe_send_dm(config, page, data, logger)
-            delay = random.randint(config.action_delay_min, config.action_delay_max)
-            logger.info("[INFO] Sleeping for %s seconds before next action.", delay)
+
+            # More human-like timing: occasionally take longer breaks (10% chance)
+            if random.random() < 0.1:
+                delay = random.randint(config.action_delay_max * 2, config.action_delay_max * 3)
+                logger.info("[INFO] Taking a longer break to appear more natural (%s seconds)...", delay)
+            else:
+                delay = random.randint(config.action_delay_min, config.action_delay_max)
+                logger.info("[INFO] Sleeping for %s seconds before next action.", delay)
             time.sleep(delay)
         else:
-            logger.warning("Reply attempt failed; not recording tweet as replied.")
+            success_rate = (replies / attempts) * 100
+            logger.warning("✗ Reply attempt failed. Stats: %d/%d replies (%.1f%% success rate)", replies, attempts, success_rate)
 
         if replies >= config.max_replies_per_topic:
             logger.info(
@@ -725,6 +761,8 @@ def process_tweets(
                 config.max_replies_per_topic,
                 topic,
             )
+            logger.info("[INFO] Final stats for '%s': %d successful replies from %d attempts (%.1f%% success)",
+                       topic, replies, attempts, (replies / attempts * 100) if attempts > 0 else 0)
             return
 
 
