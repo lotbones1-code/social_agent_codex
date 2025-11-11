@@ -14,6 +14,13 @@ from pathlib import Path
 from typing import Awaitable, Callable, Optional
 from urllib.parse import quote_plus
 
+# Optional: For AI image generation (safe import with fallback)
+try:
+    from PIL import Image, ImageDraw, ImageFont
+    PIL_AVAILABLE = True
+except ImportError:
+    PIL_AVAILABLE = False
+
 from dotenv import load_dotenv
 from playwright.sync_api import (
     Browser,
@@ -624,10 +631,11 @@ def send_reply(page: Page, tweet: Locator, message: str, logger: logging.Logger)
     return False
 
 
-def create_original_post(page: Page, message: str, logger: logging.Logger) -> bool:
+def create_original_post(page: Page, message: str, logger: logging.Logger, image_path: Optional[str] = None) -> bool:
     """
     Create an original tweet/post (not a reply).
     NEW FUNCTION - doesn't touch reply code!
+    Optionally includes an image if image_path is provided.
     """
     try:
         logger.debug("Looking for Post/Tweet button...")
@@ -675,6 +683,23 @@ def create_original_post(page: Page, message: str, logger: logging.Logger) -> bo
         time.sleep(random.uniform(0.3, 0.7))
         page.keyboard.type(message, delay=random.randint(10, 30))
         time.sleep(random.uniform(0.5, 1.5))
+
+        # Upload image if provided (SAFE: fails gracefully if it doesn't work)
+        if image_path and os.path.exists(image_path):
+            try:
+                logger.debug(f"Uploading image: {image_path}")
+
+                # Find the image upload input
+                file_input = page.locator("input[data-testid='fileInput']").first
+                if file_input:
+                    file_input.set_input_files(image_path)
+                    logger.debug("Image uploaded successfully")
+                    time.sleep(2)  # Wait for image to process
+                else:
+                    logger.debug("Image upload input not found, posting without image")
+            except Exception as exc:
+                logger.debug(f"Image upload failed (posting text-only): {exc}")
+                # Continue without image - don't fail the whole post
 
         # Click post button
         logger.debug("Looking for send button...")
@@ -763,6 +788,81 @@ def follow_user(page: Page, tweet: Locator, logger: logging.Logger) -> bool:
 
     except PlaywrightError as exc:
         logger.debug(f"Failed to follow user: {exc}")
+        return False
+
+
+def generate_simple_image(topic: str, output_path: str, logger: logging.Logger) -> bool:
+    """
+    Generate a simple quote/text image for social media.
+    SAFE: Falls back gracefully if PIL not available.
+    NEW FUNCTION - doesn't touch any existing code!
+    """
+    try:
+        if not PIL_AVAILABLE:
+            logger.debug("PIL not available - skipping image generation")
+            return False
+
+        # Create image with gradient background
+        width, height = 1200, 630  # Twitter optimal size
+
+        # Create base image
+        img = Image.new('RGB', (width, height), color='#1DA1F2')  # Twitter blue
+        draw = ImageDraw.Draw(img)
+
+        # Try to load a font, fallback to default if not available
+        try:
+            # Try common font locations
+            font_paths = [
+                "/System/Library/Fonts/Helvetica.ttc",  # Mac
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",  # Linux
+                "C:\\Windows\\Fonts\\arial.ttf",  # Windows
+            ]
+            font = None
+            for font_path in font_paths:
+                if os.path.exists(font_path):
+                    font = ImageFont.truetype(font_path, 60)
+                    break
+            if not font:
+                font = ImageFont.load_default()
+        except Exception:
+            font = ImageFont.load_default()
+
+        # Generate quote text
+        quotes = [
+            f"Building something amazing with {topic}",
+            f"Leveling up my {topic} game",
+            f"{topic} insights from the trenches",
+            f"Shipping {topic} solutions daily",
+            f"Exploring the future of {topic}",
+        ]
+        quote_text = random.choice(quotes)
+
+        # Add text to image (centered)
+        # Use textbbox instead of textsize for newer PIL versions
+        try:
+            bbox = draw.textbbox((0, 0), quote_text, font=font)
+            text_width = bbox[2] - bbox[0]
+            text_height = bbox[3] - bbox[1]
+        except AttributeError:
+            # Fallback for older PIL versions
+            text_width, text_height = draw.textsize(quote_text, font=font)
+
+        x = (width - text_width) // 2
+        y = (height - text_height) // 2
+
+        # Add shadow for better readability
+        draw.text((x + 3, y + 3), quote_text, font=font, fill='#00000080')  # Shadow
+        draw.text((x, y), quote_text, font=font, fill='white')  # Main text
+
+        # Save image
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        img.save(output_path, 'PNG', optimize=True)
+
+        logger.debug(f"Generated image: {output_path}")
+        return True
+
+    except Exception as exc:
+        logger.debug(f"Image generation failed (non-critical): {exc}")
         return False
 
 
@@ -1067,9 +1167,33 @@ def run_engagement_loop(
                 selected_topic = random.choice(config.search_topics)
                 logger.info("[INFO] 📝 Creating original post about '%s'...", selected_topic)
                 post_content = generate_original_post_content(selected_topic)
-                if create_original_post(page, post_content, logger):
-                    logger.info("[INFO] Original post created! Taking a short break...")
+
+                # Try to generate an image (50% of posts, SAFE: fails gracefully)
+                image_path = None
+                if random.random() < 0.5:
+                    image_dir = Path.home() / ".social_agent_codex" / "generated_images"
+                    image_dir.mkdir(parents=True, exist_ok=True)
+                    image_path = str(image_dir / f"post_{int(time.time())}.png")
+
+                    logger.info("[INFO] 🎨 Generating AI image...")
+                    if generate_simple_image(selected_topic, image_path, logger):
+                        logger.info("[INFO] ✓ Image generated!")
+                    else:
+                        logger.debug("Image generation skipped or failed (posting text-only)")
+                        image_path = None  # Post without image
+
+                if create_original_post(page, post_content, logger, image_path):
+                    logger.info("[INFO] ✅ Original post created%s! Taking a short break...",
+                               " with image" if image_path else "")
                     time.sleep(random.randint(30, 60))
+
+                    # Clean up image file after posting
+                    if image_path and os.path.exists(image_path):
+                        try:
+                            os.remove(image_path)
+                            logger.debug("Cleaned up generated image")
+                        except Exception:
+                            pass
                 else:
                     logger.warning("Failed to create original post, continuing...")
         else:
