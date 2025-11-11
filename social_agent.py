@@ -522,11 +522,12 @@ def send_reply(page: Page, tweet: Locator, message: str, logger: logging.Logger)
 
         logger.debug("Clicking into composer and typing message...")
         composer.click()
-        time.sleep(0.5)
+        time.sleep(random.uniform(0.3, 0.7))
 
         logger.debug("Typing message into composer...")
-        page.keyboard.insert_text(message)
-        time.sleep(1)
+        # Type with human-like delays for more natural behavior
+        page.keyboard.type(message, delay=random.randint(10, 30))
+        time.sleep(random.uniform(0.5, 1.5))
 
         logger.debug("Looking for Reply/Post button...")
         # Try multiple selectors for the reply post button (not save draft!)
@@ -554,7 +555,22 @@ def send_reply(page: Page, tweet: Locator, message: str, logger: logging.Logger)
 
         logger.debug("Clicking post button...")
         send_btn.click(force=True)
-        time.sleep(4)  # Wait for reply to post
+        time.sleep(3)  # Wait for reply to post
+
+        # Check for error messages (rate limits, etc)
+        try:
+            error_selectors = [
+                "text=/rate limit/i",
+                "text=/try again later/i",
+                "text=/something went wrong/i",
+            ]
+            for error_sel in error_selectors:
+                if page.locator(error_sel).count() > 0:
+                    logger.warning("Detected error message on page - reply may have failed")
+                    return False
+        except Exception:
+            pass  # Ignore errors while checking for errors
+
         logger.info("[INFO] Reply posted successfully.")
         return True
     except PlaywrightTimeout as exc:
@@ -589,7 +605,22 @@ def text_focus(text: str, *, max_length: int = 40) -> str:
     cleaned = " ".join(text.split())
     if len(cleaned) <= max_length:
         return cleaned
-    return f"{cleaned[: max_length - 3]}..."
+
+    # Try to break at a sentence or phrase boundary
+    truncated = cleaned[:max_length - 3]
+
+    # Look for natural break points (sentence end, comma, etc)
+    for break_char in ['.', '!', '?', ',', ';', '-']:
+        last_break = truncated.rfind(break_char)
+        if last_break > max_length // 2:  # Only use if it's not too early
+            return truncated[:last_break + 1].strip()
+
+    # Look for last complete word
+    last_space = truncated.rfind(' ')
+    if last_space > max_length // 2:
+        return truncated[:last_space].strip() + "..."
+
+    return truncated + "..."
 
 
 def process_tweets(
