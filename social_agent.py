@@ -463,23 +463,41 @@ def extract_tweet_data(tweet: Locator) -> Optional[dict[str, str]]:
 
 def send_reply(page: Page, tweet: Locator, message: str, logger: logging.Logger) -> bool:
     try:
+        logger.debug("Scrolling tweet into view...")
+        tweet.scroll_into_view_if_needed()
+        time.sleep(0.5)
+
         logger.debug("Clicking reply button...")
-        tweet.locator("div[data-testid='reply']").click()
+        reply_btn = tweet.locator("div[data-testid='reply']")
+        reply_btn.click(force=True)
+        time.sleep(1)
+
         logger.debug("Waiting for composer to appear...")
-        composer = page.locator("div[data-testid^='tweetTextarea_']").first
-        composer.wait_for(timeout=10000)
+        # Try multiple possible selectors for the composer
+        try:
+            composer = page.locator("div[data-testid='tweetTextarea_0']").first
+            composer.wait_for(timeout=5000, state="visible")
+        except PlaywrightTimeout:
+            logger.debug("Trying alternative composer selector...")
+            composer = page.locator("div[contenteditable='true'][role='textbox']").first
+            composer.wait_for(timeout=5000, state="visible")
+
         logger.debug("Clicking into composer and typing message...")
         composer.click()
+        time.sleep(0.3)
         page.keyboard.press("Control+A")
         page.keyboard.press("Backspace")
         page.keyboard.insert_text(message)
+        time.sleep(0.5)
+
         logger.debug("Clicking send button...")
-        page.locator("div[data-testid='tweetButtonInline']").click()
-        time.sleep(2)
+        send_btn = page.locator("div[data-testid='tweetButtonInline']").first
+        send_btn.click()
+        time.sleep(3)
         logger.info("[INFO] Reply posted successfully.")
         return True
     except PlaywrightTimeout:
-        logger.warning("Timeout while composing reply.")
+        logger.warning("Timeout while composing reply - composer may not have appeared.")
     except PlaywrightError as exc:
         logger.warning("Failed to send reply: %s", exc)
     return False
