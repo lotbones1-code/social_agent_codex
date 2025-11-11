@@ -965,14 +965,14 @@ def text_focus(text: str, *, max_length: int = 40) -> str:
 def generate_original_post_content(topic: str) -> str:
     """Generate content for an original post about a topic."""
     post_templates = [
-        "Just discovered an interesting approach to {topic}. The key is focusing on practical implementation over theory. 🚀",
-        "Hot take: Most people overcomplicate {topic}. Start simple, iterate fast, measure results. That's it.",
-        "3 lessons I learned about {topic} this week:\n1. Start small\n2. Test everything\n3. Double down on what works",
-        "If you're working on {topic}, here's what actually moves the needle: consistent execution > perfect strategy.",
-        "Quick thought on {topic}: The difference between good and great is often just persistence and attention to detail.",
-        "Real talk about {topic}: It's not about having the best tools, it's about using what you have effectively.",
-        "The biggest mistake I see with {topic}? Trying to do everything at once. Focus wins every time.",
-        "{topic} tip: Measure twice, cut once. Data-driven decisions beat gut feelings 9 times out of 10.",
+        "Been running {topic} sessions all week and honestly the difference is night and day when you find a platform that doesn't ghost you on withdrawals 💰",
+        "Hot take on {topic}: Most sites overcomplicate it with sketchy terms. Found one that's actually transparent with their odds and bonuses hit different 🎯",
+        "3 things that changed my {topic} game:\n1. Instant crypto deposits\n2. Provably fair games\n3. Rakeback that actually pays",
+        "If you're serious about {topic}, stop settling for platforms that take forever to cash out. Time is money fr 🚀",
+        "Real talk about {topic}: Been burned by too many sites with hidden fees. Now I only play where the payouts are instant and support is real 💯",
+        "The biggest mistake I made with {topic}? Not checking if withdrawals were actually fast. Learned that the hard way 😅",
+        "Finally found a platform for {topic} that doesn't pull shady stuff with bonuses. Game changer honestly 🔥",
+        "{topic} tip: Always check if they're provably fair. Trust but verify, your wallet will thank you later 💸",
     ]
 
     template = random.choice(post_templates)
@@ -991,13 +991,20 @@ def generate_hashtags(topic: str, max_hashtags: int = 2) -> str:
     """Generate relevant hashtags based on topic."""
     # Topic-specific hashtag mapping
     hashtag_map = {
-        "AI automation": ["#AI", "#Automation", "#ArtificialIntelligence", "#MachineLearning", "#AITools"],
-        "growth hacking": ["#GrowthHacking", "#Growth", "#Marketing", "#Startup", "#ScaleUp"],
-        "product launches": ["#ProductLaunch", "#NewProduct", "#Innovation", "#Startup", "#Tech"],
+        "crypto gambling": ["#CryptoGambling", "#CryptoCasino", "#Bitcoin", "#Crypto", "#BTC"],
+        "sports betting": ["#SportsBetting", "#Betting", "#Crypto", "#Gambling", "#Sportsbook"],
+        "online slots": ["#OnlineSlots", "#Slots", "#CasinoGames", "#Gambling", "#Jackpot"],
+        "casino games": ["#CasinoGames", "#OnlineCasino", "#Gambling", "#Crypto", "#Casino"],
+        "poker": ["#Poker", "#CryptoPoker", "#OnlinePoker", "#Gambling", "#PokerLife"],
+        "blackjack": ["#Blackjack", "#Casino", "#CardGames", "#Gambling", "#CryptoGambling"],
+        "roulette": ["#Roulette", "#Casino", "#Gambling", "#OnlineCasino", "#CryptoGambling"],
+        "dice games": ["#DiceGames", "#CryptoDice", "#Gambling", "#OnlineCasino", "#Crypto"],
+        "crypto casino": ["#CryptoCasino", "#Crypto", "#Gambling", "#Bitcoin", "#OnlineGambling"],
+        "stake alternatives": ["#CryptoCasino", "#OnlineGambling", "#Crypto", "#Gambling", "#Bitcoin"],
     }
 
-    # Generic tech/business hashtags as fallback
-    generic_tags = ["#Tech", "#Business", "#Innovation", "#Productivity", "#Digital"]
+    # Generic gambling/crypto hashtags as fallback
+    generic_tags = ["#Crypto", "#Gambling", "#Bitcoin", "#OnlineCasino", "#CryptoCasino"]
 
     # Get topic-specific tags or use generic
     topic_lower = topic.lower()
