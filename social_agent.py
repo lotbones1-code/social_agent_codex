@@ -682,52 +682,39 @@ def prepare_authenticated_session(
     auth_path = ensure_auth_storage_path(storage_env, logger)
 
     try:
-        browser = playwright.chromium.launch(
+        user_data_dir = str(Path.home() / ".social_agent_codex/chrome_profile/")
+        os.makedirs(user_data_dir, exist_ok=True)
+
+        # Use actual Chrome browser with persistent profile
+        context = playwright.chromium.launch_persistent_context(
+            user_data_dir=user_data_dir,
+            channel="chrome",  # Use installed Chrome, not Chromium
             headless=config.headless,
             args=["--start-maximized", "--no-sandbox"],
         )
+        browser = None  # persistent context doesn't have a browser object
+        logger.info("[INFO] Launched Chrome browser with persistent profile at %s", user_data_dir)
     except PlaywrightError as exc:
-        logger.error("Failed to launch browser: %s", exc)
+        logger.error("Failed to launch Chrome browser: %s", exc)
         return None
 
     storage_file = auth_path
-    context: BrowserContext
-    session_loaded = False
-
-    storage_exists = os.path.exists(storage_file)
-    if storage_exists:
-        logger.info("[INFO] Restoring saved session from %s", storage_file)
-        try:
-            context = browser.new_context(storage_state=storage_file)
-            session_loaded = True
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("[WARN] auth.json missing or invalid — regenerating login session")
-            logger.debug("Storage state recovery error: %s", exc)
-            context = browser.new_context()
-            session_loaded = False
-    else:
-        logger.info("[INFO] No session found — creating new context for manual login.")
-        context = browser.new_context()
-
     page = context.new_page()
 
-    if session_loaded:
-        try:
-            page.goto("https://x.com/home", wait_until="domcontentloaded", timeout=60000)
-        except PlaywrightTimeout:
-            logger.warning("Timeout while verifying restored session; prompting login.")
-        except (PlaywrightError, TargetClosedError) as exc:
-            logger.warning("Error while verifying restored session: %s", exc)
-        else:
-            if is_logged_in(page):
-                logger.info("[INFO] Session restored successfully")
-                try:
-                    context.storage_state(path=storage_file)
-                except PlaywrightError as exc:
-                    logger.debug("Unable to refresh storage state: %s", exc)
-                return browser, context, page
-            logger.warning("Saved session present but user is logged out; manual login required.")
+    # Check if already logged in
+    try:
+        page.goto("https://x.com/home", wait_until="domcontentloaded", timeout=60000)
+    except PlaywrightTimeout:
+        logger.warning("Timeout while loading X.com")
+    except (PlaywrightError, TargetClosedError) as exc:
+        logger.warning("Error while loading X.com: %s", exc)
 
+    if is_logged_in(page):
+        logger.info("[INFO] Already logged in - session persisted from Chrome profile!")
+        return browser, context, page
+
+    # Not logged in - go to login page and wait for manual login
+    logger.info("[INFO] Not logged in yet - opening login page for manual login")
     try:
         page.goto("https://x.com/login", wait_until="domcontentloaded", timeout=60000)
     except PlaywrightTimeout:
