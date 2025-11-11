@@ -531,11 +531,12 @@ def send_reply(page: Page, tweet: Locator, message: str, logger: logging.Logger)
 
         logger.debug("Looking for Reply/Post button...")
         # Try multiple selectors for the reply post button (not save draft!)
+        # IMPORTANT: Look for specific Reply button text to avoid Save button
         post_selectors = [
-            "button[data-testid='tweetButton']",  # Main tweet button (for replies too)
-            "div[data-testid='tweetButton']",
+            "button[data-testid='tweetButton']:has-text('Reply')",  # Reply button with exact text
+            "button[data-testid='tweetButton']:has-text('Post')",   # Or Post text
+            "button[data-testid='tweetButton']",  # Fallback to main button
             "button:has-text('Reply')",
-            "button:has-text('Post')",
         ]
 
         send_btn = None
@@ -543,14 +544,23 @@ def send_reply(page: Page, tweet: Locator, message: str, logger: logging.Logger)
             try:
                 btn = page.locator(selector).first
                 btn.wait_for(timeout=2000, state="visible")
+
+                # Make sure button is enabled (not disabled due to long message)
+                is_disabled = btn.get_attribute("disabled")
+                if is_disabled:
+                    logger.debug(f"Button found but disabled with selector: {selector}, trying next...")
+                    continue
+
                 send_btn = btn
                 logger.debug(f"Post button found with selector: {selector}")
                 break
             except PlaywrightTimeout:
                 continue
+            except PlaywrightError:
+                continue
 
         if not send_btn:
-            logger.warning("Post button not found with any selector!")
+            logger.warning("Post button not found or all buttons disabled!")
             return False
 
         logger.debug("Clicking post button...")
@@ -572,15 +582,6 @@ def send_reply(page: Page, tweet: Locator, message: str, logger: logging.Logger)
             pass  # Ignore errors while checking for errors
 
         logger.info("[INFO] Reply posted successfully.")
-
-        # Close the reply modal to clean up UI
-        try:
-            page.keyboard.press("Escape")
-            time.sleep(0.5)
-            logger.debug("Closed reply modal")
-        except Exception:
-            pass  # Non-critical if it fails
-
         return True
     except PlaywrightTimeout as exc:
         logger.warning("Timeout during reply: %s", exc)
