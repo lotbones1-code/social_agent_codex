@@ -499,9 +499,10 @@ def send_reply(page: Page, tweet: Locator, message: str, logger: logging.Logger)
             return False
 
         logger.debug("Clicking reply button...")
-        reply_btn.click(timeout=5000)
+        # Force click to bypass any overlays
+        reply_btn.click(force=True, timeout=5000)
         logger.debug("Reply button clicked, waiting for composer...")
-        time.sleep(2)
+        time.sleep(3)  # Give modal time to fully open
 
         # Try multiple possible selectors for the composer
         logger.debug("Looking for composer...")
@@ -521,16 +522,24 @@ def send_reply(page: Page, tweet: Locator, message: str, logger: logging.Logger)
 
         logger.debug("Clicking into composer and typing message...")
         composer.click()
-        time.sleep(0.3)
-        page.keyboard.press("Control+A")
-        page.keyboard.press("Backspace")
-        page.keyboard.insert_text(message)
         time.sleep(0.5)
 
+        logger.debug("Typing message into composer...")
+        page.keyboard.insert_text(message)
+        time.sleep(1)
+
+        logger.debug("Looking for send button...")
+        send_btn = page.locator("button[data-testid='tweetButtonInline']").first
+        try:
+            send_btn.wait_for(timeout=3000, state="visible")
+            logger.debug("Send button found and visible")
+        except PlaywrightTimeout:
+            logger.warning("Send button not visible!")
+            return False
+
         logger.debug("Clicking send button...")
-        send_btn = page.locator("div[data-testid='tweetButtonInline']").first
-        send_btn.click()
-        time.sleep(3)
+        send_btn.click(force=True)
+        time.sleep(4)  # Wait for reply to post
         logger.info("[INFO] Reply posted successfully.")
         return True
     except PlaywrightTimeout as exc:
