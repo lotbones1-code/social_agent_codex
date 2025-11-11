@@ -465,37 +465,99 @@ def send_reply(page: Page, tweet: Locator, message: str, logger: logging.Logger)
     try:
         # Scroll tweet into view and click reply button
         tweet.scroll_into_view_if_needed()
-        time.sleep(0.5)
+        time.sleep(1)
 
         reply_button = tweet.locator("div[data-testid='reply']")
         logger.debug("Clicking reply button...")
         reply_button.click()
-        time.sleep(2)  # Wait for reply composer to open
+        time.sleep(3)  # Wait for reply composer to open
 
-        # Wait for and focus the composer
+        # Take screenshot for debugging
+        try:
+            page.screenshot(path="logs/debug_after_click.png")
+            logger.debug("Screenshot saved to logs/debug_after_click.png")
+        except Exception:
+            pass
+
+        # Try multiple possible selectors for the composer
         logger.debug("Waiting for reply composer...")
-        composer = page.locator("div[data-testid^='tweetTextarea_']").first
-        composer.wait_for(state="visible", timeout=15000)
-        composer.click()
-        time.sleep(0.5)
 
-        # Type the message
-        logger.debug("Typing reply message...")
-        composer.fill(message)  # Use fill instead of keyboard to be more reliable
+        # Look for the actual textarea element
+        composer_selectors = [
+            "div[data-testid='tweetTextarea_0']",
+            "div[role='textbox'][data-testid^='tweetTextarea']",
+            "div[contenteditable='true'][role='textbox']",
+        ]
+
+        composer = None
+        for selector in composer_selectors:
+            try:
+                comp = page.locator(selector).first
+                comp.wait_for(state="visible", timeout=5000)
+                composer = comp
+                logger.debug(f"Found composer with selector: {selector}")
+                break
+            except PlaywrightTimeout:
+                continue
+
+        if not composer:
+            logger.error("Could not find reply composer with any selector")
+            page.screenshot(path="logs/debug_no_composer.png")
+            return False
+
+        # Click and type
+        composer.click()
         time.sleep(1)
 
-        # Click the reply button
+        # Clear any existing text and type message
+        composer.fill("")
+        time.sleep(0.5)
+        composer.type(message, delay=50)  # Type with slight delay between characters
+        time.sleep(2)
+
+        # Take screenshot before clicking post
+        try:
+            page.screenshot(path="logs/debug_before_post.png")
+        except Exception:
+            pass
+
+        # Click the post/reply button
         logger.debug("Clicking post button...")
-        post_button = page.locator("div[data-testid='tweetButton']").or_(page.locator("div[data-testid='tweetButtonInline']"))
-        post_button.click(timeout=5000)
+        post_selectors = [
+            "button[data-testid='tweetButton']",
+            "button[data-testid='tweetButtonInline']",
+            "div[data-testid='tweetButton']",
+            "div[data-testid='tweetButtonInline']",
+        ]
+
+        for selector in post_selectors:
+            try:
+                btn = page.locator(selector)
+                if btn.is_visible(timeout=2000):
+                    btn.click(timeout=3000)
+                    logger.debug(f"Clicked post button: {selector}")
+                    break
+            except PlaywrightError:
+                continue
+
         time.sleep(3)  # Wait for reply to post
 
         logger.info("[INFO] Reply posted successfully.")
         return True
     except PlaywrightTimeout as exc:
         logger.warning("Timeout while composing reply: %s", exc)
+        try:
+            page.screenshot(path="logs/debug_timeout.png")
+            logger.warning("Debug screenshot saved to logs/debug_timeout.png")
+        except Exception:
+            pass
     except PlaywrightError as exc:
         logger.warning("Failed to send reply: %s", exc)
+        try:
+            page.screenshot(path="logs/debug_error.png")
+            logger.warning("Debug screenshot saved to logs/debug_error.png")
+        except Exception:
+            pass
     return False
 
 
