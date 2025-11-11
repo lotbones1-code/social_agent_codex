@@ -37,14 +37,30 @@ This repository hosts the automation agent for posting via Playwright and Chrome
 
 ## AI-Powered Features
 
-This agent now supports AI-powered content generation for higher quality, more natural interactions:
+This agent now supports AI-powered content generation for higher quality, more natural interactions.
+
+### Supported AI Providers
+
+**Choose your preferred AI provider:**
+
+#### OpenAI (ChatGPT) - Recommended
+- Use your existing ChatGPT API credits
+- Models: `gpt-4o`, `gpt-4o-mini` (cheaper, faster), `gpt-4-turbo`
+- Very affordable: ~$0.0001-0.0003 per reply with `gpt-4o-mini`
+- Get API key at: https://platform.openai.com/api-keys
+
+#### Anthropic (Claude)
+- Alternative if you prefer Claude
+- Models: `claude-3-5-sonnet-20241022`, `claude-3-haiku-20240307`
+- Cost: ~$0.001-0.003 per reply
+- Get API key at: https://console.anthropic.com/settings/keys
 
 ### AI Reply Generation
 - **Enabled by default** - Set `ENABLE_AI_REPLIES=true` in your `.env`
-- Requires `ANTHROPIC_API_KEY` environment variable
-- Generates contextual, natural-sounding replies using Claude AI
+- Choose provider with `AI_PROVIDER=openai` or `AI_PROVIDER=anthropic`
+- Generates contextual, natural-sounding replies based on tweet content
 - Falls back to template-based replies if AI is unavailable
-- Configurable model via `AI_MODEL` (default: `claude-3-5-sonnet-20241022`)
+- Configurable model via `AI_MODEL`
 
 ### Original Post Creation
 - **Enable with** `ENABLE_POSTING=true` in your `.env`
@@ -52,12 +68,15 @@ This agent now supports AI-powered content generation for higher quality, more n
 - Configure posts per cycle with `POSTS_PER_CYCLE` (default: 2)
 - Set topics with `POST_TOPICS` (uses `SEARCH_TOPICS` by default)
 
-### Configuration Example
+### Configuration Examples
+
+**Option 1: OpenAI (Recommended - use your ChatGPT credits)**
 ```bash
 # AI Configuration
-ANTHROPIC_API_KEY=your_api_key_here
+AI_PROVIDER=openai
+OPENAI_API_KEY=sk-proj-your-key-here
+AI_MODEL=gpt-4o-mini
 ENABLE_AI_REPLIES=true
-AI_MODEL=claude-3-5-sonnet-20241022
 
 # Posting Configuration
 ENABLE_POSTING=true
@@ -69,11 +88,30 @@ LOOP_DELAY_SECONDS=300
 MAX_REPLIES_PER_TOPIC=10
 ```
 
+**Option 2: Anthropic (Claude)**
+```bash
+# AI Configuration
+AI_PROVIDER=anthropic
+ANTHROPIC_API_KEY=sk-ant-your-key-here
+AI_MODEL=claude-3-5-sonnet-20241022
+ENABLE_AI_REPLIES=true
+
+# Posting and Activity Settings (same as above)
+```
+
+**Option 3: No AI (Free - uses improved templates)**
+```bash
+ENABLE_AI_REPLIES=false
+ENABLE_POSTING=false
+MAX_REPLIES_PER_TOPIC=10
+```
+
 ### Benefits
 - **Higher quality content**: AI generates natural, contextual responses instead of rigid templates
 - **More engagement**: Post original content AND reply to others
 - **Better conversion**: Authentic-sounding messages that naturally include your referral link
 - **Increased activity**: Configurable to reply more frequently (10 replies per topic vs 3)
+- **Cost effective**: Use gpt-4o-mini for ~$0.0001 per reply (incredibly cheap!)
 
 ## Sanity check
 Set `SOCIAL_AGENT_MOCK_LOGIN=1` to run the bot in a mocked mode that exercises the startup flow without a real browser session. This prints the "Logged in & ready" banner once the initialization succeeds and is useful when credentials are unavailable.

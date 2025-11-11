@@ -31,6 +31,12 @@ try:
 except ImportError:
     ANTHROPIC_AVAILABLE = False
 
+try:
+    import openai
+    OPENAI_AVAILABLE = True
+except ImportError:
+    OPENAI_AVAILABLE = False
+
 try:  # Playwright 1.49 exports TargetClosedError; older builds may not.
     from playwright.sync_api import TargetClosedError  # type: ignore
 except ImportError:  # pragma: no cover - fallback for minimal builds.
@@ -82,6 +88,7 @@ class BotConfig:
     enable_video: bool
     auth_file: str
     enable_ai_replies: bool
+    ai_provider: str
     ai_model: str
     enable_posting: bool
     posts_per_cycle: int
@@ -182,7 +189,17 @@ def load_config() -> BotConfig:
     auth_file = (os.getenv("AUTH_FILE") or DEFAULT_AUTH_FILE).strip() or DEFAULT_AUTH_FILE
 
     enable_ai_replies = _parse_bool(os.getenv("ENABLE_AI_REPLIES"), default=True)
-    ai_model = (os.getenv("AI_MODEL") or "claude-3-5-sonnet-20241022").strip()
+    ai_provider = (os.getenv("AI_PROVIDER") or "openai").strip().lower()
+    ai_model = (os.getenv("AI_MODEL") or "").strip()
+
+    # Set default model based on provider if not specified
+    if not ai_model:
+        if ai_provider == "openai":
+            ai_model = "gpt-4o-mini"
+        elif ai_provider == "anthropic":
+            ai_model = "claude-3-5-sonnet-20241022"
+        else:
+            ai_model = "gpt-4o-mini"
 
     enable_posting = _parse_bool(os.getenv("ENABLE_POSTING"), default=False)
     posts_per_cycle = _parse_int("POSTS_PER_CYCLE", 2)
@@ -213,6 +230,7 @@ def load_config() -> BotConfig:
         enable_video=enable_video,
         auth_file=auth_file,
         enable_ai_replies=enable_ai_replies,
+        ai_provider=ai_provider,
         ai_model=ai_model,
         enable_posting=enable_posting,
         posts_per_cycle=posts_per_cycle,
@@ -255,30 +273,62 @@ class MessageRegistry:
 class AIService:
     def __init__(self, config: BotConfig) -> None:
         self.enabled = False
+        self.provider = config.ai_provider
         self.model = config.ai_model
         self._client = None
 
         if not config.enable_ai_replies:
             return
 
-        if not ANTHROPIC_AVAILABLE:
-            logging.getLogger(__name__).warning(
-                "ENABLE_AI_REPLIES=true but 'anthropic' package missing. AI features disabled."
-            )
-            return
+        logger = logging.getLogger(__name__)
 
-        api_key = (os.getenv("ANTHROPIC_API_KEY") or "").strip()
-        if not api_key:
-            logging.getLogger(__name__).warning(
-                "ENABLE_AI_REPLIES=true but ANTHROPIC_API_KEY missing. AI features disabled."
-            )
-            return
+        # Initialize based on provider
+        if self.provider == "openai":
+            if not OPENAI_AVAILABLE:
+                logger.warning(
+                    "AI_PROVIDER=openai but 'openai' package missing. AI features disabled."
+                )
+                return
 
-        try:
-            self._client = anthropic.Anthropic(api_key=api_key)
-            self.enabled = True
-        except Exception as exc:  # noqa: BLE001
-            logging.getLogger(__name__).warning("Failed to initialize AI client: %s", exc)
+            api_key = (os.getenv("OPENAI_API_KEY") or "").strip()
+            if not api_key:
+                logger.warning(
+                    "AI_PROVIDER=openai but OPENAI_API_KEY missing. AI features disabled."
+                )
+                return
+
+            try:
+                self._client = openai.OpenAI(api_key=api_key)
+                self.enabled = True
+                logger.info("AI service initialized with OpenAI provider (model: %s)", self.model)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Failed to initialize OpenAI client: %s", exc)
+
+        elif self.provider == "anthropic":
+            if not ANTHROPIC_AVAILABLE:
+                logger.warning(
+                    "AI_PROVIDER=anthropic but 'anthropic' package missing. AI features disabled."
+                )
+                return
+
+            api_key = (os.getenv("ANTHROPIC_API_KEY") or "").strip()
+            if not api_key:
+                logger.warning(
+                    "AI_PROVIDER=anthropic but ANTHROPIC_API_KEY missing. AI features disabled."
+                )
+                return
+
+            try:
+                self._client = anthropic.Anthropic(api_key=api_key)
+                self.enabled = True
+                logger.info("AI service initialized with Anthropic provider (model: %s)", self.model)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Failed to initialize Anthropic client: %s", exc)
+        else:
+            logger.warning(
+                "AI_PROVIDER=%s is not supported. Use 'openai' or 'anthropic'. AI features disabled.",
+                self.provider
+            )
 
     def generate_reply(self, tweet_text: str, topic: str, referral_link: Optional[str]) -> Optional[str]:
         """Generate an AI-powered contextual reply to a tweet."""
@@ -303,14 +353,25 @@ Write a short, authentic reply (max 280 characters) that:
 Just output the reply text, nothing else."""
 
         try:
-            message = self._client.messages.create(
-                model=self.model,
-                max_tokens=150,
-                temperature=0.8,
-                messages=[{"role": "user", "content": prompt}]
-            )
+            if self.provider == "openai":
+                response = self._client.chat.completions.create(
+                    model=self.model,
+                    messages=[{"role": "user", "content": prompt}],
+                    max_tokens=150,
+                    temperature=0.8,
+                )
+                reply = response.choices[0].message.content.strip()
+            elif self.provider == "anthropic":
+                message = self._client.messages.create(
+                    model=self.model,
+                    max_tokens=150,
+                    temperature=0.8,
+                    messages=[{"role": "user", "content": prompt}]
+                )
+                reply = message.content[0].text.strip()
+            else:
+                return None
 
-            reply = message.content[0].text.strip()
             # Remove quotes if AI wrapped the response
             if reply.startswith('"') and reply.endswith('"'):
                 reply = reply[1:-1]
@@ -346,14 +407,25 @@ Create an engaging original tweet (max 280 characters) that:
 Just output the tweet text, nothing else."""
 
         try:
-            message = self._client.messages.create(
-                model=self.model,
-                max_tokens=150,
-                temperature=0.9,
-                messages=[{"role": "user", "content": prompt}]
-            )
+            if self.provider == "openai":
+                response = self._client.chat.completions.create(
+                    model=self.model,
+                    messages=[{"role": "user", "content": prompt}],
+                    max_tokens=150,
+                    temperature=0.9,
+                )
+                post = response.choices[0].message.content.strip()
+            elif self.provider == "anthropic":
+                message = self._client.messages.create(
+                    model=self.model,
+                    max_tokens=150,
+                    temperature=0.9,
+                    messages=[{"role": "user", "content": prompt}]
+                )
+                post = message.content[0].text.strip()
+            else:
+                return None
 
-            post = message.content[0].text.strip()
             # Remove quotes if AI wrapped the response
             if post.startswith('"') and post.endswith('"'):
                 post = post[1:-1]
