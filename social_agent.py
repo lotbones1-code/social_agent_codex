@@ -803,13 +803,17 @@ def run_engagement_loop(
     logger: logging.Logger,
 ) -> None:
     logger.info("[INFO] Starting engagement loop with %s topic(s).", len(config.search_topics))
+    cycle_count = 0
     while True:
+        cycle_count += 1
+        logger.info("[INFO] 🔄 Starting cycle #%d", cycle_count)
+
         try:
             if page.is_closed():
-                logger.info("Browser page closed. Exiting engagement loop.")
+                logger.warning("⚠️ Browser page closed. Exiting engagement loop.")
                 return
-        except PlaywrightError:
-            logger.info("Browser page unavailable. Exiting engagement loop.")
+        except PlaywrightError as exc:
+            logger.warning("⚠️ Browser page unavailable: %s. Exiting engagement loop.", exc)
             return
 
         if config.search_topics:
@@ -818,9 +822,10 @@ def run_engagement_loop(
         else:
             logger.info("No search topics configured. Sleeping before next cycle.")
 
-        logger.info("[INFO] Cycle complete. Sleeping for %s seconds.", config.loop_delay_seconds)
+        logger.info("[INFO] Cycle #%d complete. Sleeping for %s seconds.", cycle_count, config.loop_delay_seconds)
         try:
             time.sleep(config.loop_delay_seconds)
+            logger.info("[INFO] ⏰ Sleep finished! Restarting engagement cycle...")
         except KeyboardInterrupt:
             raise
 
