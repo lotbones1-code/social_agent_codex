@@ -632,6 +632,34 @@ def text_focus(text: str, *, max_length: int = 40) -> str:
     return truncated + "..."
 
 
+def generate_hashtags(topic: str, max_hashtags: int = 2) -> str:
+    """Generate relevant hashtags based on topic."""
+    # Topic-specific hashtag mapping
+    hashtag_map = {
+        "AI automation": ["#AI", "#Automation", "#ArtificialIntelligence", "#MachineLearning", "#AITools"],
+        "growth hacking": ["#GrowthHacking", "#Growth", "#Marketing", "#Startup", "#ScaleUp"],
+        "product launches": ["#ProductLaunch", "#NewProduct", "#Innovation", "#Startup", "#Tech"],
+    }
+
+    # Generic tech/business hashtags as fallback
+    generic_tags = ["#Tech", "#Business", "#Innovation", "#Productivity", "#Digital"]
+
+    # Get topic-specific tags or use generic
+    topic_lower = topic.lower()
+    available_tags = []
+    for key, tags in hashtag_map.items():
+        if key.lower() in topic_lower or topic_lower in key.lower():
+            available_tags = tags
+            break
+
+    if not available_tags:
+        available_tags = generic_tags
+
+    # Randomly select hashtags
+    selected = random.sample(available_tags, min(max_hashtags, len(available_tags)))
+    return " ".join(selected)
+
+
 def process_tweets(
     config: BotConfig,
     registry: MessageRegistry,
@@ -716,6 +744,14 @@ def process_tweets(
         if not message:
             logger.warning("Generated empty reply. Skipping tweet.")
             continue
+
+        # Add hashtags if there's room (50% chance to keep it varied)
+        if random.random() < 0.5:
+            hashtags = generate_hashtags(topic, max_hashtags=random.randint(1, 2))
+            # Only add if it fits within 280 chars
+            if len(message) + len(hashtags) + 1 <= 280:
+                message = message + " " + hashtags
+                logger.debug("Added hashtags: %s", hashtags)
 
         # Twitter/X has a 280 character limit
         if len(message) > 280:
