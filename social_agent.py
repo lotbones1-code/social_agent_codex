@@ -1281,11 +1281,10 @@ def prepare_authenticated_session(
         user_data_dir = str(Path.home() / ".social_agent_codex/chrome_profile/")
         os.makedirs(user_data_dir, exist_ok=True)
 
-        # Use actual Chrome browser with persistent profile
+        # Use Chromium browser with persistent profile
         # Hide automation to pass Google's security checks
         context = playwright.chromium.launch_persistent_context(
             user_data_dir=user_data_dir,
-            channel="chrome",  # Use installed Chrome, not Chromium
             headless=config.headless,
             args=[
                 "--start-maximized",
