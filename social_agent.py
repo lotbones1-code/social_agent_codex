@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import random
+import re
 import sys
 import time
 from dataclasses import dataclass
@@ -613,11 +614,72 @@ def maybe_send_dm(config: BotConfig, page: Page, tweet_data: dict[str, str], log
         _DM_NOTICE_LOGGED = True
 
 
-def text_focus(text: str, *, max_length: int = 80) -> str:
-    cleaned = " ".join(text.split())
+def text_focus(text: str, *, max_length: int = 60) -> str:
+    """Extract the most relevant part of a tweet for use in replies."""
+    # Remove URLs
+    text = re.sub(r'https?://\S+', '', text)
+
+    # Remove @ mentions
+    text = re.sub(r'@\w+', '', text)
+
+    # Remove hashtags at the end (but keep them if they're in the middle of text)
+    text = re.sub(r'\s+#\w+(\s+#\w+)*\s*$', '', text)
+
+    # Clean up extra whitespace
+    cleaned = " ".join(text.split()).strip()
+
+    # If it's a question, keep the question
+    if '?' in cleaned:
+        question_part = cleaned.split('?')[0] + '?'
+        if len(question_part) <= max_length:
+            return question_part
+
+    # Otherwise return first part
     if len(cleaned) <= max_length:
-        return cleaned
-    return f"{cleaned[: max_length - 3]}..."
+        return cleaned if cleaned else "this topic"
+
+    # Try to break at sentence boundary
+    truncated = cleaned[:max_length - 3]
+    last_period = truncated.rfind('.')
+    last_space = truncated.rfind(' ')
+
+    if last_period > max_length * 0.6:
+        return truncated[:last_period + 1]
+    elif last_space > max_length * 0.6:
+        return truncated[:last_space] + "..."
+
+    return truncated + "..."
+
+
+def pick_template(tweet_text: str, templates: list[str]) -> str:
+    """Pick an appropriate template based on tweet characteristics."""
+    text_lower = tweet_text.lower()
+
+    # Categorize tweet type
+    is_question = '?' in tweet_text
+    is_problem = any(word in text_lower for word in ['struggling', 'issue', 'problem', 'help', 'frustrated', 'difficult', 'hard'])
+    is_seeking = any(word in text_lower for word in ['looking for', 'need', 'want', 'recommend', 'suggestion', 'advice'])
+    is_excited = any(word in text_lower for word in ['love', 'amazing', 'awesome', 'great', 'excited', '!'])
+
+    # Filter templates that match the tweet type
+    preferred_templates = []
+
+    if is_question or is_seeking:
+        # Prefer templates that start with questions or suggestions
+        preferred_templates = [t for t in templates if t.startswith(('Are you', 'Have you', 'Curious if', 'Check this', 'This '))]
+
+    elif is_problem:
+        # Prefer problem-solving templates
+        preferred_templates = [t for t in templates if any(word in t.lower() for word in ['struggled', 'issue', 'fix', 'solution', 'having', 'dealing'])]
+
+    elif is_excited:
+        # Prefer enthusiastic/relating templates
+        preferred_templates = [t for t in templates if any(word in t for word in ['Love', 'This!', 'Your take', 'Your point'])]
+
+    # If we found matching templates, use them; otherwise use any template
+    if preferred_templates:
+        return random.choice(preferred_templates)
+    return random.choice(templates)
 
 
 def process_tweets(
@@ -677,10 +739,16 @@ def process_tweets(
             )
             continue
 
-        template = random.choice(config.reply_templates)
+        # Pick a template that matches the tweet's tone/content
+        template = pick_template(data["text"], config.reply_templates)
+
+        # Generate the focus text (cleaned version of tweet)
+        focus_text = text_focus(data["text"])
+
+        # Format the message
         message = template.format(
             topic=topic,
-            focus=text_focus(data["text"]),
+            focus=focus_text,
             ref_link=config.referral_link or "",
         ).strip()
 

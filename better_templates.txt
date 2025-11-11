@@ -1,0 +1,50 @@
+# BETTER REPLY TEMPLATES
+# These sound more natural and human. Copy/paste into your .env file.
+
+## Helpful & Conversational (recommending without being pushy)
+I've been down this rabbit hole with {topic}. Found this guide on {focus} super helpful - might save you some time: {ref_link}
+
+Just went through something similar with {topic}. This breakdown on {focus} actually helped me figure it out: {ref_link}
+
+Been working on {topic} for the past few months. This {focus} resource was a game changer for me: {ref_link}
+
+Your take on {topic} is spot on. I found this {focus} guide really useful when I was figuring this out: {ref_link}
+
+## Question-based (engaging, not just dropping links)
+Are you looking for resources on {topic}? I recently used this {focus} guide and it was super helpful: {ref_link}
+
+Have you seen this {focus} breakdown yet? Really helped me understand {topic} better: {ref_link}
+
+Curious if you've tried this approach to {topic}? This {focus} resource helped me a lot: {ref_link}
+
+## Short & Direct (less is more sometimes)
+This {focus} guide on {topic} is exactly what you need: {ref_link}
+
+Check this out - best resource I've found for {topic}: {ref_link}
+
+This helped me with {topic}, might help you too: {ref_link}
+
+## Relating to their tweet (more personalized)
+Love this perspective on {topic}. Reminded me of this {focus} guide I used: {ref_link}
+
+This! I had the same frustration with {topic} until I found this resource on {focus}: {ref_link}
+
+Your point about {topic} is exactly why I use this {focus} approach: {ref_link}
+
+## Story-based (builds trust)
+I struggled with {topic} for months until I found this {focus} guide. Wish I'd had it sooner: {ref_link}
+
+Last week I helped someone with this exact {topic} issue using this {focus} resource: {ref_link}
+
+Used to waste so much time on {topic}, then found this {focus} breakdown: {ref_link}
+
+## Problem-solving tone
+If you're dealing with {topic}, this {focus} guide walks through the exact solution: {ref_link}
+
+Having {topic} issues? This {focus} resource solved it for me: {ref_link}
+
+The fix for {topic} is in here - saved me hours of debugging: {ref_link}
+
+---
+RECOMMENDED: Mix 10-15 of these into your .env REPLY_TEMPLATES
+Format: Separate each with || (double pipe)
