@@ -1057,6 +1057,42 @@ def generate_hashtags(topic: str, max_hashtags: int = 2) -> str:
     return " ".join(selected)
 
 
+def human_like_browsing(page: Page, logger: logging.Logger) -> None:
+    """
+    Simulate human browsing behavior: scroll, pause, occasionally like tweets.
+    Makes the bot look like a real person browsing Twitter.
+    """
+    try:
+        # Random scroll (70% chance)
+        if random.random() < 0.7:
+            scroll_amount = random.randint(300, 800)
+            page.evaluate(f"window.scrollBy(0, {scroll_amount})")
+            logger.debug(f"📜 Scrolled {scroll_amount}px")
+            time.sleep(random.uniform(1, 3))
+
+        # Pause to "read" (50% chance)
+        if random.random() < 0.5:
+            pause = random.uniform(2, 6)
+            logger.debug(f"👀 Reading for {pause:.1f}s")
+            time.sleep(pause)
+
+        # Randomly like a visible tweet (20% chance)
+        if random.random() < 0.2:
+            try:
+                like_buttons = page.locator("button[data-testid='like']").all()
+                if like_buttons:
+                    # Pick a random like button from visible tweets
+                    btn = random.choice(like_buttons[:5])  # Only from first 5 visible
+                    if btn.is_visible():
+                        btn.click()
+                        logger.info("[INFO] ❤️ Liked a tweet (human-like behavior)")
+                        time.sleep(random.uniform(0.5, 1.5))
+            except Exception:
+                pass  # Silent fail, not critical
+    except Exception as exc:
+        logger.debug(f"Browsing simulation error (non-critical): {exc}")
+
+
 def process_tweets(
     config: BotConfig,
     registry: MessageRegistry,
@@ -1223,11 +1259,19 @@ def handle_topic(
         logger.warning("Error while loading topic '%s': %s", topic, exc)
         return
 
+    # Simulate human browsing before engaging (scroll, pause, maybe like)
+    logger.debug("Simulating human browsing behavior...")
+    human_like_browsing(page, logger)
+
     tweets = load_tweets(page, logger)
     logger.info("[INFO] Loaded %s tweets for topic '%s'.", len(tweets), topic)
     if not tweets:
         logger.warning("No eligible tweets for topic '%s'.", topic)
         return
+
+    # Another brief browsing moment before starting to reply
+    if random.random() < 0.5:
+        human_like_browsing(page, logger)
 
     process_tweets(config, registry, page, video_service, tweets, topic, logger)
 
@@ -1295,8 +1339,19 @@ def run_engagement_loop(
                     logger.warning("Failed to create original post, continuing...")
 
             # Now engage with topics (reply to tweets and follow users)
-            for topic in config.search_topics:
+            for i, topic in enumerate(config.search_topics):
                 handle_topic(config, registry, page, video_service, topic, logger)
+
+                # Between topics, simulate casual browsing (not after last topic)
+                if i < len(config.search_topics) - 1:
+                    # Random delay between topics (30-90 seconds - human-like)
+                    delay = random.randint(30, 90)
+                    logger.info("[INFO] 😴 Taking a %d second break between topics...", delay)
+                    time.sleep(delay)
+
+                    # Scroll and browse a bit
+                    if random.random() < 0.6:
+                        human_like_browsing(page, logger)
         else:
             logger.info("No search topics configured. Sleeping before next cycle.")
 
