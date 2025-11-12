@@ -887,6 +887,57 @@ def follow_user(page: Page, tweet: Locator, logger: logging.Logger) -> bool:
         return False
 
 
+def retweet_post(page: Page, tweet: Locator, logger: logging.Logger) -> bool:
+    """
+    Retweet a post to increase account activity and engagement.
+    NEW FUNCTION - safe, won't break anything!
+    """
+    try:
+        logger.debug("Looking for retweet button...")
+
+        # Find retweet button
+        retweet_selectors = [
+            "button[data-testid='retweet']",
+            "div[data-testid='retweet']",
+            "[aria-label*='Repost']",
+        ]
+
+        retweet_btn = None
+        for selector in retweet_selectors:
+            try:
+                btn = tweet.locator(selector).first
+                btn.wait_for(timeout=1000, state="visible")
+                retweet_btn = btn
+                break
+            except PlaywrightTimeout:
+                continue
+
+        if not retweet_btn:
+            logger.debug("Retweet button not found")
+            return False
+
+        # Click retweet button
+        retweet_btn.click()
+        time.sleep(random.uniform(0.5, 1))
+
+        # Click "Repost" in the menu that appears
+        try:
+            confirm_btn = page.locator("div[data-testid='retweetConfirm']").first
+            confirm_btn.wait_for(timeout=2000, state="visible")
+            confirm_btn.click()
+            time.sleep(random.uniform(1, 2))
+
+            logger.info("[INFO] 🔁 Retweeted successfully!")
+            return True
+        except PlaywrightTimeout:
+            logger.debug("Retweet confirm button not found")
+            return False
+
+    except PlaywrightError as exc:
+        logger.debug(f"Failed to retweet: {exc}")
+        return False
+
+
 def generate_simple_image(topic: str, output_path: str, logger: logging.Logger) -> bool:
     """
     Generate a simple quote/text image for social media.
@@ -1245,6 +1296,14 @@ def process_tweets(
                 else:
                     logger.debug("Follow skipped (already following or unavailable)")
 
+            # Occasionally retweet to show support (15% chance - builds engagement)
+            if random.random() < 0.15:
+                logger.info("[INFO] 🔁 Attempting to retweet...")
+                if retweet_post(page, tweet, logger):
+                    time.sleep(random.uniform(1, 3))
+                else:
+                    logger.debug("Retweet skipped")
+
             # More human-like timing: occasionally take longer breaks (10% chance)
             if random.random() < 0.1:
                 delay = random.randint(config.action_delay_max * 2, config.action_delay_max * 3)
@@ -1334,8 +1393,8 @@ def run_engagement_loop(
             return
 
         if config.search_topics:
-            # Create an original post rarely (0% chance - DISABLED until account cooldown complete)
-            if random.random() < 0.0:  # Disabled to avoid automation detection
+            # Create original posts to build presence (50% chance - balanced engagement)
+            if random.random() < 0.5:  # Post often to build account credibility
                 # Random delay before posting (10-30 seconds - human-like)
                 delay = random.randint(10, 30)
                 logger.info("[INFO] 😴 Taking a %d second break before posting...", delay)
