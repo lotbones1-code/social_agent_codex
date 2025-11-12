@@ -1292,14 +1292,17 @@ def prepare_authenticated_session(
     storage_env = (os.getenv("AUTH_FILE") or config.auth_file).strip() or config.auth_file
     auth_path = ensure_auth_storage_path(storage_env, logger)
 
-    try:
-        user_data_dir = str(Path.home() / ".social_agent_codex/chrome_profile/")
-        os.makedirs(user_data_dir, exist_ok=True)
+    user_data_dir = str(Path.home() / ".social_agent_codex/chrome_profile/")
+    os.makedirs(user_data_dir, exist_ok=True)
 
-        # Use Chromium browser with persistent profile
+    # Try Chrome first (to avoid Google detection), fall back to Chromium if not available
+    context = None
+    try:
+        # Use actual Chrome browser with persistent profile
         # Hide automation to pass Google's security checks
         context = playwright.chromium.launch_persistent_context(
             user_data_dir=user_data_dir,
+            channel="chrome",  # Use real Chrome to avoid Google blocking
             headless=config.headless,
             args=[
                 "--start-maximized",
@@ -1310,9 +1313,25 @@ def prepare_authenticated_session(
         )
         browser = None  # persistent context doesn't have a browser object
         logger.info("[INFO] Launched Chrome browser with persistent profile at %s", user_data_dir)
-    except PlaywrightError as exc:
-        logger.error("Failed to launch Chrome browser: %s", exc)
-        return None
+    except PlaywrightError as chrome_error:
+        logger.warning("Chrome not available (%s), trying Chromium...", chrome_error)
+        try:
+            # Fallback to Chromium if Chrome isn't installed
+            context = playwright.chromium.launch_persistent_context(
+                user_data_dir=user_data_dir,
+                headless=config.headless,
+                args=[
+                    "--start-maximized",
+                    "--no-sandbox",
+                    "--disable-blink-features=AutomationControlled",
+                    "--disable-dev-shm-usage",
+                ],
+            )
+            browser = None
+            logger.info("[INFO] Launched Chromium browser with persistent profile at %s", user_data_dir)
+        except PlaywrightError as chromium_error:
+            logger.error("Failed to launch browser: Chrome error: %s, Chromium error: %s", chrome_error, chromium_error)
+            return None
 
     storage_file = auth_path
     page = context.new_page()
