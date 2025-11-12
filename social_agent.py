@@ -701,6 +701,9 @@ def create_original_post(page: Page, message: str, logger: logging.Logger, image
                 logger.debug(f"Image upload failed (posting text-only): {exc}")
                 # Continue without image - don't fail the whole post
 
+        # Wait a moment for Post button to become enabled
+        time.sleep(2)
+
         # Click post button (make sure it's "Post" not "Save")
         logger.debug("Looking for Post button...")
 
@@ -717,21 +720,30 @@ def create_original_post(page: Page, message: str, logger: logging.Logger, image
 
                 # Verify button text to avoid clicking "Save"
                 btn_text = btn.inner_text()
+                logger.debug(f"Found button with text: '{btn_text}'")
+
+                # Check if button is disabled
+                is_disabled = btn.is_disabled()
+                if is_disabled:
+                    logger.debug(f"Button is disabled: '{btn_text}'")
+                    continue
+
                 if "save" in btn_text.lower():
                     logger.debug("This is a Save button, skipping...")
                     continue
 
                 if "post" in btn_text.lower():
                     send_btn = btn
-                    logger.debug(f"✓ Post button found: '{btn_text}'")
+                    logger.debug(f"✓ Post button found and enabled: '{btn_text}'")
                     break
             except PlaywrightTimeout:
                 continue
-            except Exception:
+            except Exception as e:
+                logger.debug(f"Error checking button: {e}")
                 continue
 
         if not send_btn:
-            logger.warning("Post button not found (only Save button available)")
+            logger.warning("Post button not found or disabled (only Save button available - message may be too long or have an issue)")
             return False
 
         logger.debug("Clicking Post button...")
