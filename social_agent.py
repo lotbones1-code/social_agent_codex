@@ -1254,8 +1254,8 @@ def run_engagement_loop(
             return
 
         if config.search_topics:
-            # Create an original post rarely (10% chance - looks more human, less automated)
-            if random.random() < 0.1:  # Very infrequent to avoid detection
+            # Create an original post rarely (0% chance - DISABLED until account cooldown complete)
+            if random.random() < 0.0:  # Disabled to avoid automation detection
                 # Random delay before posting (10-30 seconds - human-like)
                 delay = random.randint(10, 30)
                 logger.info("[INFO] 😴 Taking a %d second break before posting...", delay)
