@@ -1327,6 +1327,43 @@ def process_tweets(
             return
 
 
+def get_trending_topics(page: Page, logger: logging.Logger) -> list[str]:
+    """
+    Get trending/controversial topics from Twitter's trending section.
+    NEW FUNCTION - helps bot engage with viral content!
+    """
+    trending_topics = []
+    try:
+        # Go to explore page to see trending
+        page.goto("https://x.com/explore/tabs/trending", wait_until="domcontentloaded", timeout=15000)
+        time.sleep(2)
+
+        # Find trending topic elements
+        trend_selectors = [
+            "div[data-testid='trend']",
+            "[data-testid='trend'] span",
+        ]
+
+        for selector in trend_selectors:
+            try:
+                trends = page.locator(selector).all()[:5]  # Get top 5
+                for trend in trends:
+                    text = trend.inner_text()
+                    if text and len(text) > 2 and len(text) < 50:
+                        trending_topics.append(text)
+                        logger.debug(f"Found trending: {text}")
+                if trending_topics:
+                    break
+            except:
+                continue
+
+        logger.info(f"[INFO] 🔥 Found {len(trending_topics)} trending topics")
+        return trending_topics[:3]  # Return top 3
+    except Exception as exc:
+        logger.debug(f"Could not fetch trending topics: {exc}")
+        return []
+
+
 def handle_topic(
     config: BotConfig,
     registry: MessageRegistry,
@@ -1373,12 +1410,6 @@ def run_engagement_loop(
 ) -> None:
     logger.info("[INFO] Starting engagement loop with %s topic(s).", len(config.search_topics))
 
-    # INITIAL 1 HOUR DELAY - let account settle after login
-    logger.info("[INFO] 💤 INITIAL COOLDOWN: Waiting 1 hour before starting activity...")
-    logger.info("[INFO] This helps avoid Twitter automation detection after login.")
-    time.sleep(3600)  # 1 hour = 3600 seconds
-    logger.info("[INFO] ✅ Initial cooldown complete - starting activity")
-
     cycle_count = 0
     while True:
         cycle_count += 1
@@ -1404,9 +1435,9 @@ def run_engagement_loop(
                 logger.info("[INFO] 📝 Creating original post about '%s'...", selected_topic)
                 post_content = generate_original_post_content(selected_topic)
 
-                # Try to generate an image (50% of posts, SAFE: fails gracefully)
+                # Try to generate an image (80% of posts, SAFE: fails gracefully)
                 image_path = None
-                if random.random() < 0.5:
+                if random.random() < 0.8:
                     image_dir = Path.home() / ".social_agent_codex" / "generated_images"
                     image_dir.mkdir(parents=True, exist_ok=True)
                     image_path = str(image_dir / f"post_{int(time.time())}.png")
@@ -1435,11 +1466,20 @@ def run_engagement_loop(
 
             # Now engage with topics (reply to tweets and follow users)
             try:
-                for i, topic in enumerate(config.search_topics):
+                # Get trending/controversial topics to engage with (every 3rd cycle)
+                all_topics = list(config.search_topics)
+                if cycle_count % 3 == 0:
+                    logger.info("[INFO] 🔥 Fetching trending topics to join the conversation...")
+                    trending = get_trending_topics(page, logger)
+                    if trending:
+                        all_topics.extend(trending)
+                        logger.info(f"[INFO] Added {len(trending)} trending topics to engage with!")
+
+                for i, topic in enumerate(all_topics):
                     handle_topic(config, registry, page, video_service, topic, logger)
 
                     # Between topics, simulate casual browsing (not after last topic)
-                    if i < len(config.search_topics) - 1:
+                    if i < len(all_topics) - 1:
                         # Random delay between topics (30-90 seconds - human-like)
                         delay = random.randint(30, 90)
                         logger.info("[INFO] 😴 Taking a %d second break between topics...", delay)
