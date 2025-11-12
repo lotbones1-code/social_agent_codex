@@ -1424,8 +1424,8 @@ def run_engagement_loop(
             return
 
         if config.search_topics:
-            # Create original posts to build presence (50% chance - balanced engagement)
-            if random.random() < 0.5:  # Post often to build account credibility
+            # Create original posts to build presence (100% - always post with images!)
+            if True:  # Always post to show features working
                 # Random delay before posting (10-30 seconds - human-like)
                 delay = random.randint(10, 30)
                 logger.info("[INFO] 😴 Taking a %d second break before posting...", delay)
@@ -1435,9 +1435,9 @@ def run_engagement_loop(
                 logger.info("[INFO] 📝 Creating original post about '%s'...", selected_topic)
                 post_content = generate_original_post_content(selected_topic)
 
-                # Try to generate an image (80% of posts, SAFE: fails gracefully)
+                # Always generate an image (100% to show it's working!)
                 image_path = None
-                if random.random() < 0.8:
+                if True:  # Always include image
                     image_dir = Path.home() / ".social_agent_codex" / "generated_images"
                     image_dir.mkdir(parents=True, exist_ok=True)
                     image_path = str(image_dir / f"post_{int(time.time())}.png")
