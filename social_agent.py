@@ -1219,11 +1219,8 @@ def run_engagement_loop(
             return
 
         if config.search_topics:
-            for topic in config.search_topics:
-                handle_topic(config, registry, page, video_service, topic, logger)
-
-            # Create 1 original post per cycle (20% chance to keep it natural)
-            if random.random() < 0.2:
+            # Create an original post at START of cycle (70% chance - builds account presence)
+            if random.random() < 0.7:
                 selected_topic = random.choice(config.search_topics)
                 logger.info("[INFO] 📝 Creating original post about '%s'...", selected_topic)
                 post_content = generate_original_post_content(selected_topic)
@@ -1256,6 +1253,10 @@ def run_engagement_loop(
                             pass
                 else:
                     logger.warning("Failed to create original post, continuing...")
+
+            # Now engage with topics (reply to tweets and follow users)
+            for topic in config.search_topics:
+                handle_topic(config, registry, page, video_service, topic, logger)
         else:
             logger.info("No search topics configured. Sleeping before next cycle.")
 
