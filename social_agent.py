@@ -37,6 +37,40 @@ try:  # Playwright 1.49 exports TargetClosedError; older builds may not.
 except ImportError:  # pragma: no cover - fallback for minimal builds.
     TargetClosedError = PlaywrightError  # type: ignore
 
+# FEATURE ADD: Political Mode (conditional import - no breaking changes)
+# Only imported if USE_NEW_CONFIG=true in .env
+# To revert: set USE_NEW_CONFIG=false or remove these imports
+_political_mode_available = False
+_political_composer = None
+_political_config = None
+
+try:
+    use_new_config = os.getenv("USE_NEW_CONFIG", "false").lower() == "true"
+    if use_new_config:
+        from app.config_loader import get_config
+        from app.media.image_adapter import ImageAdapter
+        from app.media.video_adapter import VideoAdapter
+        from app.engagement.politics_reply import PoliticalReplyGenerator
+        from app.reply.compose import ReplyComposer
+
+        # Initialize political mode components
+        _political_config = get_config()
+        _image_adapter = ImageAdapter()
+        _video_adapter = VideoAdapter()
+        _politics_gen = PoliticalReplyGenerator(_political_config)
+        _political_composer = ReplyComposer(_political_config, _image_adapter, _video_adapter, _politics_gen)
+        _political_mode_available = True
+
+        logging.getLogger(__name__).info("[political-mode] Political mode ENABLED (USE_NEW_CONFIG=true)")
+    else:
+        logging.getLogger(__name__).info("[political-mode] Political mode DISABLED (USE_NEW_CONFIG=false) - using gambling mode")
+except ImportError as e:
+    logging.getLogger(__name__).warning(f"[political-mode] Could not load political mode modules: {e}")
+    logging.getLogger(__name__).info("[political-mode] Falling back to gambling mode")
+except Exception as e:
+    logging.getLogger(__name__).error(f"[political-mode] Error initializing political mode: {e}")
+    logging.getLogger(__name__).info("[political-mode] Falling back to gambling mode")
+
 DEFAULT_AUTH_FILE = "auth.json"
 DEFAULT_REPLY_TEMPLATES = [
     "Been riffing with other builders about {topic}, and this {focus} breakdown keeps delivering wins. Shortcut link: {ref_link}",
@@ -468,7 +502,7 @@ def extract_tweet_data(tweet: Locator) -> Optional[dict[str, str]]:
     }
 
 
-def send_reply(page: Page, tweet: Locator, message: str, logger: logging.Logger) -> bool:
+def send_reply(page: Page, tweet: Locator, message: str, logger: logging.Logger, media_path: Optional[str] = None) -> bool:
     try:
         logger.debug("Scrolling tweet into view...")
         tweet.scroll_into_view_if_needed()
@@ -535,6 +569,22 @@ def send_reply(page: Page, tweet: Locator, message: str, logger: logging.Logger)
         # Type with human-like delays for more natural behavior
         page.keyboard.type(message, delay=random.randint(10, 30))
         time.sleep(random.uniform(0.5, 1.5))
+
+        # Upload media if provided (FEATURE ADD: Political mode image support)
+        if media_path and os.path.exists(media_path):
+            try:
+                logger.debug(f"[media] Uploading media to reply: {media_path}")
+                # Find the image upload input
+                file_input = page.locator("input[data-testid='fileInput']").first
+                if file_input:
+                    file_input.set_input_files(media_path)
+                    logger.debug("[media] Media uploaded successfully to reply")
+                    time.sleep(2)  # Wait for media to process
+                else:
+                    logger.debug("[media] Media upload input not found, posting without media")
+            except Exception as exc:
+                logger.debug(f"[media] Media upload failed (posting text-only): {exc}")
+                # Continue without media - don't fail the whole reply
 
         logger.debug("Looking for Reply/Post button...")
 
@@ -1247,19 +1297,54 @@ def process_tweets(
             )
             continue
 
-        template = random.choice(config.reply_templates)
-        message = template.format(
-            topic=topic,
-            focus=text_focus(data["text"]),
-            ref_link=config.referral_link or "",
-        ).strip()
+        # FEATURE ADD: Conditional Reply Generation (political mode vs gambling mode)
+        # If political mode enabled, use new composer; otherwise use old templates
+        # To revert: set USE_NEW_CONFIG=false
+        media_path_for_reply = None  # For potential image attachment
+
+        if _political_mode_available and _political_composer:
+            # NEW PATH: Political mode reply composer
+            logger.debug("[political-mode] Using political reply composer")
+            try:
+                reply_result = _political_composer.compose_reply(
+                    tweet_text=data["text"],
+                    tweet_author=data["handle"] or "unknown",
+                    topic=topic,
+                    dry_run=False  # Actually generate media
+                )
+
+                if not reply_result['should_post']:
+                    logger.info("[INFO] Political composer blocked tweet (safety check)")
+                    continue
+
+                message = reply_result['text']
+                media_path_for_reply = reply_result.get('media_path')
+
+            except Exception as exc:
+                logger.error(f"[political-mode] Composer failed: {exc}, falling back to gambling templates")
+                # Fall back to old method on error
+                template = random.choice(config.reply_templates)
+                message = template.format(
+                    topic=topic,
+                    focus=text_focus(data["text"]),
+                    ref_link=config.referral_link or "",
+                ).strip()
+        else:
+            # OLD PATH: Gambling mode templates (existing behavior)
+            logger.debug("[gambling-mode] Using gambling reply templates")
+            template = random.choice(config.reply_templates)
+            message = template.format(
+                topic=topic,
+                focus=text_focus(data["text"]),
+                ref_link=config.referral_link or "",
+            ).strip()
 
         if not message:
             logger.warning("Generated empty reply. Skipping tweet.")
             continue
 
-        # NOTE: No hashtags in replies - they look spammy
-        # Hashtags only in original posts where they look natural
+        # NOTE: No hashtags in replies in gambling mode - they look spammy
+        # In political mode, hashtags handled by composer
 
         # Twitter/X has a 280 character limit
         if len(message) > 280:
@@ -1277,9 +1362,11 @@ def process_tweets(
 
         logger.info("[INFO] Replying to @%s for topic '%s'.", data['handle'] or 'unknown', topic)
         logger.debug("Generated message (%d chars): %s", len(message), message)
+        if media_path_for_reply:
+            logger.debug("[media] Reply will include media: %s", media_path_for_reply)
 
         attempts += 1
-        if send_reply(page, tweet, message, logger):
+        if send_reply(page, tweet, message, logger, media_path=media_path_for_reply):
             registry.add(identifier)
             replies += 1
             success_rate = (replies / attempts) * 100
@@ -1408,6 +1495,15 @@ def run_engagement_loop(
     video_service: VideoService,
     logger: logging.Logger,
 ) -> None:
+    # FEATURE ADD: Override search topics when political mode is enabled
+    if _political_mode_available and _political_config:
+        political_topics = _political_config.get_topics_for_mode()
+        if political_topics:
+            logger.info("[political-mode] Overriding search topics with political topics")
+            config.search_topics = political_topics
+        else:
+            logger.warning("[political-mode] No political topics configured, using default topics")
+
     logger.info("[INFO] Starting engagement loop with %s topic(s).", len(config.search_topics))
 
     cycle_count = 0

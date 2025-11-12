@@ -1,0 +1,25 @@
+{
+  "modes": ["politics", "tech", "culture"],
+  "rotation_enabled": true,
+  "single_mode_override": "",
+  "promo_links": {
+    "gumroad": "https://shamilbark.gumroad.com/l/qjsat"
+  },
+  "exclude_domains": ["rainbet", "rain.bet", "raincasino", "stake", "rollbit", "gambling", "casino", "poker"],
+  "promo_frequency": 0.25,
+  "media_probability": 0.25,
+  "max_reply_length": 270,
+  "hashtags_allowlist": ["#Breaking", "#Election", "#Policy", "#Tech", "#AI", "#Macro", "#Politics", "#News"],
+  "debate_style": "confident-civil",
+  "political_topics": [
+    "US politics",
+    "election 2024",
+    "policy debate",
+    "breaking news",
+    "political analysis",
+    "government policy",
+    "social issues",
+    "economic policy"
+  ],
+  "reply_tones": ["analytical", "questioning", "supportive", "critical-civil"]
+}
