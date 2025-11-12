@@ -677,12 +677,12 @@ def create_original_post(page: Page, message: str, logger: logging.Logger, image
             logger.warning("Composer didn't appear for original post")
             return False
 
-        # Type message
+        # Type message (slower, more human-like)
         logger.debug("Typing original post...")
         composer.click()
-        time.sleep(random.uniform(0.3, 0.7))
-        page.keyboard.type(message, delay=random.randint(10, 30))
-        time.sleep(random.uniform(0.5, 1.5))
+        time.sleep(random.uniform(0.5, 1.2))
+        page.keyboard.type(message, delay=random.randint(50, 120))  # Much slower typing
+        time.sleep(random.uniform(2, 4))  # Longer pause after typing
 
         # Upload image if provided (SAFE: fails gracefully if it doesn't work)
         if image_path and os.path.exists(image_path):
@@ -1254,8 +1254,13 @@ def run_engagement_loop(
             return
 
         if config.search_topics:
-            # Create an original post at START of every cycle (builds account faster)
-            if True:  # Always post to maximize account presence
+            # Create an original post sometimes (30% chance - looks more human, less automated)
+            if random.random() < 0.3:  # Less frequent to avoid detection
+                # Random delay before posting (5-15 seconds - human-like)
+                delay = random.randint(5, 15)
+                logger.info("[INFO] 😴 Taking a %d second break before posting...", delay)
+                time.sleep(delay)
+
                 selected_topic = random.choice(config.search_topics)
                 logger.info("[INFO] 📝 Creating original post about '%s'...", selected_topic)
                 post_content = generate_original_post_content(selected_topic)
