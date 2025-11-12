@@ -1242,8 +1242,8 @@ def run_engagement_loop(
             return
 
         if config.search_topics:
-            # Create an original post at START of cycle (70% chance - builds account presence)
-            if random.random() < 0.7:
+            # Create an original post at START of every cycle (builds account faster)
+            if True:  # Always post to maximize account presence
                 selected_topic = random.choice(config.search_topics)
                 logger.info("[INFO] 📝 Creating original post about '%s'...", selected_topic)
                 post_content = generate_original_post_content(selected_topic)
