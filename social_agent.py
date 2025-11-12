@@ -608,6 +608,10 @@ def send_reply(page: Page, tweet: Locator, message: str, logger: logging.Logger)
 
         time.sleep(3)  # Wait for reply to post
 
+        # Check for automation warning (CRITICAL - must cooldown if detected)
+        if check_automation_warning(page, logger):
+            raise Exception("AUTOMATION_WARNING_DETECTED")
+
         # Check for error messages (rate limits, etc)
         try:
             error_selectors = [
@@ -749,6 +753,10 @@ def create_original_post(page: Page, message: str, logger: logging.Logger, image
         logger.debug("Clicking Post button...")
         send_btn.click(force=True)
         time.sleep(3)
+
+        # Check for automation warning (CRITICAL - must cooldown if detected)
+        if check_automation_warning(page, logger):
+            raise Exception("AUTOMATION_WARNING_DETECTED")
 
         # Check for errors
         try:
@@ -1057,6 +1065,27 @@ def generate_hashtags(topic: str, max_hashtags: int = 2) -> str:
     return " ".join(selected)
 
 
+def check_automation_warning(page: Page, logger: logging.Logger) -> bool:
+    """
+    Check if Twitter is showing the automation warning.
+    Returns True if warning detected, False otherwise.
+    """
+    try:
+        automation_selectors = [
+            "text=/looks like it might be automated/i",
+            "text=/looks automated/i",
+            "text=/automated/i",
+            "text=/protect our users from spam/i",
+        ]
+        for selector in automation_selectors:
+            if page.locator(selector).count() > 0:
+                logger.error("🚨 AUTOMATION WARNING DETECTED - Twitter flagged this action!")
+                return True
+        return False
+    except Exception:
+        return False
+
+
 def human_like_browsing(page: Page, logger: logging.Logger) -> None:
     """
     Simulate human browsing behavior: scroll, pause, occasionally like tweets.
@@ -1284,6 +1313,13 @@ def run_engagement_loop(
     logger: logging.Logger,
 ) -> None:
     logger.info("[INFO] Starting engagement loop with %s topic(s).", len(config.search_topics))
+
+    # INITIAL 1 HOUR DELAY - let account settle after login
+    logger.info("[INFO] 💤 INITIAL COOLDOWN: Waiting 1 hour before starting activity...")
+    logger.info("[INFO] This helps avoid Twitter automation detection after login.")
+    time.sleep(3600)  # 1 hour = 3600 seconds
+    logger.info("[INFO] ✅ Initial cooldown complete - starting activity")
+
     cycle_count = 0
     while True:
         cycle_count += 1
@@ -1339,19 +1375,30 @@ def run_engagement_loop(
                     logger.warning("Failed to create original post, continuing...")
 
             # Now engage with topics (reply to tweets and follow users)
-            for i, topic in enumerate(config.search_topics):
-                handle_topic(config, registry, page, video_service, topic, logger)
+            try:
+                for i, topic in enumerate(config.search_topics):
+                    handle_topic(config, registry, page, video_service, topic, logger)
 
-                # Between topics, simulate casual browsing (not after last topic)
-                if i < len(config.search_topics) - 1:
-                    # Random delay between topics (30-90 seconds - human-like)
-                    delay = random.randint(30, 90)
-                    logger.info("[INFO] 😴 Taking a %d second break between topics...", delay)
-                    time.sleep(delay)
+                    # Between topics, simulate casual browsing (not after last topic)
+                    if i < len(config.search_topics) - 1:
+                        # Random delay between topics (30-90 seconds - human-like)
+                        delay = random.randint(30, 90)
+                        logger.info("[INFO] 😴 Taking a %d second break between topics...", delay)
+                        time.sleep(delay)
 
-                    # Scroll and browse a bit
-                    if random.random() < 0.6:
-                        human_like_browsing(page, logger)
+                        # Scroll and browse a bit
+                        if random.random() < 0.6:
+                            human_like_browsing(page, logger)
+            except Exception as e:
+                if "AUTOMATION_WARNING_DETECTED" in str(e):
+                    logger.error("🚨🚨🚨 AUTOMATION WARNING DETECTED 🚨🚨🚨")
+                    logger.error("Twitter flagged this activity as automated!")
+                    logger.error("Entering 30 MINUTE COOLDOWN to let account settle...")
+                    time.sleep(1800)  # 30 minutes = 1800 seconds
+                    logger.info("✅ 30 minute cooldown complete - will try again next cycle")
+                else:
+                    # Some other error - log it but continue
+                    logger.error(f"Error during topic handling: {e}")
         else:
             logger.info("No search topics configured. Sleeping before next cycle.")
 
