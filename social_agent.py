@@ -701,17 +701,40 @@ def create_original_post(page: Page, message: str, logger: logging.Logger, image
                 logger.debug(f"Image upload failed (posting text-only): {exc}")
                 # Continue without image - don't fail the whole post
 
-        # Click post button
-        logger.debug("Looking for send button...")
-        send_btn = page.locator("button[data-testid='tweetButton']").first
-        try:
-            send_btn.wait_for(timeout=3000, state="visible")
-            logger.debug("Send button found")
-        except PlaywrightTimeout:
-            logger.warning("Send button not visible for original post")
+        # Click post button (make sure it's "Post" not "Save")
+        logger.debug("Looking for Post button...")
+
+        post_selectors = [
+            "button[data-testid='tweetButton']:has-text('Post')",
+            "button[data-testid='tweetButton']",
+        ]
+
+        send_btn = None
+        for selector in post_selectors:
+            try:
+                btn = page.locator(selector).first
+                btn.wait_for(timeout=2000, state="visible")
+
+                # Verify button text to avoid clicking "Save"
+                btn_text = btn.inner_text()
+                if "save" in btn_text.lower():
+                    logger.debug("This is a Save button, skipping...")
+                    continue
+
+                if "post" in btn_text.lower():
+                    send_btn = btn
+                    logger.debug(f"✓ Post button found: '{btn_text}'")
+                    break
+            except PlaywrightTimeout:
+                continue
+            except Exception:
+                continue
+
+        if not send_btn:
+            logger.warning("Post button not found (only Save button available)")
             return False
 
-        logger.debug("Posting tweet...")
+        logger.debug("Clicking Post button...")
         send_btn.click(force=True)
         time.sleep(3)
 
