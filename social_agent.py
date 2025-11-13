@@ -38,6 +38,10 @@ try:  # Playwright 1.49 exports TargetClosedError; older builds may not.
 except ImportError:  # pragma: no cover - fallback for minimal builds.
     TargetClosedError = PlaywrightError  # type: ignore
 
+# CRITICAL FIX: Load .env BEFORE checking USE_NEW_CONFIG
+# This ensures environment variables are available at import time
+load_dotenv()
+
 # FEATURE ADD: Political Mode (conditional import - no breaking changes)
 # Only imported if USE_NEW_CONFIG=true in .env
 # To revert: set USE_NEW_CONFIG=false or remove these imports
@@ -1724,7 +1728,7 @@ def run_dry_run_test() -> None:
     --dry-run mode: Test political reply composer without posting or touching auth/login.
     Simulates reply generation against hardcoded sample tweets.
     """
-    load_dotenv()
+    # load_dotenv() already called at module level (line 43)
 
     # Check if political mode is enabled
     use_new_config = os.getenv("USE_NEW_CONFIG", "false").lower() == "true"
@@ -1867,7 +1871,7 @@ def run_dry_run_test() -> None:
 
 
 def run_social_agent() -> None:
-    load_dotenv()
+    # load_dotenv() already called at module level (line 43)
     config = load_config()
 
     logging.basicConfig(
