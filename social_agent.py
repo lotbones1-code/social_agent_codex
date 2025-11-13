@@ -12,7 +12,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Awaitable, Callable, Optional
-from urllib.parse import quote_plus
+from urllib.parse import quote_plus, urlparse
 
 from dotenv import load_dotenv
 from playwright.sync_api import (
@@ -710,12 +710,36 @@ def prepare_authenticated_session(
     auth_path = ensure_auth_storage_path(storage_env, logger)
 
     try:
-        user_data_dir = str(Path.home() / ".social_agent_codex/browser_session/")                
+        user_data_dir = str(Path.home() / ".social_agent_codex/browser_session/")
+        temp_dir = str(Path.home() / ".social_agent_codex/browser_tmp/")
         os.makedirs(user_data_dir, exist_ok=True)
+        os.makedirs(temp_dir, exist_ok=True)
+
+        # Configure proxy if available
+        proxy_config = None
+        https_proxy = os.getenv("HTTPS_PROXY") or os.getenv("https_proxy")
+        if https_proxy:
+            # Parse proxy URL to extract server and credentials
+            # Format: http://user:pass@host:port
+            parsed = urlparse(https_proxy)
+            server_url = f"{parsed.scheme}://{parsed.hostname}:{parsed.port}"
+            proxy_config = {"server": server_url}
+            if parsed.username and parsed.password:
+                proxy_config["username"] = parsed.username
+                proxy_config["password"] = parsed.password
+            logger.info(f"[PROXY] Using proxy server for browser with authentication")
+
         browser = playwright.chromium.launch_persistent_context(
-                        user_data_dir=user_data_dir,
+            user_data_dir=user_data_dir,
             headless=config.headless,
-            args=["--start-maximized", "--no-sandbox"],
+            args=[
+                "--start-maximized",
+                "--no-sandbox",
+                f"--disk-cache-dir={temp_dir}",
+                "--disable-gpu",
+                "--disable-software-rasterizer",
+            ],
+            proxy=proxy_config,
         )
     except PlaywrightError as exc:
         logger.error("Failed to launch browser: %s", exc)
