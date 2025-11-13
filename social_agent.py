@@ -42,7 +42,8 @@ except ImportError:  # pragma: no cover - fallback for minimal builds.
 # This ensures environment variables are available at import time
 # Load from script directory, not current working directory
 _script_dir = Path(__file__).parent.resolve()
-load_dotenv(_script_dir / ".env")
+_env_path = _script_dir / ".env"
+load_dotenv(_env_path, override=True)
 
 # FEATURE ADD: Political Mode (conditional import - no breaking changes)
 # Only imported if USE_NEW_CONFIG=true in .env
