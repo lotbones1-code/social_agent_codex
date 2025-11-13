@@ -1,5 +1,46 @@
 import os, json, argparse, pathlib, sys, base64
 
+def openai_image(topic: str, out_path: str) -> bool:
+    """Generate image using OpenAI DALL-E"""
+    api_key = os.getenv("OPENAI_API_KEY", "").strip()
+    if not api_key:
+        return False
+
+    model = os.getenv("IMAGE_MODEL", "dall-e-3")
+    size = os.getenv("IMAGE_SIZE", "1024x1024")
+
+    try:
+        from openai import OpenAI
+        import requests
+
+        client = OpenAI(api_key=api_key)
+
+        # Generate image
+        response = client.images.generate(
+            model=model,
+            prompt=f"Professional illustration: {topic}",
+            size=size,
+            quality="standard",
+            n=1,
+        )
+
+        image_url = response.data[0].url
+
+        # Download and save
+        r = requests.get(image_url, timeout=60)
+        r.raise_for_status()
+
+        p = pathlib.Path(out_path)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_bytes(r.content)
+
+        print(f"[image_gen] OpenAI {model} success", file=sys.stderr)
+        return True
+
+    except Exception as e:
+        print(f"[image_gen] OpenAI failed: {e}", file=sys.stderr)
+        return False
+
 def b64_write_png(out_path: str):
     raw = (b'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAuMBg3p8r/0A'
            b'AAAASUVORK5CYII=')
@@ -69,7 +110,23 @@ def main():
     ap.add_argument("--topic", required=True)
     a = ap.parse_args()
 
-    if replicate_image(a.topic, a.out): return
+    # Try providers in order: OpenAI -> Replicate -> Pillow -> Base64 fallback
+    provider = os.getenv("IMAGE_PROVIDER", "openai").lower()
+
+    if provider == "openai":
+        if openai_image(a.topic, a.out): return
+        print("[image_gen] OpenAI unavailable, trying Replicate...", file=sys.stderr)
+        if replicate_image(a.topic, a.out): return
+    elif provider == "replicate":
+        if replicate_image(a.topic, a.out): return
+        print("[image_gen] Replicate unavailable, trying OpenAI...", file=sys.stderr)
+        if openai_image(a.topic, a.out): return
+    else:
+        # Unknown provider, try both
+        if openai_image(a.topic, a.out): return
+        if replicate_image(a.topic, a.out): return
+
+    # Final fallbacks
     if pillow_fallback(a.topic, a.out): return
     if b64_write_png(a.out): return
     raise SystemExit("[image_gen] could not produce image")

@@ -1,0 +1,184 @@
+#!/usr/bin/env python3
+"""
+AI Reply Generator - GPT-4o-mini Integration
+Generates intelligent, context-aware replies using OpenAI's API
+Falls back to templates if GPT fails or isn't configured
+
+Cost: ~$0.003 per reply (~$1-5/month for typical usage)
+"""
+
+from __future__ import annotations
+
+import logging
+import os
+import random
+from typing import Optional
+
+logger = logging.getLogger(__name__)
+
+
+class AIReplyGenerator:
+    """
+    Generates AI-powered replies with automatic fallback to templates.
+
+    Features:
+    - GPT-4o-mini integration for natural, context-aware replies
+    - Automatic fallback to templates if API fails
+    - Cost-effective (~$0.003 per reply)
+    - Respects your referral link and topic focus
+    """
+
+    def __init__(self, enable_ai: bool = True):
+        """
+        Initialize AI reply generator.
+
+        Args:
+            enable_ai: Whether to try using AI (requires OPENAI_API_KEY in env)
+        """
+        self.enabled = False
+        self.client = None
+
+        if not enable_ai:
+            logger.info("[AI] AI reply generation disabled by config")
+            return
+
+        api_key = (os.getenv("OPENAI_API_KEY") or "").strip()
+        if not api_key:
+            logger.info("[AI] No OPENAI_API_KEY found - using template-based replies (free)")
+            return
+
+        try:
+            from openai import OpenAI
+            self.client = OpenAI(api_key=api_key)
+            self.enabled = True
+            logger.info("[AI] ✅ GPT-4o-mini enabled for reply generation (costs ~$1-5/month)")
+        except ImportError:
+            logger.warning("[AI] OpenAI package not installed. Run: pip install openai")
+            logger.info("[AI] Using template-based replies (free)")
+        except Exception as exc:
+            logger.warning("[AI] Failed to initialize OpenAI: %s", exc)
+            logger.info("[AI] Using template-based replies (free)")
+
+    def generate_reply(
+        self,
+        tweet_text: str,
+        topic: str,
+        referral_link: Optional[str] = None,
+        max_length: int = 270,
+    ) -> Optional[str]:
+        """
+        Generate an AI-powered reply to a tweet.
+
+        Args:
+            tweet_text: The tweet to reply to
+            topic: The topic being discussed (e.g., "AI automation")
+            referral_link: Optional link to include
+            max_length: Maximum reply length in characters
+
+        Returns:
+            Generated reply text, or None if AI generation failed
+        """
+        if not self.enabled or not self.client:
+            return None
+
+        try:
+            # Build a focused prompt
+            system_prompt = f"""You are replying to tweets about {topic} on Twitter/X.
+
+Your style:
+- Engaging and conversational, not salesy
+- Thoughtful and adds value to the discussion
+- Concise (under {max_length - 60} characters to leave room for links)
+- Natural, like a real person interested in the topic
+- No hashtags (they look spammy in replies)
+
+Focus: Share insights, ask questions, or build on their point."""
+
+            user_prompt = f'Write a brief, engaging reply to: "{tweet_text}"'
+
+            # Call GPT-4o-mini (cheapest model, very capable)
+            response = self.client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                max_tokens=80,  # Keep it short
+                temperature=0.9,  # More creative/varied
+                timeout=10,
+            )
+
+            reply = response.choices[0].message.content.strip()
+
+            # Remove quotes if GPT added them
+            if reply.startswith('"') and reply.endswith('"'):
+                reply = reply[1:-1]
+
+            # Add referral link if provided
+            if referral_link:
+                # Sometimes add a subtle CTA (30% of the time)
+                if random.random() < 0.3:
+                    ctas = [
+                        f"Here's what helped me: {referral_link}",
+                        f"I wrote about this here: {referral_link}",
+                        f"More on this: {referral_link}",
+                        f"Check this out: {referral_link}",
+                    ]
+                    reply = f"{reply} {random.choice(ctas)}"
+                else:
+                    # Just add the link without CTA
+                    reply = f"{reply} {referral_link}"
+
+            # Ensure length limit
+            if len(reply) > max_length:
+                # Truncate at last complete word
+                reply = reply[:max_length].rsplit(' ', 1)[0]
+                if not reply.endswith(('...', '.', '!', '?')):
+                    reply += "..."
+
+            logger.debug("[AI] Generated: %s", reply[:60] + "..." if len(reply) > 60 else reply)
+            return reply
+
+        except Exception as exc:
+            logger.warning("[AI] Reply generation failed: %s", exc)
+            return None
+
+
+def create_ai_generator(config) -> AIReplyGenerator:
+    """
+    Factory function to create an AI generator from bot config.
+
+    Args:
+        config: BotConfig instance from social_agent.py
+
+    Returns:
+        AIReplyGenerator instance
+    """
+    # Check if AI is enabled via environment variable
+    enable_ai = os.getenv("ENABLE_AI_REPLIES", "true").strip().lower() in {"1", "true", "yes", "y", "on"}
+    return AIReplyGenerator(enable_ai=enable_ai)
+
+
+# Backwards compatibility: allow direct import
+if __name__ == "__main__":
+    # Quick test
+    import sys
+
+    if len(sys.argv) < 2:
+        print("Usage: python ai_reply_generator.py '<tweet text>'")
+        sys.exit(1)
+
+    logging.basicConfig(level=logging.INFO)
+
+    generator = AIReplyGenerator()
+    tweet = sys.argv[1]
+    reply = generator.generate_reply(
+        tweet_text=tweet,
+        topic="AI automation",
+        referral_link="https://example.com/my-guide"
+    )
+
+    if reply:
+        print(f"\n✅ AI Reply:\n{reply}\n")
+    else:
+        print("\n❌ AI generation failed (check OPENAI_API_KEY)\n")

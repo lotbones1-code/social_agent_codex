@@ -25,6 +25,13 @@ from playwright.sync_api import (
     sync_playwright,
 )
 
+# AI reply generation (optional, falls back to templates if unavailable)
+try:
+    from ai_reply_generator import AIReplyGenerator
+    AI_AVAILABLE = True
+except ImportError:
+    AI_AVAILABLE = False
+
 try:  # Playwright 1.49 exports TargetClosedError; older builds may not.
     from playwright.sync_api import TargetClosedError  # type: ignore
 except ImportError:  # pragma: no cover - fallback for minimal builds.
@@ -516,6 +523,7 @@ def process_tweets(
     tweets: list[Locator],
     topic: str,
     logger: logging.Logger,
+    ai_generator: Optional[AIReplyGenerator] = None,
 ) -> None:
     replies = 0
     for tweet in tweets:
@@ -565,12 +573,30 @@ def process_tweets(
             )
             continue
 
-        template = random.choice(config.reply_templates)
-        message = template.format(
-            topic=topic,
-            focus=text_focus(data["text"]),
-            ref_link=config.referral_link or "",
-        ).strip()
+        # Try AI generation first, fall back to templates
+        message = None
+        if ai_generator:
+            try:
+                message = ai_generator.generate_reply(
+                    tweet_text=data["text"],
+                    topic=topic,
+                    referral_link=config.referral_link,
+                    max_length=270,
+                )
+                if message:
+                    logger.info("[AI] Using AI-generated reply")
+            except Exception as exc:
+                logger.debug("[AI] Generation failed: %s, using template", exc)
+
+        # Fallback to template-based reply (original code)
+        if not message:
+            template = random.choice(config.reply_templates)
+            message = template.format(
+                topic=topic,
+                focus=text_focus(data["text"]),
+                ref_link=config.referral_link or "",
+            ).strip()
+            logger.debug("[TEMPLATE] Using template-based reply")
 
         if not message:
             logger.warning("Generated empty reply. Skipping tweet.")
@@ -605,6 +631,7 @@ def handle_topic(
     video_service: VideoService,
     topic: str,
     logger: logging.Logger,
+    ai_generator: Optional[AIReplyGenerator] = None,
 ) -> None:
     logger.info("[INFO] Topic '%s' - loading search results...", topic)
     url = f"https://x.com/search?q={quote_plus(topic)}&src=typed_query&f=live"
@@ -623,7 +650,7 @@ def handle_topic(
         logger.warning("No eligible tweets for topic '%s'.", topic)
         return
 
-    process_tweets(config, registry, page, video_service, tweets, topic, logger)
+    process_tweets(config, registry, page, video_service, tweets, topic, logger, ai_generator)
 
 
 def run_engagement_loop(
@@ -632,6 +659,7 @@ def run_engagement_loop(
     page: Page,
     video_service: VideoService,
     logger: logging.Logger,
+    ai_generator: Optional[AIReplyGenerator] = None,
 ) -> None:
     logger.info("[INFO] Starting engagement loop with %s topic(s).", len(config.search_topics))
     while True:
@@ -645,7 +673,7 @@ def run_engagement_loop(
 
         if config.search_topics:
             for topic in config.search_topics:
-                handle_topic(config, registry, page, video_service, topic, logger)
+                handle_topic(config, registry, page, video_service, topic, logger, ai_generator)
         else:
             logger.info("No search topics configured. Sleeping before next cycle.")
 
@@ -772,6 +800,15 @@ def run_social_agent() -> None:
     registry = MessageRegistry(MESSAGE_LOG_PATH)
     video_service = VideoService(config)
 
+    # Initialize AI reply generator (optional, falls back to templates)
+    ai_generator: Optional[AIReplyGenerator] = None
+    if AI_AVAILABLE:
+        try:
+            ai_generator = AIReplyGenerator(enable_ai=True)
+        except Exception as exc:
+            logger.warning("[AI] Failed to initialize AI generator: %s", exc)
+            logger.info("[AI] Will use template-based replies")
+
     max_attempts = 3
     attempt = 0
     while attempt < max_attempts:
@@ -793,7 +830,7 @@ def run_social_agent() -> None:
                         return
 
                     logger.info("[INFO] Session ready; entering engagement workflow.")
-                    run_engagement_loop(config, registry, page, video_service, logger)
+                    run_engagement_loop(config, registry, page, video_service, logger, ai_generator)
                     return
                 finally:
                     close_resources(browser, context, logger)
