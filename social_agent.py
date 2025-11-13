@@ -1158,8 +1158,19 @@ def generate_original_post_content(topic: str) -> str:
                 content = content + " " + promo_link
 
     # Add hashtags (70% chance)
+    # FEATURE ADD: Use automation hashtags for bot promo posts, political hashtags for engagement posts
     if random.random() < 0.7:
-        hashtags = generate_hashtags(topic, max_hashtags=2)
+        # Detect if this is a bot promotion post
+        is_bot_promo = any(keyword in content.lower() for keyword in ['bot', 'automation', 'automate', 'automated'])
+
+        if is_bot_promo:
+            # Use automation/growth hashtags for bot promo
+            automation_tags = ["#Automation", "#TwitterBot", "#SocialMediaGrowth", "#TwitterGrowth", "#AutomationTool", "#TwitterAutomation", "#GrowthHack", "#TwitterMarketing"]
+            hashtags = " ".join(random.sample(automation_tags, min(2, len(automation_tags))))
+        else:
+            # Use topic-based hashtags for regular engagement posts
+            hashtags = generate_hashtags(topic, max_hashtags=2)
+
         if len(content) + len(hashtags) + 1 <= 280:
             content = content + " " + hashtags
 
