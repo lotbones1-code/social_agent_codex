@@ -7,7 +7,7 @@
   },
   "exclude_domains": ["rainbet", "rain.bet", "raincasino", "stake", "rollbit", "gambling", "casino", "poker"],
   "promo_frequency": 0.75,
-  "media_probability": 0.0,
+  "media_probability": 0.5,
   "min_tweet_likes": 5,
   "min_tweet_length": 80,
   "max_reply_length": 270,

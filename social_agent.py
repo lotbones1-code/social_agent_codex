@@ -1174,28 +1174,38 @@ def generate_original_post_content(topic: str) -> str:
     template = random.choice(post_templates)
     content = template.format(topic=topic)
 
-    # FEATURE ADD: Add promo link for political mode (based on promo_frequency)
+    # Detect if this is a bot promotion post (before adding anything)
+    is_bot_promo = any(keyword in content.lower() for keyword in ['bot', 'automation', 'automate', 'automated'])
+
+    # Generate hashtags first
+    if is_bot_promo:
+        # Use automation/growth hashtags for bot promo
+        automation_tags = ["#Automation", "#TwitterBot", "#SocialMediaGrowth", "#TwitterGrowth"]
+        hashtags = " ".join(random.sample(automation_tags, min(2, len(automation_tags))))
+    else:
+        # Use topic-based hashtags for regular engagement posts
+        hashtags = generate_hashtags(topic, max_hashtags=2)
+
+    # Add promo link if there's room (prioritize link over hashtags)
+    promo_link = ""
     if _political_mode_available and _political_config:
         if _political_config.should_include_promo():
-            promo_link = _political_config.get_promo_link('gumroad')
-            if promo_link and len(content) + len(promo_link) + 1 <= 280:
-                content = content + " " + promo_link
+            promo_link = _political_config.get_promo_link('gumroad') or ""
 
-    # Add hashtags (70% chance)
-    # FEATURE ADD: Use automation hashtags for bot promo posts, political hashtags for engagement posts
-    if random.random() < 0.7:
-        # Detect if this is a bot promotion post
-        is_bot_promo = any(keyword in content.lower() for keyword in ['bot', 'automation', 'automate', 'automated'])
-
-        if is_bot_promo:
-            # Use automation/growth hashtags for bot promo
-            automation_tags = ["#Automation", "#TwitterBot", "#SocialMediaGrowth", "#TwitterGrowth", "#AutomationTool", "#TwitterAutomation", "#GrowthHack", "#TwitterMarketing"]
-            hashtags = " ".join(random.sample(automation_tags, min(2, len(automation_tags))))
-        else:
-            # Use topic-based hashtags for regular engagement posts
-            hashtags = generate_hashtags(topic, max_hashtags=2)
-
-        if len(content) + len(hashtags) + 1 <= 280:
+    # Add both hashtags and link if they fit
+    if len(content) + len(" " + hashtags) + len(" " + promo_link) <= 279:
+        # Both fit!
+        if hashtags:
+            content = content + " " + hashtags
+        if promo_link:
+            content = content + " " + promo_link
+    elif len(content) + len(" " + promo_link) <= 279:
+        # Only link fits (prioritize link)
+        if promo_link:
+            content = content + " " + promo_link
+    elif len(content) + len(" " + hashtags) <= 279:
+        # Only hashtags fit
+        if hashtags:
             content = content + " " + hashtags
 
     return content
