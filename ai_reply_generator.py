@@ -82,17 +82,39 @@ class AIReplyGenerator:
             return None
 
         try:
-            # Build a focused prompt
+            # Calculate space needed for link FIRST (to avoid truncating it later)
+            link_space = 0
+            link_suffix = ""
+            if referral_link:
+                # Reserve space for link + CTA (worst case scenario)
+                ctas = [
+                    f" Here's what helped me: {referral_link}",
+                    f" I wrote about this here: {referral_link}",
+                    f" More on this: {referral_link}",
+                    f" Check this out: {referral_link}",
+                ]
+                max_cta_length = max(len(cta) for cta in ctas)
+                link_space = max_cta_length + 5  # Extra buffer
+
+                # Decide now which suffix to use (30% with CTA, 70% without)
+                if random.random() < 0.3:
+                    link_suffix = random.choice(ctas)
+                else:
+                    link_suffix = f" {referral_link}"
+
+            # Generate reply with space reserved for link
+            available_chars = max_length - link_space
             system_prompt = f"""You are replying to tweets about {topic} on Twitter/X.
 
 Your style:
 - Engaging and conversational, not salesy
 - Thoughtful and adds value to the discussion
-- Concise (under {max_length - 60} characters to leave room for links)
+- Keep under {available_chars} characters
 - Natural, like a real person interested in the topic
 - No hashtags (they look spammy in replies)
+- End with proper punctuation
 
-Focus: Share insights, ask questions, or build on their point."""
+Goal: Add value, show interest, or ask thoughtful questions."""
 
             user_prompt = f'Write a brief, engaging reply to: "{tweet_text}"'
 
@@ -103,8 +125,8 @@ Focus: Share insights, ask questions, or build on their point."""
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
                 ],
-                max_tokens=80,  # Keep it short
-                temperature=0.9,  # More creative/varied
+                max_tokens=100,  # Enough for good replies
+                temperature=0.85,  # Creative but focused
                 timeout=10,
             )
 
@@ -114,27 +136,19 @@ Focus: Share insights, ask questions, or build on their point."""
             if reply.startswith('"') and reply.endswith('"'):
                 reply = reply[1:-1]
 
-            # Add referral link if provided
-            if referral_link:
-                # Sometimes add a subtle CTA (30% of the time)
-                if random.random() < 0.3:
-                    ctas = [
-                        f"Here's what helped me: {referral_link}",
-                        f"I wrote about this here: {referral_link}",
-                        f"More on this: {referral_link}",
-                        f"Check this out: {referral_link}",
-                    ]
-                    reply = f"{reply} {random.choice(ctas)}"
-                else:
-                    # Just add the link without CTA
-                    reply = f"{reply} {referral_link}"
-
-            # Ensure length limit
-            if len(reply) > max_length:
-                # Truncate at last complete word
-                reply = reply[:max_length].rsplit(' ', 1)[0]
+            # Truncate reply if needed BEFORE adding link
+            if len(reply) > available_chars:
+                reply = reply[:available_chars].rsplit(' ', 1)[0]
                 if not reply.endswith(('...', '.', '!', '?')):
                     reply += "..."
+
+            # NOW add the link (guaranteed to fit!)
+            reply = reply + link_suffix
+
+            # Final safety check
+            if len(reply) > max_length:
+                logger.warning("[AI] Reply still too long after adding link, truncating")
+                reply = reply[:max_length].rsplit(' ', 1)[0] + "..."
 
             logger.debug("[AI] Generated: %s", reply[:60] + "..." if len(reply) > 60 else reply)
             return reply
