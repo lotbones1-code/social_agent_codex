@@ -784,8 +784,6 @@ def run_engagement_loop(
             logger.info("Browser page unavailable. Exiting engagement loop.")
             return
 
-        cycle_count += 1
-
         # Handle replying to tweets for each topic
         if config.search_topics:
             for topic in config.search_topics:
@@ -794,6 +792,7 @@ def run_engagement_loop(
             logger.info("No search topics configured. Sleeping before next cycle.")
 
         # Post an original tweet every 3 cycles (if enabled)
+        # Check BEFORE incrementing so we post on cycle 0, 3, 6, etc.
         if tweet_poster and tweet_poster.enabled and cycle_count % 3 == 0:
             try:
                 topic = random.choice(config.search_topics) if config.search_topics else "AI automation"
@@ -811,6 +810,9 @@ def run_engagement_loop(
                     time.sleep(5)  # Wait after posting
             except Exception as e:
                 logger.warning("[POSTER] Failed to post original tweet: %s", e)
+
+        # Increment AFTER checking/posting
+        cycle_count += 1
 
         logger.info("[INFO] Cycle complete. Sleeping for %s seconds.", config.loop_delay_seconds)
         try:
