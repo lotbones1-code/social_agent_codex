@@ -470,21 +470,25 @@ def extract_tweet_data(tweet: Locator) -> Optional[dict[str, str]]:
 
 def send_reply(page: Page, tweet: Locator, message: str, logger: logging.Logger) -> bool:
     try:
-        tweet.locator("div[data-testid='reply']").click()
+        logger.debug("[DEBUG] Clicking reply button...")
+        tweet.locator("div[data-testid='reply']").click(timeout=15000)
+        logger.debug("[DEBUG] Waiting for composer...")
         composer = page.locator("div[data-testid^='tweetTextarea_']").first
-        composer.wait_for(timeout=10000)
+        composer.wait_for(timeout=15000)
+        logger.debug("[DEBUG] Typing reply...")
         composer.click()
         page.keyboard.press("Control+A")
         page.keyboard.press("Backspace")
         page.keyboard.insert_text(message)
-        page.locator("div[data-testid='tweetButtonInline']").click()
-        time.sleep(2)
-        logger.info("[INFO] Reply posted successfully.")
+        logger.debug("[DEBUG] Clicking Post button...")
+        page.locator("div[data-testid='tweetButtonInline']").click(timeout=10000)
+        time.sleep(3)
+        logger.info("[INFO] ✅ Reply posted successfully!")
         return True
-    except PlaywrightTimeout:
-        logger.warning("Timeout while composing reply.")
+    except PlaywrightTimeout as e:
+        logger.error("[ERROR] Timeout while composing reply: %s", e)
     except PlaywrightError as exc:
-        logger.warning("Failed to send reply: %s", exc)
+        logger.error("[ERROR] Failed to send reply: %s", exc)
     return False
 
 
