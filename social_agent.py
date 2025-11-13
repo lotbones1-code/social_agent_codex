@@ -1115,24 +1115,27 @@ def generate_original_post_content(topic: str) -> str:
     """Generate content for an original post about a topic."""
     # FEATURE ADD: Use political templates when political mode is active
     if _political_mode_available and _political_config:
-        # Political mode templates (mix of pure engagement + bot promotion)
+        # Political mode templates (HEAVY BOT PROMOTION - 90%, pure engagement - 10%)
         post_templates = [
-            # Pure political engagement templates (for non-promo posts - 30%)
+            # Pure political engagement templates (10% - rare)
             "The {topic} debate deserves more nuanced discussion. Here's what the data actually shows:",
-            "Hot take on {topic}: The conventional wisdom misses some key realities worth exploring",
-            "Real talk about {topic}: The policy implications are more complex than most coverage suggests",
 
-            # STRONG bot promotion templates (for link posts - 70%)
-            "Grew my account 3x engaging with {topic} - automated posting, replies, and follows. Built this bot to run 24/7 without bans.",
-            "This bot handles all my {topic} engagement automatically. Posts, replies, likes, follows - all on autopilot without getting flagged.",
-            "Been running this automation bot on {topic} for weeks. 100+ replies/day, zero bans. Game changer for growing your account.",
-            "Tired of manual posting about {topic}? Built this bot to automate everything - it replies, posts, and engages while you sleep.",
-            "My {topic} engagement is 100% automated now. This bot handles posting, replying, following - grows your account on autopilot.",
-            "Scaling {topic} engagement with automation. This bot posts original content, replies to trending tweets, auto-follows - all day.",
-            "Automated my entire {topic} presence with this bot. Handles replies, posts, images, follows - never gets banned. Insane results.",
-            "Stop wasting time on manual {topic} posts. Built this bot to automate everything - smart replies, auto-posting, image generation.",
-            "Running this automation bot for {topic} engagement. 24/7 posting and replies without lifting a finger. Best investment I made.",
-            "This bot transformed my {topic} game. Auto-replies to trending tweets, creates original posts, generates images - all automated.",
+            # AGGRESSIVE BOT PROMOTION TEMPLATES (90% - most posts)
+            "Grew my account 3x engaging with {topic} using this automation bot. 100+ replies/day, zero bans. DM for details.",
+            "This bot handles all my {topic} engagement automatically. Posts, replies, follows - all on autopilot. Selling it now.",
+            "Been running this automation bot on {topic} for weeks. 100+ replies/day, zero bans. Total game changer for growth.",
+            "Tired of manual posting about {topic}? This bot automates EVERYTHING - replies, posts, follows, images. Built to sell.",
+            "My {topic} engagement is 100% automated. This bot grew my account from 0 to 1k followers in weeks. Available now.",
+            "Scaling {topic} engagement with this bot. Posts content, replies to trending tweets, auto-follows - 24/7 automation.",
+            "Automated my entire {topic} presence. This bot handles replies, posts, images, follows - never banned. Selling licenses.",
+            "Stop wasting time on manual {topic} posts. This bot does it all - smart replies, auto-posting, AI images. Link below.",
+            "Running this automation bot for {topic}. 24/7 posting and replies without lifting a finger. Changed my whole game.",
+            "This bot transformed my {topic} presence. Auto-replies to trending tweets, creates posts, generates images - all automated.",
+            "Want to grow your account on {topic}? This bot handles 100+ interactions/day. Automated posting, replies, follows.",
+            "Built this bot to dominate {topic} engagement. Auto-posts with images, replies to hot tweets, follows relevant accounts.",
+            "Crushing {topic} with automation. This bot does everything - posts, replies, follows, DMs. Grew my account 5x in a month.",
+            "Best decision for {topic} growth? This automation bot. Handles all engagement 24/7. Zero manual work, massive results.",
+            "My secret for {topic} engagement? This bot. Auto-posts, replies, follows, generates images. Selling access now.",
         ]
     else:
         # Gambling mode templates (original)
@@ -1510,6 +1513,96 @@ def get_trending_topics(page: Page, logger: logging.Logger) -> list[str]:
         return []
 
 
+def reply_to_notifications(page: Page, logger: logging.Logger, max_replies: int = 3) -> int:
+    """
+    FEATURE ADD: Reply to people who commented on YOUR tweets to keep conversations going.
+    This increases visibility and engagement, helping promote the bot.
+
+    Args:
+        page: Playwright page
+        logger: Logger instance
+        max_replies: Max notifications to reply to
+
+    Returns:
+        Number of replies sent
+    """
+    replies_sent = 0
+    try:
+        logger.info("[NOTIFICATIONS] 🔔 Checking for people who replied to your tweets...")
+
+        # Go to notifications
+        page.goto("https://x.com/notifications", wait_until="domcontentloaded", timeout=15000)
+        time.sleep(random.uniform(2, 4))
+
+        # Find notification tweets (people who replied to you)
+        notification_tweets = page.locator('article[data-testid="tweet"]').all()[:max_replies]
+
+        for tweet in notification_tweets:
+            try:
+                # Get tweet text
+                text_elem = tweet.locator('[data-testid="tweetText"]').first
+                tweet_text = text_elem.inner_text() if text_elem.count() > 0 else ""
+
+                if not tweet_text or len(tweet_text) < 10:
+                    continue
+
+                # Generate aggressive promo reply using GPT or templates
+                if _political_mode_available and _political_composer:
+                    result = _political_composer.compose_reply(
+                        tweet_text=tweet_text,
+                        tweet_author="follower",
+                        topic="Twitter automation",
+                        dry_run=False
+                    )
+                    if result['should_post']:
+                        message = result['text']
+                    else:
+                        continue
+                else:
+                    # Fallback: Aggressive bot promo
+                    promo_replies = [
+                        f"Thanks! Yeah this bot handles everything - posts, replies, follows. Running 24/7 to grow the account. Built it to automate political engagement: https://shamilbark.gumroad.com/l/qjsat",
+                        f"Appreciate it! This automation tool does 100+ replies/day without getting banned. Best investment for growing your account: https://shamilbark.gumroad.com/l/qjsat",
+                        f"Facts! Running this bot for weeks now, zero bans. Handles all my engagement automatically: https://shamilbark.gumroad.com/l/qjsat",
+                    ]
+                    message = random.choice(promo_replies)
+
+                # Reply to the tweet
+                reply_button = tweet.locator('[data-testid="reply"]').first
+                if reply_button.count() > 0:
+                    reply_button.click()
+                    time.sleep(random.uniform(1, 2))
+
+                    # Type message
+                    text_box = page.locator('[data-testid="tweetTextarea_0"]').first
+                    if text_box.count() > 0:
+                        text_box.fill(message)
+                        time.sleep(random.uniform(1, 2))
+
+                        # Send
+                        send_button = page.locator('[data-testid="tweetButton"]').first
+                        if send_button.count() > 0:
+                            send_button.click()
+                            replies_sent += 1
+                            logger.info(f"[NOTIFICATIONS] ✅ Replied to notification ({replies_sent}/{max_replies})")
+                            time.sleep(random.uniform(3, 6))
+
+            except Exception as e:
+                logger.debug(f"[NOTIFICATIONS] Failed to reply to notification: {e}")
+                continue
+
+        if replies_sent > 0:
+            logger.info(f"[NOTIFICATIONS] 🎉 Replied to {replies_sent} notifications - keeping conversations going!")
+        else:
+            logger.debug("[NOTIFICATIONS] No notifications to reply to")
+
+        return replies_sent
+
+    except Exception as exc:
+        logger.debug(f"[NOTIFICATIONS] Error checking notifications: {exc}")
+        return 0
+
+
 def handle_topic(
     config: BotConfig,
     registry: MessageRegistry,
@@ -1678,6 +1771,18 @@ def run_engagement_loop(
                         # Scroll and browse a bit
                         if random.random() < 0.6:
                             human_like_browsing(page, logger)
+
+                # FEATURE ADD: Reply to notifications (people who commented on your tweets)
+                # This keeps conversations going and increases visibility for the bot
+                try:
+                    logger.info("[INFO] 💬 Checking notifications to reply to followers...")
+                    replies_sent = reply_to_notifications(page, logger, max_replies=3)
+                    if replies_sent > 0:
+                        logger.info(f"[INFO] ✅ Replied to {replies_sent} notifications - keeping engagement up!")
+                        time.sleep(random.randint(10, 20))
+                except Exception as notif_error:
+                    logger.debug(f"[INFO] Notification replies skipped: {notif_error}")
+
             except Exception as e:
                 if "AUTOMATION_WARNING_DETECTED" in str(e):
                     logger.error("🚨🚨🚨 AUTOMATION WARNING DETECTED 🚨🚨🚨")

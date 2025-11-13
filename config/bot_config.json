@@ -6,7 +6,7 @@
     "gumroad": "https://shamilbark.gumroad.com/l/qjsat"
   },
   "exclude_domains": ["rainbet", "rain.bet", "raincasino", "stake", "rollbit", "gambling", "casino", "poker"],
-  "promo_frequency": 0.5,
+  "promo_frequency": 0.75,
   "media_probability": 0.25,
   "max_reply_length": 270,
   "hashtags_allowlist": ["#Breaking", "#Election", "#Policy", "#Tech", "#AI", "#Macro", "#Politics", "#News"],
