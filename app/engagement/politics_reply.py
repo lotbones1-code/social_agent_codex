@@ -1,6 +1,6 @@
 """
-FEATURE: Political Engagement Templates
-WHAT: Templates and tactics for civil political debate
+FEATURE: Political Engagement Templates + GPT Integration
+WHAT: Templates and tactics for civil political debate, with optional GPT-4o-mini
 WHY: Enables engaging with political content in a thoughtful, non-toxic way
 HOW TO REVERT: Set USE_NEW_CONFIG=false in .env or delete this file
 
@@ -10,6 +10,7 @@ SAFETY: No hate speech, no slurs, no protected-class attacks
 
 import logging
 import random
+import os
 from typing import Dict, List, Optional
 
 logger = logging.getLogger(__name__)
@@ -104,6 +105,26 @@ class PoliticalReplyGenerator:
         """
         self.config = config_loader
 
+        # FEATURE ADD: Optional GPT-4o-mini integration for more unique replies
+        self.openai_api_key = os.getenv("OPENAI_API_KEY", "").strip()
+        self.use_gpt = False
+        self.openai_client = None
+
+        if self.openai_api_key:
+            try:
+                from openai import OpenAI
+                self.openai_client = OpenAI(api_key=self.openai_api_key)
+                self.use_gpt = True
+                logger.info("[GPT] ✅ GPT-4o-mini enabled for reply generation (costs ~$1-2/month)")
+            except ImportError:
+                logger.warning("[GPT] OpenAI package not installed. Run: pip install openai")
+                logger.info("[GPT] Falling back to template-based replies (free)")
+            except Exception as e:
+                logger.warning(f"[GPT] Failed to initialize OpenAI: {e}")
+                logger.info("[GPT] Falling back to template-based replies (free)")
+        else:
+            logger.info("[GPT] No OPENAI_API_KEY found - using template-based replies (free)")
+
     def generate_reply(
         self,
         tweet_text: str,
@@ -127,6 +148,19 @@ class PoliticalReplyGenerator:
         if tone is None:
             tone = random.choice(self.config.config.get('reply_tones', ['analytical']))
 
+        # FEATURE ADD: Try GPT first, fallback to templates if it fails
+        if self.use_gpt and self.openai_client:
+            try:
+                reply = self._generate_gpt_reply(tweet_text, topic, tone, include_link)
+                if reply:
+                    return reply
+                # If GPT returns empty, fall through to templates
+                logger.debug("[GPT] Empty response, using templates")
+            except Exception as e:
+                logger.warning(f"[GPT] API failed: {e}, using templates")
+                # Fall through to template-based generation
+
+        # TEMPLATE-BASED GENERATION (original code - fallback)
         # Extract focus (key phrase from tweet)
         focus = self._extract_focus(tweet_text)
 
@@ -172,6 +206,78 @@ class PoliticalReplyGenerator:
             reply = reply[:max_length].rsplit(' ', 1)[0] + "..."
 
         return reply
+
+    def _generate_gpt_reply(
+        self,
+        tweet_text: str,
+        topic: str,
+        tone: str,
+        include_link: bool
+    ) -> Optional[str]:
+        """
+        Generate reply using GPT-4o-mini.
+
+        Args:
+            tweet_text: Original tweet text
+            topic: Topic being discussed
+            tone: Desired tone
+            include_link: Whether to include promo link
+
+        Returns:
+            Generated reply text, or None if failed
+        """
+        try:
+            # Build system prompt based on tone
+            tone_instructions = {
+                "analytical": "Use data and evidence. Be thoughtful and fact-based.",
+                "questioning": "Ask probing questions. Use Socratic method.",
+                "supportive": "Build on good points. Be constructive.",
+                "critical-civil": "Respectfully disagree. Present counterarguments politely."
+            }
+
+            tone_instruction = tone_instructions.get(tone, "Be analytical and thoughtful.")
+
+            system_prompt = f"""You are engaging in political discussion on Twitter. Your style:
+- {tone_instruction}
+- Keep it concise (under 240 characters to leave room for links)
+- Be civil and thoughtful, not divisive
+- Focus on substance, not personal attacks
+- Topic: {topic}"""
+
+            user_prompt = f'Reply to this tweet thoughtfully: "{tweet_text}"'
+
+            # Call GPT-4o-mini
+            response = self.openai_client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                max_tokens=100,
+                temperature=0.8,
+                timeout=10
+            )
+
+            reply = response.choices[0].message.content.strip()
+
+            # Add promo link if requested
+            if include_link:
+                link = self.config.get_promo_link('gumroad')
+                if link:
+                    cta = random.choice(self.CTA_ENDINGS).format(link=link)
+                    reply = f"{reply} {cta}"
+
+            # Ensure length limit
+            max_length = self.config.config.get('max_reply_length', 270)
+            if len(reply) > max_length:
+                reply = reply[:max_length].rsplit(' ', 1)[0] + "..."
+
+            logger.debug(f"[GPT] Generated reply: {reply[:50]}...")
+            return reply
+
+        except Exception as e:
+            logger.error(f"[GPT] Reply generation failed: {e}")
+            return None
 
     def _extract_focus(self, tweet_text: str, max_chars: int = 30) -> str:
         """
