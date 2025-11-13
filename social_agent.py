@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import argparse
 import json
 import logging
 import os
@@ -1718,6 +1719,153 @@ def prepare_authenticated_session(
     return browser, context, page
 
 
+def run_dry_run_test() -> None:
+    """
+    --dry-run mode: Test political reply composer without posting or touching auth/login.
+    Simulates reply generation against hardcoded sample tweets.
+    """
+    load_dotenv()
+
+    # Check if political mode is enabled
+    use_new_config = os.getenv("USE_NEW_CONFIG", "false").lower() == "true"
+
+    if not use_new_config:
+        print("❌ Dry run requires USE_NEW_CONFIG=true in .env")
+        print("   Political mode is currently disabled.")
+        sys.exit(1)
+
+    print("🧪 DRY RUN MODE: Testing political reply composer\n")
+    print("=" * 60)
+
+    try:
+        from app.config_loader import get_config
+        from app.reply.compose import ReplyComposer
+        from app.media.image_adapter import ImageAdapter
+        from app.media.video_adapter import VideoAdapter
+        from app.engagement.politics_reply import PoliticalReplyGenerator
+
+        config = get_config()
+        print(f"✓ Config loaded: {len(config.config.get('modes', []))} modes")
+        print(f"  Promo frequency: {config.config.get('promo_frequency', 0.0)*100:.0f}%")
+        print(f"  Media probability: {config.config.get('media_probability', 0.0)*100:.0f}%\n")
+
+        # Initialize composer
+        image_adapter = ImageAdapter()
+        video_adapter = VideoAdapter()
+        politics_gen = PoliticalReplyGenerator(config)
+        composer = ReplyComposer(config, image_adapter, video_adapter, politics_gen)
+
+        print(f"✓ Image generation: {'ENABLED' if image_adapter.enabled else 'DISABLED (PIL not available)'}")
+        print(f"✓ Video generation: {'ENABLED' if video_adapter.enabled else 'DISABLED (no API key)'}\n")
+
+        # Test cases
+        test_tweets = [
+            {
+                "text": "The new infrastructure bill is completely unnecessary. Government spending is out of control.",
+                "author": "test_user_1",
+                "topic": "politics"
+            },
+            {
+                "text": "AI is going to replace most jobs in the next 5 years. Nobody is prepared for this.",
+                "author": "test_user_2",
+                "topic": "tech"
+            },
+            {
+                "text": "Breaking: Fed announces new interest rate policy affecting millions",
+                "author": "test_user_3",
+                "topic": "economics"
+            }
+        ]
+
+        print("=" * 60)
+        print("TESTING REPLY GENERATION:\n")
+
+        for i, tweet in enumerate(test_tweets, 1):
+            print(f"\n--- Test {i}/3: {tweet['topic'].upper()} ---")
+            print(f"Tweet: \"{tweet['text'][:70]}...\"")
+            print(f"Author: @{tweet['author']}\n")
+
+            result = composer.compose_reply(
+                tweet_text=tweet['text'],
+                tweet_author=tweet['author'],
+                topic=tweet['topic'],
+                dry_run=False  # Generate media for testing
+            )
+
+            if result['should_post']:
+                print(f"✓ Reply: \"{result['text']}\"")
+                print(f"  Length: {len(result['text'])} chars")
+                if result.get('media_path'):
+                    print(f"  Media: {result['media_path']} (would be attached)")
+                else:
+                    print(f"  Media: None (text-only)")
+
+                # Check for link
+                gumroad_link = config.config.get('promo_links', {}).get('gumroad', '')
+                if gumroad_link and gumroad_link in result['text']:
+                    print(f"  Promo: ✓ Gumroad link included")
+                else:
+                    print(f"  Promo: None")
+            else:
+                print(f"✗ Reply BLOCKED (safety check)")
+
+        # Test link frequency (simulate 20 replies)
+        print("\n" + "=" * 60)
+        print("TESTING PROMO LINK FREQUENCY (20 samples):\n")
+
+        sample_tweet = test_tweets[0]
+        link_count = 0
+        media_count = 0
+
+        for _ in range(20):
+            result = composer.compose_reply(
+                tweet_text=sample_tweet['text'],
+                tweet_author=sample_tweet['author'],
+                topic=sample_tweet['topic'],
+                dry_run=True  # Don't actually generate media 20 times
+            )
+
+            if result['should_post']:
+                gumroad_link = config.config.get('promo_links', {}).get('gumroad', '')
+                if gumroad_link and gumroad_link in result['text']:
+                    link_count += 1
+                if result.get('media_path'):
+                    media_count += 1
+
+        link_percent = (link_count / 20) * 100
+        media_percent = (media_count / 20) * 100
+        expected_link = config.config.get('promo_frequency', 0.25) * 100
+        expected_media = config.config.get('media_probability', 0.25) * 100
+
+        print(f"Promo links: {link_count}/20 ({link_percent:.0f}%) - Expected: ~{expected_link:.0f}%")
+        print(f"Media generated: {media_count}/20 ({media_percent:.0f}%) - Expected: ~{expected_media:.0f}%")
+
+        # Validate
+        if abs(link_percent - expected_link) <= 15:  # ±15% tolerance
+            print("✓ Link frequency within acceptable range")
+        else:
+            print("⚠ Link frequency outside expected range")
+
+        if abs(media_percent - expected_media) <= 15:  # ±15% tolerance
+            print("✓ Media frequency within acceptable range")
+        else:
+            print("⚠ Media frequency outside expected range")
+
+        print("\n" + "=" * 60)
+        print("✓ DRY RUN COMPLETE - No posts made, no login required")
+        print("  To run the bot: python social_agent.py (without --dry-run)")
+
+    except ImportError as e:
+        print(f"❌ Import error: {e}")
+        print("   Political mode modules may not be available")
+        sys.exit(1)
+    except Exception as e:
+        print(f"❌ Error during dry run: {e}")
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
+
+
 def run_social_agent() -> None:
     load_dotenv()
     config = load_config()
@@ -1786,8 +1934,21 @@ def run_social_agent() -> None:
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(
+        description="Social engagement bot with political mode support"
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Test reply composer without posting or requiring login (requires USE_NEW_CONFIG=true)"
+    )
+    args = parser.parse_args()
+
     try:
-        run_social_agent()
+        if args.dry_run:
+            run_dry_run_test()
+        else:
+            run_social_agent()
     except KeyboardInterrupt:
         logging.getLogger("social_agent").info("Shutdown requested by user.")
         sys.exit(0)

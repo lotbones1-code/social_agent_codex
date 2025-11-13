@@ -11,6 +11,7 @@
   "max_reply_length": 270,
   "hashtags_allowlist": ["#Breaking", "#Election", "#Policy", "#Tech", "#AI", "#Macro", "#Politics", "#News"],
   "debate_style": "confident-civil",
+  "new_reply_composer_enabled": true,
   "political_topics": [
     "US politics",
     "election 2024",
