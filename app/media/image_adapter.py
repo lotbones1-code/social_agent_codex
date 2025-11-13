@@ -9,6 +9,7 @@ NO AUTH/LOGIN CHANGES - This is purely content generation
 
 import logging
 import os
+import requests
 from typing import Optional
 from pathlib import Path
 
