@@ -817,8 +817,21 @@ def create_original_post(page: Page, message: str, logger: logging.Logger, image
 
         logger.info("[INFO] 🚀 Clicking Post button...")
         send_btn.click(force=True)
-        logger.info("[INFO] ⏳ Waiting 5 seconds for post to complete...")
-        time.sleep(5)
+        logger.info("[INFO] ⏳ Waiting for post to complete...")
+
+        # Wait for modal to close naturally (indicates success)
+        # Don't press Escape - let Twitter close it after posting
+        time.sleep(3)
+
+        # Check if modal closed (success) or still open (failed)
+        try:
+            composer_still_visible = page.locator("div[data-testid='tweetTextarea_0']").count() > 0
+            if composer_still_visible:
+                logger.warning("Composer still visible after clicking Post - may have failed")
+                # Wait a bit longer
+                time.sleep(3)
+        except Exception:
+            pass
 
         # Check for automation warning (CRITICAL - must cooldown if detected)
         if check_automation_warning(page, logger):
@@ -840,12 +853,9 @@ def create_original_post(page: Page, message: str, logger: logging.Logger, image
 
         logger.info("[INFO] ✅ Original post created successfully!")
 
-        # Close modal
-        try:
-            page.keyboard.press("Escape")
-            time.sleep(0.5)
-        except Exception:
-            pass
+        # DON'T press Escape - modal should close automatically after successful post
+        # Pressing Escape would discard the draft!
+        time.sleep(1)
 
         return True
 
