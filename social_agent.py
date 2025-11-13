@@ -732,12 +732,12 @@ def prepare_authenticated_session(
         browser = playwright.chromium.launch_persistent_context(
             user_data_dir=user_data_dir,
             headless=config.headless,
+            channel="chrome",  # Use regular Chrome instead of Chromium
             args=[
                 "--start-maximized",
                 "--no-sandbox",
                 f"--disk-cache-dir={temp_dir}",
-                "--disable-gpu",
-                "--disable-software-rasterizer",
+                "--disable-blink-features=AutomationControlled",  # Hide automation
             ],
             proxy=proxy_config,
         )
