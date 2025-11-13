@@ -806,11 +806,19 @@ def create_original_post(page: Page, message: str, logger: logging.Logger, image
 
         if not send_btn:
             logger.warning("Post button not found or disabled (only Save button available - message may be too long or have an issue)")
+            # Take screenshot for debugging
+            try:
+                screenshot_path = Path.home() / ".social_agent_codex" / "debug_no_post_button.png"
+                page.screenshot(path=str(screenshot_path))
+                logger.warning(f"Screenshot saved to {screenshot_path}")
+            except Exception:
+                pass
             return False
 
-        logger.debug("Clicking Post button...")
+        logger.info("[INFO] 🚀 Clicking Post button...")
         send_btn.click(force=True)
-        time.sleep(3)
+        logger.info("[INFO] ⏳ Waiting 5 seconds for post to complete...")
+        time.sleep(5)
 
         # Check for automation warning (CRITICAL - must cooldown if detected)
         if check_automation_warning(page, logger):
