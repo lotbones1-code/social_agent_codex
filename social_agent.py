@@ -1501,15 +1501,9 @@ def run_engagement_loop(
     logger: logging.Logger,
 ) -> None:
     # FEATURE ADD: Override search topics when political mode is enabled
-    print(f"[DEBUG] _political_mode_available: {_political_mode_available}")
-    print(f"[DEBUG] _political_config: {_political_config}")
-
     if _political_mode_available and _political_config:
-        print("[DEBUG] Entering political mode override block")
         active_mode = _political_config.get_active_mode()
-        print(f"[DEBUG] Active mode: {active_mode}")
         political_topics = _political_config.get_topics_for_mode(active_mode)
-        print(f"[DEBUG] Political topics: {political_topics}")
 
         if political_topics:
             logger.info("=" * 60)
@@ -1522,7 +1516,6 @@ def run_engagement_loop(
         else:
             logger.warning("[political-mode] No political topics configured, using default topics")
     else:
-        print("[DEBUG] Political mode NOT active, using gambling mode")
         logger.info("[gambling-mode] Using gambling mode topics")
 
     logger.info("[INFO] Starting engagement loop with %s topic(s).", len(config.search_topics))
