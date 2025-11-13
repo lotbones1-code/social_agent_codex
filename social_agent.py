@@ -546,6 +546,42 @@ def send_reply(page: Page, tweet: Locator, message: str, logger: logging.Logger)
     return False
 
 
+def like_tweet(tweet: Locator, logger: logging.Logger) -> bool:
+    """Like a tweet to increase engagement"""
+    try:
+        like_button = tweet.locator("[data-testid='like']").first
+        like_button.wait_for(state="visible", timeout=3000)
+        like_button.click(timeout=5000)
+        logger.info("[INFO] ✅ Liked tweet")
+        return True
+    except Exception as e:
+        logger.debug("[DEBUG] Could not like tweet: %s", e)
+        return False
+
+
+def follow_user(page: Page, handle: str, logger: logging.Logger) -> bool:
+    """Follow a user who seems interested"""
+    try:
+        # Navigate to their profile
+        page.goto(f"https://x.com/{handle}", wait_until="domcontentloaded", timeout=15000)
+        page.wait_for_timeout(2000)
+
+        # Find and click follow button
+        follow_button = page.locator("[data-testid='placementTracking']").first
+        follow_button.wait_for(state="visible", timeout=5000)
+
+        button_text = follow_button.inner_text()
+        if "Follow" in button_text and "Following" not in button_text:
+            follow_button.click(timeout=5000)
+            logger.info("[INFO] ✅ Followed @%s", handle)
+            page.wait_for_timeout(2000)
+            return True
+        return False
+    except Exception as e:
+        logger.debug("[DEBUG] Could not follow @%s: %s", handle, e)
+        return False
+
+
 def maybe_send_dm(config: BotConfig, page: Page, tweet_data: dict[str, str], logger: logging.Logger) -> None:
     del page, tweet_data  # Unused placeholders for future DM workflows.
 
@@ -662,9 +698,23 @@ def process_tweets(
 
         logger.info("[INFO] Replying to @%s for topic '%s'.", data['handle'] or 'unknown', topic)
 
+        # Sometimes like the tweet before replying (60% chance - more natural)
+        if random.random() < 0.6:
+            like_tweet(tweet, logger)
+            time.sleep(random.uniform(1, 3))
+
         if send_reply(page, tweet, message, logger):
             registry.add(identifier)
             replies += 1
+
+            # Sometimes follow the user if they seem like a buyer (30% chance)
+            if data['handle'] and random.random() < 0.3:
+                # Check if their tweet shows buyer intent
+                buyer_keywords = ["looking for", "need", "buy", "recommend", "best", "help me", "want"]
+                if any(keyword in data['text'].lower() for keyword in buyer_keywords):
+                    follow_user(page, data['handle'], logger)
+                    time.sleep(2)
+
             video_service.maybe_generate(topic, data["text"])
             maybe_send_dm(config, page, data, logger)
             delay = random.randint(config.action_delay_min, config.action_delay_max)
