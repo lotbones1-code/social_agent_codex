@@ -1136,28 +1136,35 @@ def generate_original_post_content(topic: str) -> str:
     """Generate content for an original post about a topic."""
     # FEATURE ADD: Use political templates when political mode is active
     if _political_mode_available and _political_config:
-        # Political mode templates (HEAVY BOT PROMOTION - 90%, pure engagement - 10%)
-        post_templates = [
-            # Pure political engagement templates (10% - rare)
-            "The {topic} debate deserves more nuanced discussion. Here's what the data actually shows:",
-
-            # AGGRESSIVE BOT PROMOTION TEMPLATES (90% - most posts)
-            "Grew my account 3x engaging with {topic} using this automation bot. 100+ replies/day, zero bans. DM for details.",
-            "This bot handles all my {topic} engagement automatically. Posts, replies, follows - all on autopilot. Selling it now.",
-            "Been running this automation bot on {topic} for weeks. 100+ replies/day, zero bans. Total game changer for growth.",
-            "Tired of manual posting about {topic}? This bot automates EVERYTHING - replies, posts, follows, images. Built to sell.",
-            "My {topic} engagement is 100% automated. This bot grew my account from 0 to 1k followers in weeks. Available now.",
-            "Scaling {topic} engagement with this bot. Posts content, replies to trending tweets, auto-follows - 24/7 automation.",
-            "Automated my entire {topic} presence. This bot handles replies, posts, images, follows - never banned. Selling licenses.",
-            "Stop wasting time on manual {topic} posts. This bot does it all - smart replies, auto-posting, AI images. Link below.",
-            "Running this automation bot for {topic}. 24/7 posting and replies without lifting a finger. Changed my whole game.",
-            "This bot transformed my {topic} presence. Auto-replies to trending tweets, creates posts, generates images - all automated.",
-            "Want to grow your account on {topic}? This bot handles 100+ interactions/day. Automated posting, replies, follows.",
-            "Built this bot to dominate {topic} engagement. Auto-posts with images, replies to hot tweets, follows relevant accounts.",
-            "Crushing {topic} with automation. This bot does everything - posts, replies, follows, DMs. Grew my account 5x in a month.",
-            "Best decision for {topic} growth? This automation bot. Handles all engagement 24/7. Zero manual work, massive results.",
-            "My secret for {topic} engagement? This bot. Auto-posts, replies, follows, generates images. Selling access now.",
-        ]
+        # 90% bot promo, 10% pure politics (COMPLETELY SEPARATE)
+        if random.random() < 0.9:
+            # PURE BOT PROMOTION (no politics mentioned)
+            post_templates = [
+                "Built this Twitter automation bot. 100+ replies/day, creates posts, generates AI images. Zero bans after months of testing.",
+                "This automation bot handles everything: posts, replies, follows, AI images. Grew my account 3x in weeks.",
+                "Selling my Twitter bot. Auto-posts with images, replies to trending tweets, follows users - all 24/7.",
+                "Automation bot for Twitter growth. Posts content, replies automatically, generates images. Running for months, zero bans.",
+                "Twitter bot handles 100+ interactions/day. Auto-posts, replies, follows, creates AI images. Total game changer.",
+                "Built this to automate my entire Twitter presence. Posts, replies, follows, images - all on autopilot.",
+                "Twitter automation bot: auto-posts, smart replies, AI image generation, auto-follows. Selling licenses now.",
+                "This bot does everything I used to do manually. Posts, replies, follows, generates images. Grew account 5x.",
+                "Automation tool for Twitter growth. Handles posting, replying, following, image creation. Zero manual work needed.",
+                "Twitter bot runs 24/7: creates posts with AI images, replies to tweets, follows relevant accounts. Never banned.",
+                "Scaled my Twitter with this automation bot. Posts content, engages automatically, generates images. Link below.",
+                "Bot handles all Twitter tasks: posting, replying, following, creating images. Grew from 0 to 1k followers fast.",
+            ]
+        else:
+            # PURE POLITICAL ENGAGEMENT (no bot mentioned)
+            post_templates = [
+                "The {topic} debate deserves more nuanced discussion. Here's what the data actually shows:",
+                "Breaking down the {topic} situation: the implications go deeper than most realize.",
+                "Everyone's talking about {topic}, but few understand the real economic impact.",
+                "The {topic} issue isn't as simple as either side wants you to believe. Thread on the nuance:",
+                "Hot take on {topic}: both parties are missing the fundamental point here.",
+                "If you're following {topic}, watch this angle that mainstream media isn't covering:",
+                "The {topic} debate exposes a much bigger problem with how we approach policy.",
+                "Real talk about {topic}: the data tells a completely different story than the headlines.",
+            ]
     else:
         # Gambling mode templates (original)
         post_templates = [
