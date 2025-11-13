@@ -1575,7 +1575,7 @@ def run_engagement_loop(
 
         if config.search_topics:
             # Create original posts to build presence (100% - always post with images!)
-            if True:  # Always post to show features working
+            try:
                 # Random delay before posting (10-30 seconds - human-like)
                 delay = random.randint(10, 30)
                 logger.info("[INFO] 😴 Taking a %d second break before posting...", delay)
@@ -1612,7 +1612,7 @@ def run_engagement_loop(
                         image_dir.mkdir(parents=True, exist_ok=True)
                         image_path = str(image_dir / f"post_{int(time.time())}.png")
                         if generate_simple_image(selected_topic, image_path, logger):
-                            logger.info("[INFO] ✓ Image generated!")
+                            logger.info("[INFO] ✓ Image image generated!")
                         else:
                             logger.debug("Image generation skipped or failed (posting text-only)")
                             image_path = None  # Post without image
@@ -1631,6 +1631,13 @@ def run_engagement_loop(
                             pass
                 else:
                     logger.warning("Failed to create original post, continuing...")
+            except Exception as e:
+                if "AUTOMATION_WARNING_DETECTED" in str(e):
+                    logger.error("🚨 AUTOMATION WARNING on original post - entering 30 min cooldown")
+                    time.sleep(1800)  # 30 minutes
+                    logger.info("✅ Cooldown complete")
+                else:
+                    logger.error(f"Error creating original post: {e}, continuing...")
 
             # Now engage with topics (reply to tweets and follow users)
             try:

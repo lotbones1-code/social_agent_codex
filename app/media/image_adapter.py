@@ -169,6 +169,13 @@ class ImageAdapter:
         Returns:
             Path to generated image file
         """
+        # Safety check: don't call API if no key
+        if not self.hf_api_key:
+            logger.debug("[media] No Hugging Face API key, skipping HF generation")
+            if PIL_AVAILABLE:
+                return self._generate_local_quote_image(topic, context)
+            return None
+
         try:
             import requests
             import time
@@ -196,7 +203,7 @@ class ImageAdapter:
                 }
             }
 
-            response = requests.post(API_URL, headers=headers, json=payload, timeout=30)
+            response = requests.post(API_URL, headers=headers, json=payload, timeout=10)
 
             if response.status_code == 200:
                 # Save image
