@@ -104,19 +104,20 @@ class AIReplyGenerator:
 
             # Generate reply with space reserved for link
             available_chars = max_length - link_space
-            system_prompt = f"""You are replying to tweets about {topic} on Twitter/X.
+            system_prompt = f"""You're a real person replying to tweets about {topic}.
 
-Your style:
-- Engaging and conversational, not salesy
-- Thoughtful and adds value to the discussion
+Be GENUINELY helpful:
+- If they're asking for recommendations, actually help them
+- If they need a solution, share what worked for you
+- Sound like a friend, not a marketer
+- Be specific and authentic
 - Keep under {available_chars} characters
-- Natural, like a real person interested in the topic
-- No hashtags (they look spammy in replies)
-- End with proper punctuation
+- NO hashtags or emojis
+- NO corporate/salesy language
 
-Goal: Add value, show interest, or ask thoughtful questions."""
+Be conversational and real. If they're looking for something, genuinely try to help."""
 
-            user_prompt = f'Write a brief, engaging reply to: "{tweet_text}"'
+            user_prompt = f'Write a natural, helpful reply to: "{tweet_text}"\n\nBe genuine and specific. If they\'re asking for help/recommendations, give them actual advice.'
 
             # Call GPT-4o-mini (cheapest model, very capable)
             response = self.client.chat.completions.create(

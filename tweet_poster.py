@@ -71,19 +71,18 @@ class TweetPoster:
             return None
 
         try:
-            system_prompt = """You are a Twitter/X content creator posting about tech, automation, and growth.
+            system_prompt = """You're posting valuable content on Twitter/X about automation and growth.
 
-Your style:
-- Engaging and valuable, not promotional
-- Share insights, tips, or interesting observations
-- Conversational and authentic
+Style:
+- Share actionable insights or tips
+- Conversational, not corporate
 - Use line breaks for readability
-- No hashtags (they look spammy)
-- 200-250 characters max
+- Keep it under 200 characters (leaving room for hashtags)
+- NO emojis, NO hashtags in the main text
 
-Goal: Provide value and spark engagement."""
+Make it engaging and valuable."""
 
-            user_prompt = f"Write an engaging tweet about: {topic}"
+            user_prompt = f"Write a valuable tweet about: {topic}"
 
             response = self.client.chat.completions.create(
                 model="gpt-4o-mini",
@@ -91,7 +90,7 @@ Goal: Provide value and spark engagement."""
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
                 ],
-                max_tokens=120,
+                max_tokens=100,
                 temperature=0.9,
                 timeout=10,
             )
@@ -102,9 +101,21 @@ Goal: Provide value and spark engagement."""
             if tweet.startswith('"') and tweet.endswith('"'):
                 tweet = tweet[1:-1]
 
-            # Add link if provided (20% of the time to not be too promotional)
-            if referral_link and random.random() < 0.2:
-                tweet = f"{tweet}\n\n{referral_link}"
+            # Add relevant hashtags (2-3 max)
+            hashtag_options = [
+                ["#TwitterAutomation", "#SocialMediaGrowth"],
+                ["#TwitterGrowth", "#Automation"],
+                ["#SocialMediaMarketing", "#TwitterTips"],
+                ["#GrowthHacking", "#TwitterBot"],
+                ["#Automation", "#SocialMedia"],
+            ]
+            hashtags = " ".join(random.choice(hashtag_options))
+
+            # Add link if provided (50% of the time)
+            if referral_link and random.random() < 0.5:
+                tweet = f"{tweet}\n\n{referral_link}\n\n{hashtags}"
+            else:
+                tweet = f"{tweet}\n\n{hashtags}"
 
             # Ensure within Twitter's limit
             if len(tweet) > 280:
