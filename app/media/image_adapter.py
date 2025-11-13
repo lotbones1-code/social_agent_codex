@@ -203,7 +203,9 @@ class ImageAdapter:
                 }
             }
 
-            response = requests.post(API_URL, headers=headers, json=payload, timeout=10)
+            response = requests.post(API_URL, headers=headers, json=payload, timeout=30)
+
+            logger.info(f"[media] Hugging Face API response: {response.status_code}")
 
             if response.status_code == 200:
                 # Save image
