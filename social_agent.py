@@ -1502,10 +1502,11 @@ def run_engagement_loop(
 ) -> None:
     # FEATURE ADD: Override search topics when political mode is enabled
     if _political_mode_available and _political_config:
-        political_topics = _political_config.get_topics_for_mode()
+        active_mode = _political_config.get_active_mode()
+        political_topics = _political_config.get_topics_for_mode(active_mode)
         if political_topics:
             logger.info("=" * 60)
-            logger.info("[political-mode] ✅ POLITICAL MODE ACTIVE")
+            logger.info("[political-mode] ✅ POLITICAL MODE ACTIVE - Mode: %s", active_mode)
             logger.info("[political-mode] Overriding search topics with political topics")
             logger.info("[political-mode] OLD topics: %s", config.search_topics[:3])
             config.search_topics = political_topics
