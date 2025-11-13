@@ -203,9 +203,12 @@ class ImageAdapter:
                 }
             }
 
+            logger.info(f"[media] Calling Hugging Face API...")
             response = requests.post(API_URL, headers=headers, json=payload, timeout=30)
 
             logger.info(f"[media] Hugging Face API response: {response.status_code}")
+            if response.status_code != 200:
+                logger.warning(f"[media] HF API error body: {response.text[:200]}")
 
             if response.status_code == 200:
                 # Save image
