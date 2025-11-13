@@ -40,7 +40,9 @@ except ImportError:  # pragma: no cover - fallback for minimal builds.
 
 # CRITICAL FIX: Load .env BEFORE checking USE_NEW_CONFIG
 # This ensures environment variables are available at import time
-load_dotenv()
+# Load from script directory, not current working directory
+_script_dir = Path(__file__).parent.resolve()
+load_dotenv(_script_dir / ".env")
 
 # FEATURE ADD: Political Mode (conditional import - no breaking changes)
 # Only imported if USE_NEW_CONFIG=true in .env
