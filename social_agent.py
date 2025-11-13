@@ -470,19 +470,52 @@ def extract_tweet_data(tweet: Locator) -> Optional[dict[str, str]]:
 
 def send_reply(page: Page, tweet: Locator, message: str, logger: logging.Logger) -> bool:
     try:
+        # Scroll tweet into view first
+        logger.debug("[DEBUG] Scrolling tweet into view...")
+        tweet.scroll_into_view_if_needed(timeout=5000)
+        page.wait_for_timeout(1000)
+
+        logger.debug("[DEBUG] Looking for reply button...")
+        # Try multiple selector strategies for the reply button
+        reply_button = None
+        try:
+            # Strategy 1: Look for reply button within tweet
+            reply_button = tweet.locator("[data-testid='reply']").first
+            reply_button.wait_for(state="visible", timeout=5000)
+            logger.debug("[DEBUG] Found reply button with data-testid='reply'")
+        except:
+            try:
+                # Strategy 2: Try aria-label approach
+                reply_button = tweet.locator("[aria-label*='Reply']").first
+                reply_button.wait_for(state="visible", timeout=5000)
+                logger.debug("[DEBUG] Found reply button with aria-label")
+            except:
+                # Strategy 3: Look in the action bar
+                reply_button = tweet.locator("div[role='group']").locator("button").first
+                reply_button.wait_for(state="visible", timeout=5000)
+                logger.debug("[DEBUG] Found reply button in action bar")
+
         logger.debug("[DEBUG] Clicking reply button...")
-        tweet.locator("div[data-testid='reply']").click(timeout=15000)
+        reply_button.click(timeout=10000)
+
         logger.debug("[DEBUG] Waiting for composer...")
         composer = page.locator("div[data-testid^='tweetTextarea_']").first
-        composer.wait_for(timeout=15000)
+        composer.wait_for(state="visible", timeout=15000)
+
         logger.debug("[DEBUG] Typing reply...")
         composer.click()
+        page.wait_for_timeout(500)
         page.keyboard.press("Control+A")
         page.keyboard.press("Backspace")
         page.keyboard.insert_text(message)
+        page.wait_for_timeout(1000)
+
         logger.debug("[DEBUG] Clicking Post button...")
-        page.locator("div[data-testid='tweetButtonInline']").click(timeout=10000)
-        time.sleep(3)
+        post_button = page.locator("[data-testid='tweetButtonInline']").first
+        post_button.wait_for(state="visible", timeout=10000)
+        post_button.click(timeout=10000)
+
+        page.wait_for_timeout(3000)
         logger.info("[INFO] ✅ Reply posted successfully!")
         return True
     except PlaywrightTimeout as e:
