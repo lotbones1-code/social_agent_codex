@@ -32,6 +32,13 @@ try:
 except ImportError:
     AI_AVAILABLE = False
 
+# Tweet posting (optional, for posting original content)
+try:
+    from tweet_poster import TweetPoster
+    POSTER_AVAILABLE = True
+except ImportError:
+    POSTER_AVAILABLE = False
+
 try:  # Playwright 1.49 exports TargetClosedError; older builds may not.
     from playwright.sync_api import TargetClosedError  # type: ignore
 except ImportError:  # pragma: no cover - fallback for minimal builds.
@@ -713,8 +720,11 @@ def run_engagement_loop(
     video_service: VideoService,
     logger: logging.Logger,
     ai_generator: Optional[AIReplyGenerator] = None,
+    tweet_poster: Optional[TweetPoster] = None,
 ) -> None:
     logger.info("[INFO] Starting engagement loop with %s topic(s).", len(config.search_topics))
+    cycle_count = 0
+
     while True:
         try:
             if page.is_closed():
@@ -724,11 +734,33 @@ def run_engagement_loop(
             logger.info("Browser page unavailable. Exiting engagement loop.")
             return
 
+        cycle_count += 1
+
+        # Handle replying to tweets for each topic
         if config.search_topics:
             for topic in config.search_topics:
                 handle_topic(config, registry, page, video_service, topic, logger, ai_generator)
         else:
             logger.info("No search topics configured. Sleeping before next cycle.")
+
+        # Post an original tweet every 3 cycles (if enabled)
+        if tweet_poster and tweet_poster.enabled and cycle_count % 3 == 0:
+            try:
+                topic = random.choice(config.search_topics) if config.search_topics else "AI automation"
+                logger.info("[POSTER] Generating original tweet about: %s", topic)
+
+                # Generate tweet text
+                tweet_text = tweet_poster.generate_tweet_text(topic, config.referral_link)
+                if tweet_text:
+                    # Generate image
+                    image_path = "generated_images/post_image.png"
+                    image_generated = tweet_poster.generate_image(topic, image_path)
+
+                    # Post the tweet
+                    tweet_poster.post_tweet(page, tweet_text, image_path if image_generated else None)
+                    time.sleep(5)  # Wait after posting
+            except Exception as e:
+                logger.warning("[POSTER] Failed to post original tweet: %s", e)
 
         logger.info("[INFO] Cycle complete. Sleeping for %s seconds.", config.loop_delay_seconds)
         try:
@@ -886,6 +918,14 @@ def run_social_agent() -> None:
             logger.warning("[AI] Failed to initialize AI generator: %s", exc)
             logger.info("[AI] Will use template-based replies")
 
+    # Initialize tweet poster (optional, for posting original content)
+    tweet_poster: Optional[TweetPoster] = None
+    if POSTER_AVAILABLE:
+        try:
+            tweet_poster = TweetPoster(enable_posting=True)
+        except Exception as exc:
+            logger.warning("[POSTER] Failed to initialize tweet poster: %s", exc)
+
     max_attempts = 3
     attempt = 0
     while attempt < max_attempts:
@@ -907,7 +947,7 @@ def run_social_agent() -> None:
                         return
 
                     logger.info("[INFO] Session ready; entering engagement workflow.")
-                    run_engagement_loop(config, registry, page, video_service, logger, ai_generator)
+                    run_engagement_loop(config, registry, page, video_service, logger, ai_generator, tweet_poster)
                     return
                 finally:
                     close_resources(browser, context, logger)
