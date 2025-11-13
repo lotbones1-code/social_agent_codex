@@ -32,17 +32,24 @@ class ImageAdapter:
     def __init__(self):
         """Initialize image adapter (checks for API keys)."""
         self.enabled = False
-        self.api_key = os.getenv("OPENAI_API_KEY", "").strip()
 
-        # If no API key, check if PIL is available for local generation
-        if not self.api_key and PIL_AVAILABLE:
-            logger.info("[media] No OpenAI key, using local PIL image generation")
+        # Check for API keys (priority order)
+        self.hf_api_key = os.getenv("HUGGINGFACE_API_KEY", "").strip()
+        self.openai_api_key = os.getenv("OPENAI_API_KEY", "").strip()
+
+        # Determine mode
+        if self.hf_api_key:
+            logger.info("[media] 🎨 Hugging Face API key found - FREE AI image generation enabled!")
+            self.enabled = True
+            self.mode = "huggingface"
+        elif self.openai_api_key:
+            logger.info("[media] OpenAI key found - AI image generation enabled")
+            self.enabled = True
+            self.mode = "openai"
+        elif PIL_AVAILABLE:
+            logger.info("[media] No AI API keys, using local PIL image generation (basic)")
             self.enabled = True
             self.mode = "local"
-        elif self.api_key:
-            logger.info("[media] OpenAI key found, AI image generation enabled")
-            self.enabled = True
-            self.mode = "ai"
         else:
             logger.info("[media] No API keys or PIL - image generation disabled")
             self.mode = "disabled"
@@ -62,11 +69,15 @@ class ImageAdapter:
             return None
 
         try:
-            if self.mode == "local":
-                return self._generate_local_quote_image(topic, context)
-            elif self.mode == "ai":
-                logger.debug("[media] AI image generation not yet implemented")
+            if self.mode == "huggingface":
+                return self._generate_huggingface_image(topic, context)
+            elif self.mode == "openai":
+                logger.debug("[media] OpenAI image generation not yet implemented")
                 # Fall back to local for now
+                if PIL_AVAILABLE:
+                    return self._generate_local_quote_image(topic, context)
+                return None
+            elif self.mode == "local":
                 return self._generate_local_quote_image(topic, context)
             else:
                 return None
@@ -146,3 +157,92 @@ class ImageAdapter:
         except Exception as exc:
             logger.debug(f"[media] Local image generation failed: {exc}")
             return None
+
+    def _generate_huggingface_image(self, topic: str, context: str) -> Optional[str]:
+        """
+        Generate AI image using Hugging Face Inference API (FREE!).
+
+        Args:
+            topic: Topic for the image
+            context: Context to generate from
+
+        Returns:
+            Path to generated image file
+        """
+        try:
+            import requests
+            import time
+
+            # Create output directory
+            output_dir = Path.home() / ".social_agent_codex" / "generated_images"
+            output_dir.mkdir(parents=True, exist_ok=True)
+
+            output_path = str(output_dir / f"ai_{int(time.time())}.png")
+
+            # Create prompt for political/news image
+            prompt = self._create_image_prompt(topic, context)
+
+            logger.debug(f"[media] Generating AI image with Hugging Face: {prompt[:50]}...")
+
+            # Use Stable Diffusion model on Hugging Face (FREE!)
+            API_URL = "https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-2-1"
+            headers = {"Authorization": f"Bearer {self.hf_api_key}"}
+
+            payload = {
+                "inputs": prompt,
+                "parameters": {
+                    "negative_prompt": "text, watermark, signature, blurry, low quality",
+                    "num_inference_steps": 30,
+                }
+            }
+
+            response = requests.post(API_URL, headers=headers, json=payload, timeout=30)
+
+            if response.status_code == 200:
+                # Save image
+                with open(output_path, 'wb') as f:
+                    f.write(response.content)
+
+                logger.info(f"[media] ✓ Generated AI image: {output_path}")
+                return output_path
+
+            elif response.status_code == 503:
+                logger.debug("[media] Hugging Face model loading (503), falling back to local")
+                # Model is loading, fall back to local
+                if PIL_AVAILABLE:
+                    return self._generate_local_quote_image(topic, context)
+                return None
+
+            else:
+                logger.debug(f"[media] Hugging Face API error {response.status_code}, falling back")
+                if PIL_AVAILABLE:
+                    return self._generate_local_quote_image(topic, context)
+                return None
+
+        except requests.exceptions.Timeout:
+            logger.debug("[media] Hugging Face API timeout, falling back to local")
+            if PIL_AVAILABLE:
+                return self._generate_local_quote_image(topic, context)
+            return None
+
+        except Exception as exc:
+            logger.debug(f"[media] Hugging Face generation failed: {exc}, falling back")
+            if PIL_AVAILABLE:
+                return self._generate_local_quote_image(topic, context)
+            return None
+
+    def _create_image_prompt(self, topic: str, context: str) -> str:
+        """Create AI image prompt from topic and context."""
+        # Create clean, visual prompt for political/news content
+        topic_clean = topic.lower().strip()
+
+        if "election" in topic_clean or "politics" in topic_clean:
+            base = "professional news photography, capitol building, voting, democracy, american flag"
+        elif "tech" in topic_clean or "ai" in topic_clean:
+            base = "futuristic technology, digital art, modern clean design, blue and white tones"
+        elif "economic" in topic_clean or "policy" in topic_clean:
+            base = "business professional setting, charts and graphs, modern office"
+        else:
+            base = "professional news photography, modern journalism, clean composition"
+
+        return f"{base}, high quality, sharp focus, professional lighting, 4k"

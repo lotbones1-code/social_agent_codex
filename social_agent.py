@@ -1504,12 +1504,20 @@ def run_engagement_loop(
     if _political_mode_available and _political_config:
         political_topics = _political_config.get_topics_for_mode()
         if political_topics:
+            logger.info("=" * 60)
+            logger.info("[political-mode] ✅ POLITICAL MODE ACTIVE")
             logger.info("[political-mode] Overriding search topics with political topics")
+            logger.info("[political-mode] OLD topics: %s", config.search_topics[:3])
             config.search_topics = political_topics
+            logger.info("[political-mode] NEW topics: %s", config.search_topics[:3])
+            logger.info("=" * 60)
         else:
             logger.warning("[political-mode] No political topics configured, using default topics")
+    else:
+        logger.info("[gambling-mode] Using gambling mode topics")
 
     logger.info("[INFO] Starting engagement loop with %s topic(s).", len(config.search_topics))
+    logger.info("[INFO] Topics: %s", ", ".join(config.search_topics[:5]))
 
     cycle_count = 0
     while True:
