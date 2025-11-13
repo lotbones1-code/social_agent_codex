@@ -81,13 +81,13 @@ class PoliticalReplyGenerator:
         "how does this compare to alternatives?",
     ]
 
-    # Call-to-action endings (subtle, not pushy)
+    # Call-to-action endings (promoting the bot itself)
     CTA_ENDINGS = [
-        "More on this: {link}",
-        "Breakdown here: {link}",
-        "Deep dive: {link}",
-        "Full analysis: {link}",
-        "Detailed take: {link}",
+        "Btw built this with automation: {link}",
+        "Running on this bot: {link}",
+        "Auto-engagement tool I use: {link}",
+        "Automated with this: {link}",
+        "Built using this bot: {link}",
     ]
 
     def __init__(self, config_loader):

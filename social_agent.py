@@ -1115,16 +1115,20 @@ def generate_original_post_content(topic: str) -> str:
     """Generate content for an original post about a topic."""
     # FEATURE ADD: Use political templates when political mode is active
     if _political_mode_available and _political_config:
-        # Political mode templates
+        # Political mode templates (mix of pure engagement + bot promotion)
         post_templates = [
+            # Pure political engagement templates (for non-promo posts)
             "The {topic} debate deserves more nuanced discussion. Here's what the data actually shows:",
             "Hot take on {topic}: The conventional wisdom misses some key realities worth exploring",
             "3 things everyone gets wrong about {topic}:\n1. The framing\n2. The tradeoffs\n3. The real stakeholders",
-            "If you care about {topic}, it's time to move beyond surface-level takes and examine the evidence",
             "Real talk about {topic}: The policy implications are more complex than most coverage suggests",
-            "The biggest mistake in the {topic} conversation? Ignoring historical precedent and comparative data",
-            "Finally seeing thoughtful analysis on {topic} that doesn't fall into tired partisan narratives",
-            "{topic} matters. Here's why the standard framing misses the point:",
+
+            # Bot promotion templates (work great when link is added)
+            "Built this automation tool to engage with {topic} discussions. Handles posts, replies, and follows without getting flagged.",
+            "Testing my social bot on {topic} content. Automated engagement that actually works.",
+            "Running automated political engagement on {topic}. Built this to scale up thoughtful discussion.",
+            "Created this tool to participate in {topic} conversations automatically. No manual posting, just smart automation.",
+            "My bot handles {topic} engagement 24/7. Automated replies, posts, and interaction without bans.",
         ]
     else:
         # Gambling mode templates (original)
@@ -1141,6 +1145,13 @@ def generate_original_post_content(topic: str) -> str:
 
     template = random.choice(post_templates)
     content = template.format(topic=topic)
+
+    # FEATURE ADD: Add promo link for political mode (based on promo_frequency)
+    if _political_mode_available and _political_config:
+        if _political_config.should_include_promo():
+            promo_link = _political_config.get_promo_link('gumroad')
+            if promo_link and len(content) + len(promo_link) + 1 <= 280:
+                content = content + " " + promo_link
 
     # Add hashtags (70% chance)
     if random.random() < 0.7:
