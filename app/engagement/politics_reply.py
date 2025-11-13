@@ -81,13 +81,18 @@ class PoliticalReplyGenerator:
         "how does this compare to alternatives?",
     ]
 
-    # Call-to-action endings (promoting the bot itself)
+    # Call-to-action endings (promoting the bot itself - STRONG SALES COPY)
     CTA_ENDINGS = [
-        "Btw built this with automation: {link}",
-        "Running on this bot: {link}",
-        "Auto-engagement tool I use: {link}",
-        "Automated with this: {link}",
-        "Built using this bot: {link}",
+        "Btw I automate all my engagement with this bot - 100+ replies/day, zero bans: {link}",
+        "This reply was automated. Bot handles everything (posts, replies, follows) on autopilot: {link}",
+        "Built this automation bot to scale engagement 24/7 without getting banned: {link}",
+        "FYI this is automated - bot grows your account while you sleep: {link}",
+        "Using this bot to automate my entire feed - posts, replies, images, all automated: {link}",
+        "Automated engagement bot I built - handles everything without manual work: {link}",
+        "This bot does 100+ political replies/day for me automatically: {link}",
+        "Running this automation - best way to grow your account on autopilot: {link}",
+        "Built this to automate my engagement 24/7 - game changer: {link}",
+        "This is automated btw. Bot handles all my replies and posts: {link}",
     ]
 
     def __init__(self, config_loader):

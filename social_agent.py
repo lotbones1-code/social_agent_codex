@@ -1117,18 +1117,22 @@ def generate_original_post_content(topic: str) -> str:
     if _political_mode_available and _political_config:
         # Political mode templates (mix of pure engagement + bot promotion)
         post_templates = [
-            # Pure political engagement templates (for non-promo posts)
+            # Pure political engagement templates (for non-promo posts - 30%)
             "The {topic} debate deserves more nuanced discussion. Here's what the data actually shows:",
             "Hot take on {topic}: The conventional wisdom misses some key realities worth exploring",
-            "3 things everyone gets wrong about {topic}:\n1. The framing\n2. The tradeoffs\n3. The real stakeholders",
             "Real talk about {topic}: The policy implications are more complex than most coverage suggests",
 
-            # Bot promotion templates (work great when link is added)
-            "Built this automation tool to engage with {topic} discussions. Handles posts, replies, and follows without getting flagged.",
-            "Testing my social bot on {topic} content. Automated engagement that actually works.",
-            "Running automated political engagement on {topic}. Built this to scale up thoughtful discussion.",
-            "Created this tool to participate in {topic} conversations automatically. No manual posting, just smart automation.",
-            "My bot handles {topic} engagement 24/7. Automated replies, posts, and interaction without bans.",
+            # STRONG bot promotion templates (for link posts - 70%)
+            "Grew my account 3x engaging with {topic} - automated posting, replies, and follows. Built this bot to run 24/7 without bans.",
+            "This bot handles all my {topic} engagement automatically. Posts, replies, likes, follows - all on autopilot without getting flagged.",
+            "Been running this automation bot on {topic} for weeks. 100+ replies/day, zero bans. Game changer for growing your account.",
+            "Tired of manual posting about {topic}? Built this bot to automate everything - it replies, posts, and engages while you sleep.",
+            "My {topic} engagement is 100% automated now. This bot handles posting, replying, following - grows your account on autopilot.",
+            "Scaling {topic} engagement with automation. This bot posts original content, replies to trending tweets, auto-follows - all day.",
+            "Automated my entire {topic} presence with this bot. Handles replies, posts, images, follows - never gets banned. Insane results.",
+            "Stop wasting time on manual {topic} posts. Built this bot to automate everything - smart replies, auto-posting, image generation.",
+            "Running this automation bot for {topic} engagement. 24/7 posting and replies without lifting a finger. Best investment I made.",
+            "This bot transformed my {topic} game. Auto-replies to trending tweets, creates original posts, generates images - all automated.",
         ]
     else:
         # Gambling mode templates (original)
