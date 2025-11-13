@@ -1113,16 +1113,31 @@ def text_focus(text: str, *, max_length: int = 40) -> str:
 
 def generate_original_post_content(topic: str) -> str:
     """Generate content for an original post about a topic."""
-    post_templates = [
-        "Been running {topic} sessions all week and honestly the difference is night and day when you find a platform that doesn't ghost you on withdrawals 💰",
-        "Hot take on {topic}: Most sites overcomplicate it with sketchy terms. Found one that's actually transparent with their odds and bonuses hit different 🎯",
-        "3 things that changed my {topic} game:\n1. Instant crypto deposits\n2. Provably fair games\n3. Rakeback that actually pays",
-        "If you're serious about {topic}, stop settling for platforms that take forever to cash out. Time is money fr 🚀",
-        "Real talk about {topic}: Been burned by too many sites with hidden fees. Now I only play where the payouts are instant and support is real 💯",
-        "The biggest mistake I made with {topic}? Not checking if withdrawals were actually fast. Learned that the hard way 😅",
-        "Finally found a platform for {topic} that doesn't pull shady stuff with bonuses. Game changer honestly 🔥",
-        "{topic} tip: Always check if they're provably fair. Trust but verify, your wallet will thank you later 💸",
-    ]
+    # FEATURE ADD: Use political templates when political mode is active
+    if _political_mode_available and _political_config:
+        # Political mode templates
+        post_templates = [
+            "The {topic} debate deserves more nuanced discussion. Here's what the data actually shows:",
+            "Hot take on {topic}: The conventional wisdom misses some key realities worth exploring",
+            "3 things everyone gets wrong about {topic}:\n1. The framing\n2. The tradeoffs\n3. The real stakeholders",
+            "If you care about {topic}, it's time to move beyond surface-level takes and examine the evidence",
+            "Real talk about {topic}: The policy implications are more complex than most coverage suggests",
+            "The biggest mistake in the {topic} conversation? Ignoring historical precedent and comparative data",
+            "Finally seeing thoughtful analysis on {topic} that doesn't fall into tired partisan narratives",
+            "{topic} matters. Here's why the standard framing misses the point:",
+        ]
+    else:
+        # Gambling mode templates (original)
+        post_templates = [
+            "Been running {topic} sessions all week and honestly the difference is night and day when you find a platform that doesn't ghost you on withdrawals 💰",
+            "Hot take on {topic}: Most sites overcomplicate it with sketchy terms. Found one that's actually transparent with their odds and bonuses hit different 🎯",
+            "3 things that changed my {topic} game:\n1. Instant crypto deposits\n2. Provably fair games\n3. Rakeback that actually pays",
+            "If you're serious about {topic}, stop settling for platforms that take forever to cash out. Time is money fr 🚀",
+            "Real talk about {topic}: Been burned by too many sites with hidden fees. Now I only play where the payouts are instant and support is real 💯",
+            "The biggest mistake I made with {topic}? Not checking if withdrawals were actually fast. Learned that the hard way 😅",
+            "Finally found a platform for {topic} that doesn't pull shady stuff with bonuses. Game changer honestly 🔥",
+            "{topic} tip: Always check if they're provably fair. Trust but verify, your wallet will thank you later 💸",
+        ]
 
     template = random.choice(post_templates)
     content = template.format(topic=topic)
@@ -1138,22 +1153,35 @@ def generate_original_post_content(topic: str) -> str:
 
 def generate_hashtags(topic: str, max_hashtags: int = 2) -> str:
     """Generate relevant hashtags based on topic."""
-    # Topic-specific hashtag mapping
-    hashtag_map = {
-        "crypto gambling": ["#CryptoGambling", "#CryptoCasino", "#Bitcoin", "#Crypto", "#BTC"],
-        "sports betting": ["#SportsBetting", "#Betting", "#Crypto", "#Gambling", "#Sportsbook"],
-        "online slots": ["#OnlineSlots", "#Slots", "#CasinoGames", "#Gambling", "#Jackpot"],
-        "casino games": ["#CasinoGames", "#OnlineCasino", "#Gambling", "#Crypto", "#Casino"],
-        "poker": ["#Poker", "#CryptoPoker", "#OnlinePoker", "#Gambling", "#PokerLife"],
-        "blackjack": ["#Blackjack", "#Casino", "#CardGames", "#Gambling", "#CryptoGambling"],
-        "roulette": ["#Roulette", "#Casino", "#Gambling", "#OnlineCasino", "#CryptoGambling"],
-        "dice games": ["#DiceGames", "#CryptoDice", "#Gambling", "#OnlineCasino", "#Crypto"],
-        "crypto casino": ["#CryptoCasino", "#Crypto", "#Gambling", "#Bitcoin", "#OnlineGambling"],
-        "stake alternatives": ["#CryptoCasino", "#OnlineGambling", "#Crypto", "#Gambling", "#Bitcoin"],
-    }
-
-    # Generic gambling/crypto hashtags as fallback
-    generic_tags = ["#Crypto", "#Gambling", "#Bitcoin", "#OnlineCasino", "#CryptoCasino"]
+    # FEATURE ADD: Use political hashtags when political mode is active
+    if _political_mode_available and _political_config:
+        # Political mode hashtag mapping
+        hashtag_map = {
+            "us politics": ["#Politics", "#USPolitics", "#Policy", "#Democracy"],
+            "election 2024": ["#Election2024", "#Politics", "#Voting", "#Democracy"],
+            "policy debate": ["#Policy", "#Politics", "#Debate", "#PublicPolicy"],
+            "breaking news": ["#Breaking", "#News", "#Politics"],
+            "political analysis": ["#Politics", "#Analysis", "#Policy", "#News"],
+            "government policy": ["#Policy", "#Government", "#Politics"],
+            "social issues": ["#SocialIssues", "#Policy", "#Politics"],
+            "economic policy": ["#Economics", "#Policy", "#Politics", "#Economy"],
+        }
+        generic_tags = ["#Politics", "#Policy", "#News", "#Analysis"]
+    else:
+        # Gambling mode hashtag mapping (original)
+        hashtag_map = {
+            "crypto gambling": ["#CryptoGambling", "#CryptoCasino", "#Bitcoin", "#Crypto", "#BTC"],
+            "sports betting": ["#SportsBetting", "#Betting", "#Crypto", "#Gambling", "#Sportsbook"],
+            "online slots": ["#OnlineSlots", "#Slots", "#CasinoGames", "#Gambling", "#Jackpot"],
+            "casino games": ["#CasinoGames", "#OnlineCasino", "#Gambling", "#Crypto", "#Casino"],
+            "poker": ["#Poker", "#CryptoPoker", "#OnlinePoker", "#Gambling", "#PokerLife"],
+            "blackjack": ["#Blackjack", "#Casino", "#CardGames", "#Gambling", "#CryptoGambling"],
+            "roulette": ["#Roulette", "#Casino", "#Gambling", "#OnlineCasino", "#CryptoGambling"],
+            "dice games": ["#DiceGames", "#CryptoDice", "#Gambling", "#OnlineCasino", "#Crypto"],
+            "crypto casino": ["#CryptoCasino", "#Crypto", "#Gambling", "#Bitcoin", "#OnlineGambling"],
+            "stake alternatives": ["#CryptoCasino", "#OnlineGambling", "#Crypto", "#Gambling", "#Bitcoin"],
+        }
+        generic_tags = ["#Crypto", "#Gambling", "#Bitcoin", "#OnlineCasino", "#CryptoCasino"]
 
     # Get topic-specific tags or use generic
     topic_lower = topic.lower()
@@ -1549,16 +1577,34 @@ def run_engagement_loop(
                 # Always generate an image (100% to show it's working!)
                 image_path = None
                 if True:  # Always include image
-                    image_dir = Path.home() / ".social_agent_codex" / "generated_images"
-                    image_dir.mkdir(parents=True, exist_ok=True)
-                    image_path = str(image_dir / f"post_{int(time.time())}.png")
-
                     logger.info("[INFO] 🎨 Generating AI image...")
-                    if generate_simple_image(selected_topic, image_path, logger):
-                        logger.info("[INFO] ✓ Image generated!")
+
+                    # FEATURE ADD: Use AI image generation for political mode
+                    if _political_mode_available and _image_adapter and _image_adapter.enabled:
+                        # Use political AI image adapter (Hugging Face or local PIL)
+                        image_path = _image_adapter.generate_political_image(selected_topic, post_content)
+                        if image_path:
+                            logger.info("[INFO] ✓ AI image generated!")
+                        else:
+                            logger.debug("AI image generation failed, trying simple fallback")
+                            # Fallback to simple image
+                            image_dir = Path.home() / ".social_agent_codex" / "generated_images"
+                            image_dir.mkdir(parents=True, exist_ok=True)
+                            image_path = str(image_dir / f"post_{int(time.time())}.png")
+                            if generate_simple_image(selected_topic, image_path, logger):
+                                logger.info("[INFO] ✓ Simple image generated!")
+                            else:
+                                image_path = None
                     else:
-                        logger.debug("Image generation skipped or failed (posting text-only)")
-                        image_path = None  # Post without image
+                        # Gambling mode: use simple image generation
+                        image_dir = Path.home() / ".social_agent_codex" / "generated_images"
+                        image_dir.mkdir(parents=True, exist_ok=True)
+                        image_path = str(image_dir / f"post_{int(time.time())}.png")
+                        if generate_simple_image(selected_topic, image_path, logger):
+                            logger.info("[INFO] ✓ Image generated!")
+                        else:
+                            logger.debug("Image generation skipped or failed (posting text-only)")
+                            image_path = None  # Post without image
 
                 if create_original_post(page, post_content, logger, image_path):
                     logger.info("[INFO] ✅ Original post created%s! Taking a short break...",
