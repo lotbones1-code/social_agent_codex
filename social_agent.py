@@ -497,22 +497,36 @@ def send_reply(page: Page, tweet: Locator, message: str, logger: logging.Logger)
 
         logger.debug("[DEBUG] Clicking reply button...")
         reply_button.click(timeout=10000)
+        page.wait_for_timeout(2000)  # Wait for modal to open
 
-        logger.debug("[DEBUG] Waiting for composer...")
-        composer = page.locator("div[data-testid^='tweetTextarea_']").first
-        composer.wait_for(state="visible", timeout=15000)
+        logger.debug("[DEBUG] Waiting for composer modal...")
+        # The composer is in a modal/dialog, need to find it properly
+        composer = None
+        try:
+            # Try finding the textarea in the modal - this is the actual editable div
+            composer = page.locator("div[role='textbox'][contenteditable='true']").first
+            composer.wait_for(state="visible", timeout=10000)
+            logger.debug("[DEBUG] Found composer with contenteditable")
+        except:
+            # Fallback to original selector
+            composer = page.locator("div[data-testid^='tweetTextarea_']").first
+            composer.wait_for(state="visible", timeout=10000)
+            logger.debug("[DEBUG] Found composer with tweetTextarea")
 
         logger.debug("[DEBUG] Typing reply...")
         composer.click()
         page.wait_for_timeout(500)
-        page.keyboard.press("Control+A")
-        page.keyboard.press("Backspace")
-        page.keyboard.insert_text(message)
-        page.wait_for_timeout(1000)
+
+        # Use fill() instead of keyboard - more reliable for contenteditable divs
+        composer.fill(message)
+        page.wait_for_timeout(1500)
+
+        logger.debug("[DEBUG] Looking for Post button...")
+        # Find the post button - use tweetButton not tweetButtonInline for modal
+        post_button = page.locator("[data-testid='tweetButton']").first
+        post_button.wait_for(state="visible", timeout=10000)
 
         logger.debug("[DEBUG] Clicking Post button...")
-        post_button = page.locator("[data-testid='tweetButtonInline']").first
-        post_button.wait_for(state="visible", timeout=10000)
         post_button.click(timeout=10000)
 
         page.wait_for_timeout(3000)
