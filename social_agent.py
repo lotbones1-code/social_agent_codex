@@ -660,14 +660,25 @@ def extract_tweet_data(tweet: Locator) -> Optional[dict[str, str]]:
 def send_reply(page: Page, tweet: Locator, message: str, logger: logging.Logger) -> bool:
     try:
         tweet.locator("div[data-testid='reply']").click()
+        time.sleep(random.uniform(1.5, 3.0))  # Human-like delay after clicking reply
+
         composer = page.locator("div[data-testid^='tweetTextarea_']").first
-        composer.wait_for(timeout=10000)
+        composer.wait_for(timeout=30000)  # Increased timeout to 30 seconds
+
+        time.sleep(random.uniform(0.5, 1.5))  # Pause before clicking
         composer.click()
+
+        time.sleep(random.uniform(0.3, 0.8))  # Pause before typing
         page.keyboard.press("Control+A")
         page.keyboard.press("Backspace")
+
+        # Type message with slight delay to look more human
         page.keyboard.insert_text(message)
-        page.locator("div[data-testid='tweetButtonInline']").click()
-        time.sleep(2)
+        time.sleep(random.uniform(1.0, 2.5))  # Pause before clicking tweet
+
+        page.locator("div[data-testid='tweetButtonInline']").click(timeout=30000)
+        time.sleep(random.uniform(2.5, 4.0))  # Wait for tweet to post
+
         logger.info("[INFO] Reply posted successfully.")
         return True
     except PlaywrightTimeout:
@@ -1033,7 +1044,8 @@ def handle_topic(
     logger.info("[INFO] Topic '%s' - loading search results...", topic)
     url = f"https://x.com/search?q={quote_plus(topic)}&src=typed_query&f=live"
     try:
-        page.goto(url, wait_until="networkidle", timeout=60000)
+        page.goto(url, wait_until="domcontentloaded", timeout=30000)
+        time.sleep(random.uniform(3.0, 5.0))  # Wait for dynamic content to load
     except PlaywrightTimeout:
         logger.warning("Timeout while loading topic '%s'.", topic)
         return
@@ -1168,8 +1180,8 @@ def run_follow_cycle(
     # Load tweets from topic search
     url = f"https://x.com/search?q={quote_plus(topic)}&src=typed_query&f=live"
     try:
-        page.goto(url, wait_until="networkidle", timeout=60000)
-        time.sleep(3)
+        page.goto(url, wait_until="domcontentloaded", timeout=30000)
+        time.sleep(random.uniform(3.0, 5.0))  # Wait for dynamic content to load
     except PlaywrightTimeout:
         logger.warning("Timeout while loading topic '%s' for follow cycle", topic)
         return
