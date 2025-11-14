@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Awaitable, Callable, Optional
 from urllib.parse import quote_plus
 
+import requests  # CRITICAL: DO NOT REMOVE - Used for OpenAI API calls
 from dotenv import load_dotenv
 from playwright.sync_api import (
     Browser,
@@ -75,6 +76,7 @@ class BotConfig:
     video_model: str
     enable_video: bool
     auth_file: str
+    openai_api_key: Optional[str] = None  # CRITICAL: DO NOT REMOVE - Required for AI replies
 
 
 def _parse_bool(value: Optional[str], *, default: bool = False) -> bool:
@@ -170,6 +172,9 @@ def load_config() -> BotConfig:
 
     auth_file = (os.getenv("AUTH_FILE") or DEFAULT_AUTH_FILE).strip() or DEFAULT_AUTH_FILE
 
+    # CRITICAL: DO NOT REMOVE - OpenAI API key for AI-powered replies
+    openai_api_key = (os.getenv("OPENAI_API_KEY") or "").strip() or None
+
     return BotConfig(
         search_topics=search_topics,
         relevant_keywords=relevant_keywords,
@@ -194,6 +199,7 @@ def load_config() -> BotConfig:
         video_model=video_model,
         enable_video=enable_video,
         auth_file=auth_file,
+        openai_api_key=openai_api_key,  # CRITICAL: DO NOT REMOVE
     )
 
 
@@ -508,6 +514,84 @@ def text_focus(text: str, *, max_length: int = 80) -> str:
     return f"{cleaned[: max_length - 3]}..."
 
 
+def generate_ai_reply(
+    tweet_text: str,
+    topic: str,
+    referral_link: str,
+    openai_api_key: str,
+    logger: logging.Logger,
+) -> Optional[str]:
+    """
+    Generate a contextual reply using OpenAI ChatGPT API.
+
+    CRITICAL: DO NOT REMOVE THIS FUNCTION - This is the AI-powered reply system.
+    Falls back to template-based replies if API call fails.
+
+    Args:
+        tweet_text: The tweet content to reply to
+        topic: The search topic context
+        referral_link: Your referral/product link to include
+        openai_api_key: OpenAI API key
+        logger: Logger instance
+
+    Returns:
+        Generated reply string, or None if failed
+    """
+    if not openai_api_key or openai_api_key.startswith("<set-your"):
+        logger.debug("OpenAI API key not configured. Skipping AI reply generation.")
+        return None
+
+    try:
+        prompt = f"""You are a helpful, friendly expert engaging on Twitter/X about {topic}.
+
+Tweet you're replying to: "{tweet_text}"
+
+Write a natural, conversational reply that:
+1. Acknowledges their point or question
+2. Adds value or insight related to {topic}
+3. Naturally mentions this resource: {referral_link}
+4. Sounds human and authentic (not salesy or robotic)
+5. Is 1-2 sentences max (under 280 characters)
+6. Does NOT use hashtags or emojis
+7. Does NOT sound like marketing copy
+
+Reply:"""
+
+        response = requests.post(
+            "https://api.openai.com/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {openai_api_key}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": "gpt-4o-mini",  # Fast and cheap
+                "messages": [
+                    {"role": "system", "content": "You are a helpful social media expert who writes natural, conversational tweets."},
+                    {"role": "user", "content": prompt}
+                ],
+                "max_tokens": 150,
+                "temperature": 0.8,
+            },
+            timeout=10,
+        )
+
+        if response.status_code == 200:
+            data = response.json()
+            reply = data["choices"][0]["message"]["content"].strip()
+            logger.info("[AI] Generated contextual reply using OpenAI")
+            return reply
+        else:
+            logger.warning(f"[AI] OpenAI API returned status {response.status_code}: {response.text[:200]}")
+            return None
+
+    except requests.exceptions.Timeout:
+        logger.warning("[AI] OpenAI API timeout - falling back to templates")
+        return None
+    except Exception as exc:
+        logger.warning(f"[AI] OpenAI API error: {exc} - falling back to templates")
+        return None
+
+
 def process_tweets(
     config: BotConfig,
     registry: MessageRegistry,
@@ -565,12 +649,26 @@ def process_tweets(
             )
             continue
 
-        template = random.choice(config.reply_templates)
-        message = template.format(
-            topic=topic,
-            focus=text_focus(data["text"]),
-            ref_link=config.referral_link or "",
-        ).strip()
+        # CRITICAL: Try AI-powered reply first, fall back to templates if needed
+        message = None
+        if config.openai_api_key:
+            message = generate_ai_reply(
+                tweet_text=data["text"],
+                topic=topic,
+                referral_link=config.referral_link or "",
+                openai_api_key=config.openai_api_key,
+                logger=logger,
+            )
+
+        # Fallback to template if AI failed or not configured
+        if not message:
+            template = random.choice(config.reply_templates)
+            message = template.format(
+                topic=topic,
+                focus=text_focus(data["text"]),
+                ref_link=config.referral_link or "",
+            ).strip()
+            logger.info("[TEMPLATE] Using template-based reply")
 
         if not message:
             logger.warning("Generated empty reply. Skipping tweet.")
