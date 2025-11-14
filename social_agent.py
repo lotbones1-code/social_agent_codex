@@ -1148,7 +1148,6 @@ def run_engagement_loop(
 
 
 def close_resources(
-    browser: Optional[Browser],
     context: Optional[BrowserContext],
     logger: logging.Logger,
 ) -> None:
@@ -1157,26 +1156,22 @@ def close_resources(
             context.close()
     except PlaywrightError as exc:
         logger.debug("Error while closing context: %s", exc)
-    try:
-        if browser:
-            browser.close()
-    except PlaywrightError as exc:
-        logger.debug("Error while closing browser: %s", exc)
 
 
 def prepare_authenticated_session(
     playwright,
     config: BotConfig,
     logger: logging.Logger,
-) -> Optional[tuple[Browser, BrowserContext, Page]]:
+) -> Optional[tuple[BrowserContext, Page]]:
     storage_env = (os.getenv("AUTH_FILE") or config.auth_file).strip() or config.auth_file
     auth_path = ensure_auth_storage_path(storage_env, logger)
 
     try:
-        user_data_dir = str(Path.home() / ".social_agent_codex/browser_session/")                
+        user_data_dir = str(Path.home() / ".social_agent_codex/browser_session/")
         os.makedirs(user_data_dir, exist_ok=True)
-        browser = playwright.chromium.launch_persistent_context(
-                        user_data_dir=user_data_dir,
+        # launch_persistent_context returns a BrowserContext, not a Browser
+        context = playwright.chromium.launch_persistent_context(
+            user_data_dir=user_data_dir,
             headless=config.headless,
             args=["--start-maximized", "--no-sandbox"],
         )
@@ -1185,23 +1180,14 @@ def prepare_authenticated_session(
         return None
 
     storage_file = auth_path
-    context: BrowserContext
     session_loaded = False
 
     storage_exists = os.path.exists(storage_file)
     if storage_exists:
-        logger.info("[INFO] Restoring saved session from %s", storage_file)
-        try:
-            context = browser.new_context(storage_state=storage_file)
-            session_loaded = True
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("[WARN] auth.json missing or invalid — regenerating login session")
-            logger.debug("Storage state recovery error: %s", exc)
-            context = browser.new_context()
-            session_loaded = False
+        logger.info("[INFO] Session file exists at %s (persistent context manages session automatically)", storage_file)
+        session_loaded = True
     else:
         logger.info("[INFO] No session found — creating new context for manual login.")
-        context = browser.new_context()
 
     page = context.new_page()
 
@@ -1219,7 +1205,7 @@ def prepare_authenticated_session(
                     context.storage_state(path=storage_file)
                 except PlaywrightError as exc:
                     logger.debug("Unable to refresh storage state: %s", exc)
-                return browser, context, page
+                return context, page
             logger.warning("Saved session present but user is logged out; manual login required.")
 
     try:
@@ -1238,11 +1224,11 @@ def prepare_authenticated_session(
         auth_file=storage_file,
     ):
         logger.error("Login process did not complete successfully.")
-        close_resources(browser, context, logger)
+        close_resources(context, logger)
         return None
 
     logger.info("[INFO] Authentication complete; proceeding to engagement loop.")
-    return browser, context, page
+    return context, page
 
 
 def run_social_agent() -> None:
@@ -1271,7 +1257,6 @@ def run_social_agent() -> None:
     while attempt < max_attempts:
         try:
             with sync_playwright() as playwright:
-                browser: Optional[Browser] = None
                 context: Optional[BrowserContext] = None
                 page: Optional[Page] = None
 
@@ -1281,7 +1266,7 @@ def run_social_agent() -> None:
                         logger.error("Unable to establish an authenticated session. Exiting run.")
                         return
 
-                    browser, context, page = session
+                    context, page = session
                     if not page:
                         logger.error("Browser page unavailable. Exiting run.")
                         return
@@ -1290,7 +1275,7 @@ def run_social_agent() -> None:
                     run_engagement_loop(config, registry, page, video_service, logger, tracker)
                     return
                 finally:
-                    close_resources(browser, context, logger)
+                    close_resources(context, logger)
         except KeyboardInterrupt:
             logger.info("Shutdown requested by user.")
             raise
