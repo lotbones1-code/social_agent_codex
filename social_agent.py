@@ -78,6 +78,8 @@ class BotConfig:
     auth_file: str
     openai_api_key: Optional[str]
     use_ai_replies: bool
+    enable_image_generation: bool
+    image_generation_chance: float
 
 
 def _parse_bool(value: Optional[str], *, default: bool = False) -> bool:
@@ -176,6 +178,9 @@ def load_config() -> BotConfig:
     openai_api_key = (os.getenv("OPENAI_API_KEY") or "").strip() or None
     use_ai_replies = openai_api_key is not None
 
+    enable_image_generation = _parse_bool(os.getenv("ENABLE_IMAGE_GENERATION"), default=False)
+    image_generation_chance = _parse_float("IMAGE_GENERATION_CHANCE", 0.3)  # 30% of replies get images
+
     return BotConfig(
         search_topics=search_topics,
         relevant_keywords=relevant_keywords,
@@ -202,6 +207,8 @@ def load_config() -> BotConfig:
         auth_file=auth_file,
         openai_api_key=openai_api_key,
         use_ai_replies=use_ai_replies,
+        enable_image_generation=enable_image_generation,
+        image_generation_chance=image_generation_chance,
     )
 
 
@@ -255,11 +262,16 @@ class ConversionTracker:
                 "high_intent_leads": 0,
                 "lead_scores": [],
                 "videos_generated": 0,
+                "images_generated": 0,
                 "sessions": [],
             }
         try:
             with self._path.open("r", encoding="utf-8") as handle:
-                return json.load(handle)
+                data = json.load(handle)
+                # Backward compatibility: add images_generated if missing
+                if "images_generated" not in data:
+                    data["images_generated"] = 0
+                return data
         except (OSError, json.JSONDecodeError):
             return {
                 "total_replies": 0,
@@ -269,6 +281,7 @@ class ConversionTracker:
                 "high_intent_leads": 0,
                 "lead_scores": [],
                 "videos_generated": 0,
+                "images_generated": 0,
                 "sessions": [],
             }
 
@@ -304,6 +317,10 @@ class ConversionTracker:
         self._data["videos_generated"] += 1
         self._save()
 
+    def log_image(self) -> None:
+        self._data["images_generated"] += 1
+        self._save()
+
     def log_session_start(self) -> None:
         import datetime
         self._data["sessions"].append({
@@ -328,6 +345,7 @@ class ConversionTracker:
             "total_dms": self._data["total_dms"],
             "high_intent_leads": self._data["high_intent_leads"],
             "videos_generated": self._data["videos_generated"],
+            "images_generated": self._data.get("images_generated", 0),
             "avg_lead_score": round(avg_score, 2),
             "total_sessions": len(self._data["sessions"]),
         }
@@ -406,6 +424,59 @@ class VideoService:
         except Exception as exc:  # noqa: BLE001
             logger.warning("Video generation failed: %s", exc)
             return None
+
+
+def generate_image_with_ai(
+    topic: str,
+    tweet_text: str,
+    config: BotConfig,
+    logger: logging.Logger,
+) -> Optional[str]:
+    """Generate an eye-catching image using FREE Hugging Face API."""
+    if not config.enable_image_generation or not config.openai_api_key:
+        return None
+
+    # Random chance to generate image (don't do it every time - too much)
+    if random.random() > config.image_generation_chance:
+        logger.info("Skipping image generation (chance roll)")
+        return None
+
+    try:
+        # Create a compelling image prompt
+        prompt = f"Professional marketing image: {topic}, modern style, high quality, business focused"
+
+        logger.info("Generating AI image with Hugging Face (FREE)...")
+
+        # Use Hugging Face's free inference API
+        hf_url = "https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-2-1"
+
+        headers = {"Authorization": f"Bearer {config.openai_api_key}"}  # We'll add HF key to env
+
+        response = requests.post(
+            hf_url,
+            headers=headers,
+            json={"inputs": prompt},
+            timeout=30,
+        )
+
+        if response.status_code == 200:
+            # Save image locally
+            image_path = Path("logs/generated_images")
+            image_path.mkdir(parents=True, exist_ok=True)
+
+            image_file = image_path / f"img_{int(time.time())}.png"
+            with open(image_file, "wb") as f:
+                f.write(response.content)
+
+            logger.info("Image generated successfully: %s", image_file)
+            return str(image_file)
+        else:
+            logger.warning("Image generation failed: %d", response.status_code)
+            return None
+
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Image generation error: %s", exc)
+        return None
 
 
 def generate_ai_reply(
@@ -675,7 +746,13 @@ def extract_tweet_data(tweet: Locator) -> Optional[dict[str, str]]:
     }
 
 
-def send_reply(page: Page, tweet: Locator, message: str, logger: logging.Logger) -> bool:
+def send_reply(
+    page: Page,
+    tweet: Locator,
+    message: str,
+    logger: logging.Logger,
+    image_path: Optional[str] = None,
+) -> bool:
     try:
         tweet.locator("div[data-testid='reply']").click()
         composer = page.locator("div[data-testid^='tweetTextarea_']").first
@@ -684,6 +761,18 @@ def send_reply(page: Page, tweet: Locator, message: str, logger: logging.Logger)
         page.keyboard.press("Control+A")
         page.keyboard.press("Backspace")
         page.keyboard.insert_text(message)
+
+        # If we have an image, attach it!
+        if image_path and Path(image_path).exists():
+            try:
+                logger.info("Attaching image to reply: %s", image_path)
+                file_input = page.locator("input[type='file']").first
+                file_input.set_input_files(image_path)
+                time.sleep(2)  # Wait for image to upload
+                logger.info("Image attached successfully!")
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Failed to attach image: %s", exc)
+
         page.locator("div[data-testid='tweetButtonInline']").click()
         time.sleep(2)
         logger.info("[INFO] Reply posted successfully.")
@@ -926,13 +1015,21 @@ def process_tweets(
 
         logger.info("[INFO] Replying to @%s for topic '%s'.", data['handle'] or 'unknown', topic)
 
-        if send_reply(page, tweet, message, logger):
+        # Generate AI image for visual engagement
+        image_path = generate_image_with_ai(topic, data["text"], config, logger)
+
+        if send_reply(page, tweet, message, logger, image_path):
             registry.add(identifier)
             replies += 1
 
             # Track the successful reply
             if tracker:
                 tracker.log_reply(ai_powered=used_ai)
+
+            # Track image if generated
+            if image_path and tracker:
+                tracker.log_image()
+                logger.info("Image generated and posted!")
 
             # Calculate and track lead score
             lead_score = calculate_lead_score(data["text"], config)
@@ -1028,13 +1125,14 @@ def run_engagement_loop(
             stats = tracker.get_stats()
             logger.info(
                 "[ANALYTICS] Session Stats - Replies: %d (AI: %d, Template: %d) | DMs: %d | "
-                "High-Intent Leads: %d | Avg Lead Score: %.2f | Videos: %d",
+                "High-Intent Leads: %d | Avg Lead Score: %.2f | Images: %d | Videos: %d",
                 stats["total_replies"],
                 stats["ai_replies"],
                 stats["template_replies"],
                 stats["total_dms"],
                 stats["high_intent_leads"],
                 stats["avg_lead_score"],
+                stats["images_generated"],
                 stats["videos_generated"],
             )
 
