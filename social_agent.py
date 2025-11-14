@@ -15,6 +15,7 @@ from typing import Awaitable, Callable, Optional
 from urllib.parse import quote_plus
 
 from dotenv import load_dotenv
+from openai import OpenAI
 from playwright.sync_api import (
     Browser,
     BrowserContext,
@@ -879,6 +880,48 @@ def text_focus(text: str, *, max_length: int = 80) -> str:
     return f"{cleaned[: max_length - 3]}..."
 
 
+def generate_ai_reply(tweet_text: str, topic: str, referral_link: str, logger: logging.Logger) -> Optional[str]:
+    """Generate a reply using ChatGPT-4o-mini."""
+    api_key = os.getenv("OPENAI_API_KEY", "").strip()
+    if not api_key:
+        logger.debug("ChatGPT disabled (no OPENAI_API_KEY found)")
+        return None
+
+    try:
+        logger.info("[INFO] Generating AI reply using gpt-4o-mini...")
+        client = OpenAI(api_key=api_key)
+
+        prompt = f"""You are a helpful and engaging Twitter user interested in {topic}.
+
+Someone just posted this tweet:
+"{tweet_text}"
+
+Write a SHORT, natural reply (max 200 characters) that:
+1. Responds genuinely to their tweet
+2. Mentions you have a helpful resource about {topic}
+3. Includes this link naturally: {referral_link}
+
+Be conversational, authentic, and helpful. Don't be salesy."""
+
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": "You are a helpful Twitter user sharing resources."},
+                {"role": "user", "content": prompt}
+            ],
+            max_tokens=100,
+            temperature=0.9
+        )
+
+        reply = response.choices[0].message.content.strip()
+        logger.info(f"[INFO] ChatGPT generated reply: {reply[:50]}...")
+        return reply
+
+    except Exception as e:
+        logger.warning(f"ChatGPT generation failed: {e}")
+        return None
+
+
 def get_account_stats(page: Page, logger: logging.Logger) -> Optional[dict[str, int]]:
     """Get current follower and following counts."""
     try:
@@ -1164,12 +1207,17 @@ def process_tweets(
             )
             continue
 
-        template = random.choice(config.reply_templates)
-        message = template.format(
-            topic=topic,
-            focus=text_focus(data["text"]),
-            ref_link=config.referral_link or "",
-        ).strip()
+        # Try ChatGPT first, fall back to templates
+        message = generate_ai_reply(data["text"], topic, config.referral_link or "", logger)
+
+        if not message:
+            # Fall back to template-based reply
+            template = random.choice(config.reply_templates)
+            message = template.format(
+                topic=topic,
+                focus=text_focus(data["text"]),
+                ref_link=config.referral_link or "",
+            ).strip()
 
         if not message:
             logger.warning("Generated empty reply. Skipping tweet.")
