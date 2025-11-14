@@ -659,11 +659,15 @@ def extract_tweet_data(tweet: Locator) -> Optional[dict[str, str]]:
 
 def send_reply(page: Page, tweet: Locator, message: str, logger: logging.Logger) -> bool:
     try:
+        # Scroll tweet into view first
+        tweet.scroll_into_view_if_needed()
+        time.sleep(random.uniform(0.5, 1.0))
+
         tweet.locator("div[data-testid='reply']").click()
         time.sleep(random.uniform(1.5, 3.0))  # Human-like delay after clicking reply
 
         composer = page.locator("div[data-testid^='tweetTextarea_']").first
-        composer.wait_for(timeout=30000)  # Increased timeout to 30 seconds
+        composer.wait_for(timeout=60000)  # Increased timeout to 60 seconds
 
         time.sleep(random.uniform(0.5, 1.5))  # Pause before clicking
         composer.click()
@@ -676,13 +680,13 @@ def send_reply(page: Page, tweet: Locator, message: str, logger: logging.Logger)
         page.keyboard.insert_text(message)
         time.sleep(random.uniform(1.0, 2.5))  # Pause before clicking tweet
 
-        page.locator("div[data-testid='tweetButtonInline']").click(timeout=30000)
+        page.locator("div[data-testid='tweetButtonInline']").click(timeout=60000)
         time.sleep(random.uniform(2.5, 4.0))  # Wait for tweet to post
 
         logger.info("[INFO] Reply posted successfully.")
         return True
-    except PlaywrightTimeout:
-        logger.warning("Timeout while composing reply.")
+    except PlaywrightTimeout as exc:
+        logger.warning("Timeout while composing reply: %s", exc)
     except PlaywrightError as exc:
         logger.warning("Failed to send reply: %s", exc)
     return False
