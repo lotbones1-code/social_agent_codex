@@ -663,13 +663,56 @@ def send_reply(page: Page, tweet: Locator, message: str, logger: logging.Logger)
         tweet.scroll_into_view_if_needed()
         time.sleep(random.uniform(0.5, 1.0))
 
-        tweet.locator("div[data-testid='reply']").click(timeout=60000)  # 60 second timeout
+        # Take screenshot before clicking reply to see current state
+        try:
+            screenshot_path = Path("logs/debug_before_reply.png")
+            screenshot_path.parent.mkdir(parents=True, exist_ok=True)
+            page.screenshot(path=str(screenshot_path))
+            logger.info(f"[DEBUG] Screenshot saved: {screenshot_path}")
+        except Exception as e:
+            logger.warning(f"[DEBUG] Could not save screenshot: {e}")
+
+        # Check if reply button exists and is visible
+        reply_button = tweet.locator("div[data-testid='reply']")
+        if not reply_button.is_visible(timeout=5000):
+            logger.warning("[DEBUG] Reply button not visible on tweet")
+            return False
+
+        logger.info("[DEBUG] Clicking reply button...")
+        reply_button.click(timeout=60000)  # 60 second timeout
         time.sleep(random.uniform(1.5, 3.0))  # Human-like delay after clicking reply
 
+        # Take screenshot after clicking reply
+        try:
+            screenshot_path = Path("logs/debug_after_reply_click.png")
+            page.screenshot(path=str(screenshot_path))
+            logger.info(f"[DEBUG] Screenshot after reply click: {screenshot_path}")
+        except Exception as e:
+            logger.warning(f"[DEBUG] Could not save screenshot: {e}")
+
+        # Check for Twitter rate limit or error messages
+        error_selectors = [
+            "div[data-testid='error']",
+            "span:has-text('Something went wrong')",
+            "span:has-text('You are rate limited')",
+            "span:has-text('Try again')",
+        ]
+        for selector in error_selectors:
+            try:
+                if page.locator(selector).is_visible(timeout=1000):
+                    error_text = page.locator(selector).inner_text(timeout=1000)
+                    logger.error(f"[ERROR] Twitter error detected: {error_text}")
+                    page.screenshot(path="logs/debug_twitter_error.png")
+                    return False
+            except Exception:
+                pass
+
+        logger.info("[DEBUG] Waiting for composer...")
         composer = page.locator("div[data-testid^='tweetTextarea_']").first
         composer.wait_for(timeout=60000)  # Increased timeout to 60 seconds
 
         time.sleep(random.uniform(0.5, 1.5))  # Pause before clicking
+        logger.info("[DEBUG] Clicking composer...")
         composer.click(timeout=60000)  # 60 second timeout
 
         time.sleep(random.uniform(0.3, 0.8))  # Pause before typing
@@ -677,9 +720,11 @@ def send_reply(page: Page, tweet: Locator, message: str, logger: logging.Logger)
         page.keyboard.press("Backspace")
 
         # Type message with slight delay to look more human
+        logger.info("[DEBUG] Typing message...")
         page.keyboard.insert_text(message)
         time.sleep(random.uniform(1.0, 2.5))  # Pause before clicking tweet
 
+        logger.info("[DEBUG] Clicking tweet button...")
         page.locator("div[data-testid='tweetButtonInline']").click(timeout=60000)
         time.sleep(random.uniform(2.5, 4.0))  # Wait for tweet to post
 
@@ -687,8 +732,26 @@ def send_reply(page: Page, tweet: Locator, message: str, logger: logging.Logger)
         return True
     except PlaywrightTimeout as exc:
         logger.warning("Timeout while composing reply: %s", exc)
+        # Save screenshot on timeout to see what's happening
+        try:
+            page.screenshot(path="logs/debug_timeout_error.png")
+            logger.warning("[DEBUG] Timeout screenshot saved to logs/debug_timeout_error.png")
+            logger.warning(f"[DEBUG] Current page URL: {page.url}")
+            # Log page title to understand context
+            try:
+                title = page.title()
+                logger.warning(f"[DEBUG] Page title: {title}")
+            except Exception:
+                pass
+        except Exception as e:
+            logger.warning(f"[DEBUG] Could not save timeout screenshot: {e}")
     except PlaywrightError as exc:
         logger.warning("Failed to send reply: %s", exc)
+        try:
+            page.screenshot(path="logs/debug_error.png")
+            logger.warning("[DEBUG] Error screenshot saved to logs/debug_error.png")
+        except Exception as e:
+            logger.warning(f"[DEBUG] Could not save error screenshot: {e}")
     return False
 
 
