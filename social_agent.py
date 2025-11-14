@@ -663,14 +663,14 @@ def send_reply(page: Page, tweet: Locator, message: str, logger: logging.Logger)
         tweet.scroll_into_view_if_needed()
         time.sleep(random.uniform(0.5, 1.0))
 
-        tweet.locator("div[data-testid='reply']").click()
+        tweet.locator("div[data-testid='reply']").click(timeout=60000)  # 60 second timeout
         time.sleep(random.uniform(1.5, 3.0))  # Human-like delay after clicking reply
 
         composer = page.locator("div[data-testid^='tweetTextarea_']").first
         composer.wait_for(timeout=60000)  # Increased timeout to 60 seconds
 
         time.sleep(random.uniform(0.5, 1.5))  # Pause before clicking
-        composer.click()
+        composer.click(timeout=60000)  # 60 second timeout
 
         time.sleep(random.uniform(0.3, 0.8))  # Pause before typing
         page.keyboard.press("Control+A")
