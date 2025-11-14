@@ -1,0 +1,37 @@
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Environment variables (may contain secrets)
+# Uncomment if you want to ignore .env
+# .env
+
+# Auth files
+auth.json
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
