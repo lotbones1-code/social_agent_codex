@@ -139,11 +139,9 @@ Make it engaging and valuable."""
         Returns:
             True if successful, False otherwise
         """
-        if not self.enabled or not self.client:
-            return False
-
         try:
             import requests
+            from pathlib import Path
 
             # Create image prompt
             image_prompts = [
@@ -154,20 +152,54 @@ Make it engaging and valuable."""
             ]
 
             prompt = random.choice(image_prompts)
-
             logger.info("[POSTER] Generating image: %s", prompt[:50] + "...")
 
-            response = self.client.images.generate(
-                model="dall-e-3",
-                prompt=prompt,
-                size="1024x1024",
-                quality="standard",
-                n=1,
-            )
+            # Check which provider to use
+            provider = os.getenv("IMAGE_PROVIDER", "huggingface").lower()
 
-            image_url = response.data[0].url
+            if provider == "openai":
+                # Use DALL-E (paid)
+                if not self.client:
+                    logger.warning("[POSTER] OpenAI client not available")
+                    return False
 
-            # Download image
+                response = self.client.images.generate(
+                    model="dall-e-3",
+                    prompt=prompt,
+                    size="1024x1024",
+                    quality="standard",
+                    n=1,
+                )
+                image_url = response.data[0].url
+
+            else:
+                # Use HuggingFace (FREE!)
+                hf_key = os.getenv("HUGGINGFACE_API_KEY", "").strip()
+                if not hf_key:
+                    logger.warning("[POSTER] No HUGGINGFACE_API_KEY found")
+                    return False
+
+                model = os.getenv("IMAGE_MODEL", "black-forest-labs/FLUX.1-schnell")
+                api_url = f"https://api-inference.huggingface.co/models/{model}"
+
+                headers = {"Authorization": f"Bearer {hf_key}"}
+                payload = {"inputs": prompt}
+
+                logger.info("[POSTER] Calling HuggingFace API...")
+                response = requests.post(api_url, headers=headers, json=payload, timeout=60)
+                response.raise_for_status()
+
+                # HuggingFace returns image bytes directly
+                image_bytes = response.content
+
+                # Save image
+                Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+                Path(output_path).write_bytes(image_bytes)
+
+                logger.info("[POSTER] ✅ Image saved to %s", output_path)
+                return True
+
+            # For OpenAI, download the image from URL
             r = requests.get(image_url, timeout=60)
             r.raise_for_status()
 
