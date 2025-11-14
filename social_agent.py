@@ -1,6 +1,32 @@
 #!/usr/bin/env python3
 """Sync Playwright social agent with persistent X session handling."""
 
+# ╔═══════════════════════════════════════════════════════════════════════════╗
+# ║  🚨 CRITICAL WARNING - READ BEFORE MAKING ANY CHANGES 🚨                  ║
+# ╠═══════════════════════════════════════════════════════════════════════════╣
+# ║                                                                           ║
+# ║  This is a PRODUCTION bot generating REAL revenue.                        ║
+# ║  NEVER delete or disable existing features without explicit approval.     ║
+# ║                                                                           ║
+# ║  📋 BEFORE CHANGING CODE: Read FEATURES_MANIFEST.md                       ║
+# ║                                                                           ║
+# ║  ✅ YOUR JOB: ADD features, NEVER remove them                             ║
+# ║  ❌ NEVER DELETE:                                                         ║
+# ║     - generate_ai_reply() function (OpenAI integration)                   ║
+# ║     - import requests (required for AI replies)                           ║
+# ║     - MessageRegistry class (deduplication)                               ║
+# ║     - Template system & placeholders                                      ║
+# ║     - Authentication/session code                                         ║
+# ║     - Tweet filtering pipeline                                            ║
+# ║     - Video/DM frameworks                                                 ║
+# ║                                                                           ║
+# ║  If you think code is "unused" - IT'S NOT. Everything has a purpose.      ║
+# ║  If you want to "simplify" - DON'T. Complexity = features = revenue.      ║
+# ║                                                                           ║
+# ║  Questions? Ask user first. Don't assume you know better.                 ║
+# ║                                                                           ║
+# ╚═══════════════════════════════════════════════════════════════════════════╝
+
 from __future__ import annotations
 
 import json
