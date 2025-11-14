@@ -760,8 +760,49 @@ def send_reply(page: Page, tweet: Locator, message: str, logger: logging.Logger)
         page.keyboard.insert_text(message)
         time.sleep(random.uniform(1.0, 2.5))  # Pause before clicking tweet
 
+        logger.info("[DEBUG] Looking for tweet/post button...")
+        # Try multiple selectors for the tweet/post/reply button
+        tweet_button_selectors = [
+            "div[data-testid='tweetButtonInline']",
+            "button[data-testid='tweetButtonInline']",
+            "div[data-testid='tweetButton']",
+            "button[data-testid='tweetButton']",
+            "[data-testid='tweetButtonInline']",
+            "div[role='button']:has-text('Reply')",
+            "div[role='button']:has-text('Post')",
+        ]
+
+        tweet_button = None
+        for selector in tweet_button_selectors:
+            try:
+                button = page.locator(selector).first
+                if button.is_visible(timeout=3000):
+                    tweet_button = button
+                    logger.info(f"[DEBUG] Found tweet button with selector: {selector}")
+                    break
+            except Exception as e:
+                logger.debug(f"[DEBUG] Tweet button selector {selector} failed: {e}")
+                continue
+
+        if not tweet_button:
+            logger.warning("[DEBUG] Tweet button not found with any selector")
+            # Log what buttons ARE visible
+            try:
+                all_buttons = page.locator("div[role='button'], button").all()
+                logger.warning(f"[DEBUG] Found {len(all_buttons)} buttons on page")
+                for i, btn in enumerate(all_buttons[:10]):  # Log first 10 buttons
+                    try:
+                        aria_label = btn.get_attribute("aria-label") or "no label"
+                        text = btn.inner_text(timeout=500) or "no text"
+                        logger.warning(f"[DEBUG] Button {i}: aria-label='{aria_label}', text='{text[:30]}'")
+                    except Exception:
+                        pass
+            except Exception as e:
+                logger.warning(f"[DEBUG] Could not enumerate buttons: {e}")
+            return False
+
         logger.info("[DEBUG] Clicking tweet button...")
-        page.locator("div[data-testid='tweetButtonInline']").click(timeout=60000)
+        tweet_button.click(timeout=60000)
         time.sleep(random.uniform(2.5, 4.0))  # Wait for tweet to post
 
         logger.info("[INFO] Reply posted successfully.")
