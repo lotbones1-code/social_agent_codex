@@ -80,6 +80,7 @@ class BotConfig:
     use_ai_replies: bool
     enable_image_generation: bool
     image_generation_chance: float
+    huggingface_api_key: Optional[str]
 
 
 def _parse_bool(value: Optional[str], *, default: bool = False) -> bool:
@@ -181,6 +182,8 @@ def load_config() -> BotConfig:
     enable_image_generation = _parse_bool(os.getenv("ENABLE_IMAGE_GENERATION"), default=False)
     image_generation_chance = _parse_float("IMAGE_GENERATION_CHANCE", 0.3)  # 30% of replies get images
 
+    huggingface_api_key = (os.getenv("HUGGING_FACE_API_KEY") or "").strip() or None
+
     return BotConfig(
         search_topics=search_topics,
         relevant_keywords=relevant_keywords,
@@ -209,6 +212,7 @@ def load_config() -> BotConfig:
         use_ai_replies=use_ai_replies,
         enable_image_generation=enable_image_generation,
         image_generation_chance=image_generation_chance,
+        huggingface_api_key=huggingface_api_key,
     )
 
 
@@ -433,7 +437,7 @@ def generate_image_with_ai(
     logger: logging.Logger,
 ) -> Optional[str]:
     """Generate an eye-catching image using FREE Hugging Face API."""
-    if not config.enable_image_generation or not config.openai_api_key:
+    if not config.enable_image_generation or not config.huggingface_api_key:
         return None
 
     # Random chance to generate image (don't do it every time - too much)
@@ -450,7 +454,7 @@ def generate_image_with_ai(
         # Use Hugging Face's free inference API
         hf_url = "https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-2-1"
 
-        headers = {"Authorization": f"Bearer {config.openai_api_key}"}  # We'll add HF key to env
+        headers = {"Authorization": f"Bearer {config.huggingface_api_key}"}
 
         response = requests.post(
             hf_url,
