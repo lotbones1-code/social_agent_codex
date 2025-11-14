@@ -85,8 +85,8 @@ class AIReplyGenerator:
             # Calculate space needed for link FIRST (to avoid truncating it later)
             link_space = 0
             link_suffix = ""
-            # Only include link 70% of the time (more natural/not spammy)
-            if referral_link and random.random() < 0.7:
+            # Include link 85% of the time (aggressive but not spam)
+            if referral_link and random.random() < 0.85:
                 # Reserve space for link + CTA (worst case scenario)
                 ctas = [
                     f" Here's what helped me: {referral_link}",

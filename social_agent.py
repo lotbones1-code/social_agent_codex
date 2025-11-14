@@ -698,8 +698,8 @@ def process_tweets(
 
         logger.info("[INFO] Replying to @%s for topic '%s'.", data['handle'] or 'unknown', topic)
 
-        # Sometimes like the tweet before replying (60% chance - more natural)
-        if random.random() < 0.6:
+        # Like tweets more often (80% chance - builds engagement)
+        if random.random() < 0.8:
             like_tweet(tweet, logger)
             time.sleep(random.uniform(1, 3))
 
@@ -707,13 +707,13 @@ def process_tweets(
             registry.add(identifier)
             replies += 1
 
-            # Sometimes follow the user if they seem like a buyer (30% chance)
-            if data['handle'] and random.random() < 0.3:
-                # Check if their tweet shows buyer intent
-                buyer_keywords = ["looking for", "need", "buy", "recommend", "best", "help me", "want"]
+            # Follow buyers more aggressively (60% chance if buyer intent detected)
+            if data['handle']:
+                buyer_keywords = ["looking for", "need", "buy", "recommend", "best", "help me", "want", "searching", "anyone know"]
                 if any(keyword in data['text'].lower() for keyword in buyer_keywords):
-                    follow_user(page, data['handle'], logger)
-                    time.sleep(2)
+                    if random.random() < 0.6:  # 60% follow rate for hot buyers
+                        follow_user(page, data['handle'], logger)
+                        time.sleep(2)
 
             video_service.maybe_generate(topic, data["text"])
             maybe_send_dm(config, page, data, logger)
