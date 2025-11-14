@@ -672,10 +672,41 @@ def send_reply(page: Page, tweet: Locator, message: str, logger: logging.Logger)
         except Exception as e:
             logger.warning(f"[DEBUG] Could not save screenshot: {e}")
 
-        # Check if reply button exists and is visible
-        reply_button = tweet.locator("div[data-testid='reply']")
-        if not reply_button.is_visible(timeout=5000):
-            logger.warning("[DEBUG] Reply button not visible on tweet")
+        # Try multiple selectors for the reply button
+        reply_selectors = [
+            "div[data-testid='reply']",
+            "button[data-testid='reply']",
+            "[aria-label='Reply']",
+            "[aria-label*='Reply']",
+            "div[role='button'][aria-label*='Reply']",
+        ]
+
+        reply_button = None
+        for selector in reply_selectors:
+            try:
+                button = tweet.locator(selector).first
+                if button.is_visible(timeout=2000):
+                    reply_button = button
+                    logger.info(f"[DEBUG] Found reply button with selector: {selector}")
+                    break
+            except Exception as e:
+                logger.debug(f"[DEBUG] Selector {selector} failed: {e}")
+                continue
+
+        if not reply_button:
+            logger.warning("[DEBUG] Reply button not found with any selector")
+            # Log what elements ARE visible in the tweet
+            try:
+                all_buttons = tweet.locator("div[role='button'], button").all()
+                logger.warning(f"[DEBUG] Found {len(all_buttons)} buttons in tweet")
+                for i, btn in enumerate(all_buttons[:5]):  # Log first 5 buttons
+                    try:
+                        aria_label = btn.get_attribute("aria-label") or "no label"
+                        logger.warning(f"[DEBUG] Button {i}: aria-label='{aria_label}'")
+                    except Exception:
+                        pass
+            except Exception as e:
+                logger.warning(f"[DEBUG] Could not enumerate buttons: {e}")
             return False
 
         logger.info("[DEBUG] Clicking reply button...")
