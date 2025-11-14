@@ -694,23 +694,19 @@ def prepare_authenticated_session(
         return None
 
     storage_file = auth_path
-    context: BrowserContext
+    # Note: browser is already a BrowserContext from launch_persistent_context
+    context: BrowserContext = browser
     session_loaded = False
 
     storage_exists = os.path.exists(storage_file)
     if storage_exists:
         logger.info("[INFO] Restoring saved session from %s", storage_file)
-        try:
-            context = browser.new_context(storage_state=storage_file)
-            session_loaded = True
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("[WARN] auth.json missing or invalid — regenerating login session")
-            logger.debug("Storage state recovery error: %s", exc)
-            context = browser.new_context()
-            session_loaded = False
+        # Session is auto-restored via user_data_dir in launch_persistent_context
+        session_loaded = True
     else:
         logger.info("[INFO] No session found — creating new context for manual login.")
-        context = browser.new_context()
+        # Context already created via launch_persistent_context
+        session_loaded = False
 
     page = context.new_page()
 
