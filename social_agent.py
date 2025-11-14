@@ -138,6 +138,7 @@ def _parse_float(name: str, default: float) -> float:
 
 
 def load_config() -> BotConfig:
+    load_dotenv()  # Load environment variables from .env file
     search_topics = _split_env("SEARCH_TOPICS") or DEFAULT_SEARCH_TOPICS
     relevant_keywords = [k.lower() for k in _split_env("RELEVANT_KEYWORDS")]
     spam_keywords = [k.lower() for k in _split_env("SPAM_KEYWORDS")]
