@@ -696,12 +696,17 @@ def send_reply(page: Page, tweet: Locator, message: str, logger: logging.Logger)
             "span:has-text('Something went wrong')",
             "span:has-text('You are rate limited')",
             "span:has-text('Try again')",
+            "span:has-text('You are over the daily limit')",
+            "span:has-text('Please try again later')",
+            "div:has-text('Daily limit exceeded')",
         ]
         for selector in error_selectors:
             try:
                 if page.locator(selector).is_visible(timeout=1000):
                     error_text = page.locator(selector).inner_text(timeout=1000)
                     logger.error(f"[ERROR] Twitter error detected: {error_text}")
+                    logger.error("[ERROR] This may be due to rate limiting or account restrictions.")
+                    logger.error("[ERROR] Suggestion: Reduce follow/unfollow activity to improve account health.")
                     page.screenshot(path="logs/debug_twitter_error.png")
                     return False
             except Exception:
@@ -737,6 +742,26 @@ def send_reply(page: Page, tweet: Locator, message: str, logger: logging.Logger)
             page.screenshot(path="logs/debug_timeout_error.png")
             logger.warning("[DEBUG] Timeout screenshot saved to logs/debug_timeout_error.png")
             logger.warning(f"[DEBUG] Current page URL: {page.url}")
+
+            # Check if there are any visible error messages on the page
+            error_messages = []
+            try:
+                error_elements = page.locator("div[role='alert'], div[data-testid='error'], span:has-text('error')").all()
+                for elem in error_elements:
+                    try:
+                        text = elem.inner_text(timeout=1000)
+                        if text and len(text) < 500:  # Avoid massive text dumps
+                            error_messages.append(text)
+                    except Exception:
+                        pass
+
+                if error_messages:
+                    logger.warning("[DEBUG] Visible error messages on page:")
+                    for msg in error_messages:
+                        logger.warning(f"  - {msg}")
+            except Exception:
+                pass
+
             # Log page title to understand context
             try:
                 title = page.title()
@@ -1320,6 +1345,33 @@ def run_engagement_loop(
     logger: logging.Logger,
 ) -> None:
     logger.info("[INFO] Starting engagement loop with %s topic(s).", len(config.search_topics))
+
+    # Check account health at startup
+    logger.info("[INFO] Checking account health...")
+    stats = get_account_stats(page, logger)
+    if stats:
+        followers = stats.get("followers", 0)
+        following = stats.get("following", 0)
+        logger.info(f"[INFO] Account stats - Followers: {followers:,}, Following: {following:,}")
+
+        if followers > 0:
+            ratio = following / followers
+            logger.info(f"[INFO] Follow ratio: {ratio:.2f}x (following/followers)")
+
+            if ratio > 10:
+                logger.warning("[WARNING] ⚠️  CRITICAL: Your follow ratio (%.2fx) is very high!", ratio)
+                logger.warning("[WARNING] Twitter/X may be throttling your account due to spam-like behavior.")
+                logger.warning("[WARNING] Recommended: Unfollow accounts that haven't followed back to improve ratio.")
+                logger.warning("[WARNING] Healthy ratio: < 1.5x | Your ratio: %.2fx", ratio)
+            elif ratio > 5:
+                logger.warning("[WARNING] Your follow ratio (%.2fx) is high and may trigger rate limits.", ratio)
+                logger.warning("[WARNING] Consider enabling auto-unfollow to improve account health.")
+            elif ratio > 2:
+                logger.info("[INFO] Follow ratio is acceptable but could be improved (%.2fx)", ratio)
+            else:
+                logger.info("[INFO] ✓ Follow ratio looks healthy (%.2fx)", ratio)
+    else:
+        logger.warning("[WARNING] Could not retrieve account stats for health check")
 
     # Log follow/unfollow settings
     if config.enable_auto_follow:
