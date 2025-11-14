@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Awaitable, Callable, Optional
 from urllib.parse import quote_plus
+import requests
 
 from dotenv import load_dotenv
 from playwright.sync_api import (
@@ -75,6 +76,8 @@ class BotConfig:
     video_model: str
     enable_video: bool
     auth_file: str
+    openai_api_key: Optional[str]
+    use_ai_replies: bool
 
 
 def _parse_bool(value: Optional[str], *, default: bool = False) -> bool:
@@ -170,6 +173,9 @@ def load_config() -> BotConfig:
 
     auth_file = (os.getenv("AUTH_FILE") or DEFAULT_AUTH_FILE).strip() or DEFAULT_AUTH_FILE
 
+    openai_api_key = (os.getenv("OPENAI_API_KEY") or "").strip() or None
+    use_ai_replies = openai_api_key is not None
+
     return BotConfig(
         search_topics=search_topics,
         relevant_keywords=relevant_keywords,
@@ -194,6 +200,8 @@ def load_config() -> BotConfig:
         video_model=video_model,
         enable_video=enable_video,
         auth_file=auth_file,
+        openai_api_key=openai_api_key,
+        use_ai_replies=use_ai_replies,
     )
 
 
@@ -229,6 +237,102 @@ class MessageRegistry:
             logging.getLogger(__name__).warning("Failed to persist registry: %s", exc)
 
 
+class ConversionTracker:
+    """Track sales metrics and conversion analytics."""
+
+    def __init__(self, path: Path) -> None:
+        self._path = path
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        self._data = self._load()
+
+    def _load(self) -> dict:
+        if not self._path.exists():
+            return {
+                "total_replies": 0,
+                "ai_replies": 0,
+                "template_replies": 0,
+                "total_dms": 0,
+                "high_intent_leads": 0,
+                "lead_scores": [],
+                "videos_generated": 0,
+                "sessions": [],
+            }
+        try:
+            with self._path.open("r", encoding="utf-8") as handle:
+                return json.load(handle)
+        except (OSError, json.JSONDecodeError):
+            return {
+                "total_replies": 0,
+                "ai_replies": 0,
+                "template_replies": 0,
+                "total_dms": 0,
+                "high_intent_leads": 0,
+                "lead_scores": [],
+                "videos_generated": 0,
+                "sessions": [],
+            }
+
+    def _save(self) -> None:
+        try:
+            with self._path.open("w", encoding="utf-8") as handle:
+                json.dump(self._data, handle, indent=2)
+        except OSError as exc:
+            logging.getLogger(__name__).warning("Failed to persist conversion tracker: %s", exc)
+
+    def log_reply(self, *, ai_powered: bool = False) -> None:
+        self._data["total_replies"] += 1
+        if ai_powered:
+            self._data["ai_replies"] += 1
+        else:
+            self._data["template_replies"] += 1
+        self._save()
+
+    def log_dm(self) -> None:
+        self._data["total_dms"] += 1
+        self._save()
+
+    def log_lead_score(self, score: float, *, high_intent: bool = False) -> None:
+        self._data["lead_scores"].append(score)
+        if high_intent:
+            self._data["high_intent_leads"] += 1
+        # Keep only last 1000 scores to prevent file bloat
+        if len(self._data["lead_scores"]) > 1000:
+            self._data["lead_scores"] = self._data["lead_scores"][-1000:]
+        self._save()
+
+    def log_video(self) -> None:
+        self._data["videos_generated"] += 1
+        self._save()
+
+    def log_session_start(self) -> None:
+        import datetime
+        self._data["sessions"].append({
+            "started_at": datetime.datetime.now().isoformat(),
+            "replies": 0,
+            "dms": 0,
+        })
+        # Keep only last 100 sessions
+        if len(self._data["sessions"]) > 100:
+            self._data["sessions"] = self._data["sessions"][-100:]
+        self._save()
+
+    def get_stats(self) -> dict:
+        avg_score = 0.0
+        if self._data["lead_scores"]:
+            avg_score = sum(self._data["lead_scores"]) / len(self._data["lead_scores"])
+
+        return {
+            "total_replies": self._data["total_replies"],
+            "ai_replies": self._data["ai_replies"],
+            "template_replies": self._data["template_replies"],
+            "total_dms": self._data["total_dms"],
+            "high_intent_leads": self._data["high_intent_leads"],
+            "videos_generated": self._data["videos_generated"],
+            "avg_lead_score": round(avg_score, 2),
+            "total_sessions": len(self._data["sessions"]),
+        }
+
+
 class VideoService:
     def __init__(self, config: BotConfig) -> None:
         self.enabled = False
@@ -260,9 +364,10 @@ class VideoService:
                 "VIDEO_PROVIDER=%s is not supported. Video features disabled.", self.provider
             )
 
-    def maybe_generate(self, topic: str, tweet_text: str) -> None:
+    def maybe_generate(self, topic: str, tweet_text: str) -> Optional[str]:
+        """Generate video content and return video URL if successful."""
         if not self.enabled:
-            return
+            return None
         logger = logging.getLogger(__name__)
         logger.info(
             "Video generation requested for topic '%s' using provider '%s'.",
@@ -271,11 +376,120 @@ class VideoService:
         )
         if self._client is None:
             logger.warning("Video client unavailable. Skipping generation.")
-            return
+            return None
+
         try:
-            _ = topic, tweet_text
+            if self.provider == "replicate":
+                # Build a prompt for video generation
+                prompt = f"Create a short video about {topic}: {tweet_text[:100]}"
+                logger.info("Generating video with Replicate: %s", self.model)
+
+                output = self._client.run(
+                    self.model,
+                    input={"prompt": prompt}
+                )
+
+                # Extract video URL from output
+                if isinstance(output, str):
+                    video_url = output
+                elif isinstance(output, list) and len(output) > 0:
+                    video_url = output[0]
+                elif isinstance(output, dict) and "video" in output:
+                    video_url = output["video"]
+                else:
+                    logger.warning("Unexpected Replicate output format: %s", type(output))
+                    return None
+
+                logger.info("Video generated successfully: %s", video_url)
+                return video_url
+
         except Exception as exc:  # noqa: BLE001
             logger.warning("Video generation failed: %s", exc)
+            return None
+
+
+def generate_ai_reply(
+    config: BotConfig,
+    tweet_text: str,
+    topic: str,
+    author_handle: str,
+    logger: logging.Logger,
+) -> Optional[str]:
+    """Generate an intelligent, sales-focused reply using OpenAI GPT-4."""
+    if not config.use_ai_replies or not config.openai_api_key:
+        return None
+
+    try:
+        # Build the sales-focused system prompt
+        system_prompt = f"""You are a successful entrepreneur and expert in {topic}. Your goal is to provide genuine value while subtly driving interest in your solution.
+
+TONE: Conversational, authentic, helpful - like a peer sharing hard-won insights
+STYLE: Short (under 280 chars), punchy, human
+GOAL: Build trust and curiosity that leads to clicks
+
+Key principles:
+- Lead with value or insight
+- Reference specific aspects of their tweet
+- Natural mention of your resource/link
+- No hard selling - intrigue over pressure
+- Sound like a real person, not a marketer"""
+
+        user_prompt = f"""Tweet from @{author_handle}:
+"{tweet_text}"
+
+Write a reply that:
+1. Acknowledges their specific point about {topic}
+2. Shares a brief relevant insight or experience
+3. Naturally mentions this resource: {config.referral_link}
+
+Keep it under 280 characters. Make it feel like advice from a peer, not a sales pitch."""
+
+        # Call OpenAI API
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {config.openai_api_key}",
+        }
+
+        payload = {
+            "model": "gpt-4o-mini",  # Fast and cost-effective
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            "temperature": 0.85,  # Creative but not random
+            "max_tokens": 100,
+        }
+
+        logger.info("Calling OpenAI API for AI-powered reply...")
+        response = requests.post(
+            "https://api.openai.com/v1/chat/completions",
+            headers=headers,
+            json=payload,
+            timeout=15,
+        )
+
+        if response.status_code == 200:
+            data = response.json()
+            message = data["choices"][0]["message"]["content"].strip()
+            logger.info("OpenAI generated reply successfully (length: %d chars)", len(message))
+            return message
+        else:
+            logger.warning(
+                "OpenAI API returned status %d: %s",
+                response.status_code,
+                response.text[:200],
+            )
+            return None
+
+    except requests.exceptions.Timeout:
+        logger.warning("OpenAI API request timed out")
+        return None
+    except requests.exceptions.RequestException as exc:
+        logger.warning("OpenAI API request failed: %s", exc)
+        return None
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Unexpected error generating AI reply: %s", exc)
+        return None
 
 
 def is_logged_in(page: Page) -> bool:
@@ -481,14 +695,91 @@ def send_reply(page: Page, tweet: Locator, message: str, logger: logging.Logger)
     return False
 
 
-def maybe_send_dm(config: BotConfig, page: Page, tweet_data: dict[str, str], logger: logging.Logger) -> None:
-    del page, tweet_data  # Unused placeholders for future DM workflows.
+def calculate_lead_score(tweet_text: str, config: BotConfig) -> float:
+    """Calculate lead quality score based on tweet content and engagement signals."""
+    score = 0.0
+    text_lower = tweet_text.lower()
 
-    global _DM_NOTICE_LOGGED
+    # High-intent keywords (strong buying signals)
+    high_intent_keywords = [
+        "looking for", "need help", "recommendations", "best tool", "what do you use",
+        "how do i", "struggling with", "trying to", "anyone know", "budget for",
+        "pay for", "subscribe", "worth it", "testimonial", "review"
+    ]
+    for keyword in high_intent_keywords:
+        if keyword in text_lower:
+            score += 2.0
 
+    # Question words indicate active problem-solving (good leads)
+    question_words = ["?", "how", "what", "why", "when", "where", "which", "who"]
+    for word in question_words:
+        if word in text_lower:
+            score += config.dm_question_weight
+
+    # Length indicates thoughtfulness (quality lead)
+    dm_trigger_length = _parse_int("DM_TRIGGER_LENGTH", 220)
+    if len(tweet_text) >= dm_trigger_length:
+        score += 1.5
+
+    # Specific topic relevance
+    for keyword in config.relevant_keywords:
+        if keyword in text_lower:
+            score += 0.5
+
+    return score
+
+
+def send_dm(
+    page: Page,
+    handle: str,
+    message: str,
+    logger: logging.Logger,
+) -> bool:
+    """Send a direct message to a user."""
+    try:
+        # Navigate to DM compose
+        dm_url = f"https://x.com/messages/compose?recipient_id={handle}"
+        logger.info("Opening DM composer for @%s", handle)
+        page.goto(dm_url, wait_until="domcontentloaded", timeout=30000)
+
+        # Wait for DM textarea
+        dm_textarea = page.locator("div[data-testid='dmComposerTextInput']").first
+        dm_textarea.wait_for(timeout=10000)
+        dm_textarea.click()
+
+        # Type message
+        page.keyboard.insert_text(message)
+        time.sleep(1)
+
+        # Send button
+        send_button = page.locator("div[data-testid='dmComposerSendButton']").first
+        send_button.click()
+
+        time.sleep(2)
+        logger.info("DM sent successfully to @%s", handle)
+        return True
+
+    except PlaywrightTimeout:
+        logger.warning("Timeout while sending DM to @%s", handle)
+        return False
+    except PlaywrightError as exc:
+        logger.warning("Failed to send DM to @%s: %s", handle, exc)
+        return False
+
+
+def maybe_send_dm(
+    config: BotConfig,
+    page: Page,
+    tweet_data: dict[str, str],
+    logger: logging.Logger,
+    tracker: Optional["ConversionTracker"] = None,
+) -> None:
+    """Send a follow-up DM to high-intent leads."""
     if not config.enable_dms:
         return
+
     if not config.dm_templates:
+        global _DM_NOTICE_LOGGED
         if not _DM_NOTICE_LOGGED:
             logger.info(
                 "DM support enabled but no DM_TEMPLATES configured. Skipping DM attempt."
@@ -496,9 +787,43 @@ def maybe_send_dm(config: BotConfig, page: Page, tweet_data: dict[str, str], log
             _DM_NOTICE_LOGGED = True
         return
 
-    if not _DM_NOTICE_LOGGED:
-        logger.info("DM feature enabled, but automated DM workflows are not implemented in this build.")
-        _DM_NOTICE_LOGGED = True
+    # Calculate lead score
+    lead_score = calculate_lead_score(tweet_data["text"], config)
+    logger.info(
+        "Lead score for @%s: %.2f (threshold: %.2f)",
+        tweet_data["handle"],
+        lead_score,
+        config.dm_interest_threshold,
+    )
+
+    # Only DM high-quality leads
+    if lead_score < config.dm_interest_threshold:
+        logger.info("Lead score below threshold. Skipping DM.")
+        return
+
+    # Select a DM template
+    template = random.choice(config.dm_templates)
+    message = template.format(
+        name=tweet_data["handle"],
+        focus=text_focus(tweet_data["text"]),
+        ref_link=config.referral_link or "",
+    ).strip()
+
+    if not message:
+        logger.warning("Generated empty DM. Skipping.")
+        return
+
+    logger.info("High-quality lead detected! Sending follow-up DM to @%s", tweet_data["handle"])
+
+    # Add delay before DM (human-like behavior)
+    dm_delay = random.randint(30, 90)
+    logger.info("Waiting %d seconds before sending DM (anti-spam)...", dm_delay)
+    time.sleep(dm_delay)
+
+    if send_dm(page, tweet_data["handle"], message, logger):
+        if tracker:
+            tracker.log_dm()
+            logger.info("DM tracked in analytics")
 
 
 def text_focus(text: str, *, max_length: int = 80) -> str:
@@ -516,6 +841,7 @@ def process_tweets(
     tweets: list[Locator],
     topic: str,
     logger: logging.Logger,
+    tracker: Optional["ConversionTracker"] = None,
 ) -> None:
     replies = 0
     for tweet in tweets:
@@ -565,12 +891,34 @@ def process_tweets(
             )
             continue
 
-        template = random.choice(config.reply_templates)
-        message = template.format(
-            topic=topic,
-            focus=text_focus(data["text"]),
-            ref_link=config.referral_link or "",
-        ).strip()
+        # Try AI-powered reply first, fall back to templates
+        message = None
+        used_ai = False
+
+        if config.use_ai_replies:
+            ai_message = generate_ai_reply(
+                config,
+                data["text"],
+                topic,
+                data["handle"] or "user",
+                logger,
+            )
+            if ai_message:
+                message = ai_message
+                used_ai = True
+                logger.info("Using AI-generated reply (OpenAI)")
+            else:
+                logger.info("AI reply failed, falling back to template")
+
+        # Fallback to template-based reply
+        if not message:
+            template = random.choice(config.reply_templates)
+            message = template.format(
+                topic=topic,
+                focus=text_focus(data["text"]),
+                ref_link=config.referral_link or "",
+            ).strip()
+            used_ai = False
 
         if not message:
             logger.warning("Generated empty reply. Skipping tweet.")
@@ -581,8 +929,27 @@ def process_tweets(
         if send_reply(page, tweet, message, logger):
             registry.add(identifier)
             replies += 1
-            video_service.maybe_generate(topic, data["text"])
-            maybe_send_dm(config, page, data, logger)
+
+            # Track the successful reply
+            if tracker:
+                tracker.log_reply(ai_powered=used_ai)
+
+            # Calculate and track lead score
+            lead_score = calculate_lead_score(data["text"], config)
+            if tracker:
+                tracker.log_lead_score(
+                    lead_score,
+                    high_intent=(lead_score >= config.dm_interest_threshold)
+                )
+
+            # Generate video if enabled
+            video_url = video_service.maybe_generate(topic, data["text"])
+            if video_url and tracker:
+                tracker.log_video()
+
+            # Send DM to high-intent leads
+            maybe_send_dm(config, page, data, logger, tracker)
+
             delay = random.randint(config.action_delay_min, config.action_delay_max)
             logger.info("[INFO] Sleeping for %s seconds before next action.", delay)
             time.sleep(delay)
@@ -605,6 +972,7 @@ def handle_topic(
     video_service: VideoService,
     topic: str,
     logger: logging.Logger,
+    tracker: Optional["ConversionTracker"] = None,
 ) -> None:
     logger.info("[INFO] Topic '%s' - loading search results...", topic)
     url = f"https://x.com/search?q={quote_plus(topic)}&src=typed_query&f=live"
@@ -623,7 +991,7 @@ def handle_topic(
         logger.warning("No eligible tweets for topic '%s'.", topic)
         return
 
-    process_tweets(config, registry, page, video_service, tweets, topic, logger)
+    process_tweets(config, registry, page, video_service, tweets, topic, logger, tracker)
 
 
 def run_engagement_loop(
@@ -632,8 +1000,14 @@ def run_engagement_loop(
     page: Page,
     video_service: VideoService,
     logger: logging.Logger,
+    tracker: Optional["ConversionTracker"] = None,
 ) -> None:
     logger.info("[INFO] Starting engagement loop with %s topic(s).", len(config.search_topics))
+
+    # Log session start
+    if tracker:
+        tracker.log_session_start()
+
     while True:
         try:
             if page.is_closed():
@@ -645,9 +1019,24 @@ def run_engagement_loop(
 
         if config.search_topics:
             for topic in config.search_topics:
-                handle_topic(config, registry, page, video_service, topic, logger)
+                handle_topic(config, registry, page, video_service, topic, logger, tracker)
         else:
             logger.info("No search topics configured. Sleeping before next cycle.")
+
+        # Log stats after each cycle
+        if tracker:
+            stats = tracker.get_stats()
+            logger.info(
+                "[ANALYTICS] Session Stats - Replies: %d (AI: %d, Template: %d) | DMs: %d | "
+                "High-Intent Leads: %d | Avg Lead Score: %.2f | Videos: %d",
+                stats["total_replies"],
+                stats["ai_replies"],
+                stats["template_replies"],
+                stats["total_dms"],
+                stats["high_intent_leads"],
+                stats["avg_lead_score"],
+                stats["videos_generated"],
+            )
 
         logger.info("[INFO] Cycle complete. Sleeping for %s seconds.", config.loop_delay_seconds)
         try:
@@ -768,9 +1157,12 @@ def run_social_agent() -> None:
     logger.info("HEADLESS=%s, DEBUG=%s", config.headless, config.debug)
     if config.enable_dms:
         logger.info("ENABLE_DMS=true")
+    if config.use_ai_replies:
+        logger.info("AI_REPLIES=enabled (OpenAI)")
 
     registry = MessageRegistry(MESSAGE_LOG_PATH)
     video_service = VideoService(config)
+    tracker = ConversionTracker(Path("logs/analytics.json"))
 
     max_attempts = 3
     attempt = 0
@@ -793,7 +1185,7 @@ def run_social_agent() -> None:
                         return
 
                     logger.info("[INFO] Session ready; entering engagement workflow.")
-                    run_engagement_loop(config, registry, page, video_service, logger)
+                    run_engagement_loop(config, registry, page, video_service, logger, tracker)
                     return
                 finally:
                     close_resources(browser, context, logger)
