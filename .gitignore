@@ -1,5 +1,5 @@
 # Environment variables (contains API keys and secrets)
-.env
+# .env  # COMMENTED OUT - We want .env to sync between machines
 
 # Python
 __pycache__/
