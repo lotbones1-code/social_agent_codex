@@ -1205,6 +1205,8 @@ Be conversational and specific to what they said. Vary your style - sometimes as
             data = response.json()
             reply_text = data["choices"][0]["message"]["content"].strip().strip('"')
 
+            logger.info(f"[AI] OpenAI raw response: '{reply_text[:100]}'")
+
             # CRITICAL: Validate length BEFORE adding link
             if referral_link:
                 # Calculate how much space we have for text (280 - link - space - safety margin)
@@ -1307,6 +1309,7 @@ def process_tweets(
         # CRITICAL: Try AI-powered reply first, fall back to templates if needed
         message = None
         if config.openai_api_key:
+            logger.info("[AI] Calling OpenAI API for reply generation...")
             message = generate_ai_reply(
                 tweet_text=data["text"],
                 topic=topic,
@@ -1314,6 +1317,10 @@ def process_tweets(
                 openai_api_key=config.openai_api_key,
                 logger=logger,
             )
+            if message:
+                logger.info(f"[AI] ✅ Using AI-generated reply: '{message[:80]}'")
+        else:
+            logger.warning("[AI] No OpenAI API key configured - using templates only")
 
         # Fallback to template if AI failed or not configured
         if not message:
@@ -1323,7 +1330,7 @@ def process_tweets(
                 focus=text_focus(data["text"]),
                 ref_link=config.referral_link or "",
             ).strip()
-            logger.info("[TEMPLATE] Using template-based reply")
+            logger.info(f"[TEMPLATE] Using template-based reply: '{message[:80]}'")
 
         if not message:
             logger.warning("Generated empty reply. Skipping tweet.")
