@@ -860,6 +860,63 @@ def run_engagement_loop(
             raise
 
 
+def validate_critical_features() -> None:
+    """
+    🚨 CRITICAL STARTUP CHECK 🚨
+
+    This function validates that ALL critical features exist before the bot starts.
+    If ANY feature is missing, the bot REFUSES TO START and shows an error.
+
+    This prevents accidentally running a broken/incomplete version of the bot.
+
+    DO NOT REMOVE THIS FUNCTION - It's the last line of defense against feature deletion!
+    """
+    import sys
+
+    critical_features = {
+        "generate_ai_reply": "OpenAI AI-powered reply generation",
+        "MessageRegistry": "Tweet deduplication system",
+        "VideoService": "Video generation framework",
+        "send_reply": "Reply posting functionality",
+        "maybe_send_dm": "DM framework",
+        "load_tweets": "Tweet extraction",
+        "process_tweets": "Tweet filtering pipeline",
+        "handle_topic": "Topic processing",
+        "prepare_authenticated_session": "Session persistence & auth",
+    }
+
+    missing_features = []
+    current_module = sys.modules[__name__]
+
+    for feature_name, description in critical_features.items():
+        if not hasattr(current_module, feature_name):
+            missing_features.append(f"❌ {feature_name} - {description}")
+
+    # Also check that requests is imported (required for OpenAI)
+    try:
+        import requests  # noqa: F401
+    except ImportError:
+        missing_features.append("❌ requests module - Required for OpenAI API calls")
+
+    if missing_features:
+        print("\n" + "=" * 80)
+        print("🚨 CRITICAL ERROR: MISSING FEATURES DETECTED 🚨")
+        print("=" * 80)
+        print("\nThe following critical features are MISSING from the code:")
+        print()
+        for feature in missing_features:
+            print(f"  {feature}")
+        print()
+        print("This bot has been modified and is missing critical functionality!")
+        print("DO NOT RUN until all features are restored.")
+        print()
+        print("Check FEATURES_MANIFEST.md for the complete list of required features.")
+        print("=" * 80)
+        sys.exit(1)
+
+    print("✅ All critical features validated - bot is safe to run")
+
+
 def close_resources(
     browser: Optional[Browser],
     context: Optional[BrowserContext],
@@ -955,6 +1012,10 @@ def prepare_authenticated_session(
 
 
 def run_social_agent() -> None:
+    # 🚨 CRITICAL: Validate all features exist BEFORE starting the bot
+    # If any feature is missing, this will exit with an error message
+    validate_critical_features()
+
     load_dotenv()
     config = load_config()
 
@@ -968,6 +1029,12 @@ def run_social_agent() -> None:
     logger.info("HEADLESS=%s, DEBUG=%s", config.headless, config.debug)
     if config.enable_dms:
         logger.info("ENABLE_DMS=true")
+
+    # Also log that OpenAI is configured
+    if config.openai_api_key and not config.openai_api_key.startswith("<set-your"):
+        logger.info("AI_REPLIES=enabled (OpenAI)")
+    else:
+        logger.info("AI_REPLIES=disabled (using templates only)")
 
     registry = MessageRegistry(MESSAGE_LOG_PATH)
     video_service = VideoService(config)
