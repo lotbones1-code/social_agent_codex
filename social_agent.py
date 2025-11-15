@@ -42,6 +42,7 @@ from urllib.parse import quote_plus
 
 import requests  # CRITICAL: DO NOT REMOVE - Used for OpenAI API calls
 from dotenv import load_dotenv
+from integrity_guard import check_core_integrity  # CRITICAL: Startup integrity check
 from playwright.sync_api import (
     Browser,
     BrowserContext,
@@ -1611,6 +1612,10 @@ def prepare_authenticated_session(
 
 
 def run_social_agent() -> None:
+    # 🚨 CRITICAL: Integrity guard checks ALL features BEFORE runtime validation
+    # This ensures selectors, config vars, and critical code patterns still exist
+    check_core_integrity()
+
     # 🚨 CRITICAL: Validate all features exist BEFORE starting the bot
     # If any feature is missing, this will exit with an error message
     validate_critical_features()
