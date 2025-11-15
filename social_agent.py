@@ -1176,9 +1176,12 @@ def generate_ai_reply(
         link_length = len(referral_link) + 1 if referral_link else 0
         max_reply_without_link = 280 - link_length - 10  # -10 for safety
 
-        prompt = f"""Write a {max_reply_without_link} character reply to: "{tweet_text[:60]}"
+        prompt = f"""Write a unique, natural reply to this tweet: "{tweet_text[:200]}"
 
-Be EXTREMELY brief. Just 1 short sentence about {topic}. No link, no hashtags, no emojis."""
+Topic context: {topic}
+Max length: {max_reply_without_link} characters
+
+Be conversational and specific to what they said. Vary your style - sometimes ask a question, sometimes share insight, sometimes agree/disagree. NO link, NO hashtags, NO emojis. Each reply should sound different."""
 
         response = requests.post(
             "https://api.openai.com/v1/chat/completions",
@@ -1189,11 +1192,11 @@ Be EXTREMELY brief. Just 1 short sentence about {topic}. No link, no hashtags, n
             json={
                 "model": "gpt-4o-mini",
                 "messages": [
-                    {"role": "system", "content": f"You write ultra-short Twitter replies. MAX {max_reply_without_link} characters. Count every character. Be extremely brief."},
+                    {"role": "system", "content": f"You write diverse, natural Twitter replies. MAX {max_reply_without_link} characters. Each reply should be UNIQUE and SPECIFIC to the tweet content. Vary your approach."},
                     {"role": "user", "content": prompt}
                 ],
-                "max_tokens": 30,  # Even more restricted
-                "temperature": 0.3,  # Lower temperature for more predictable length
+                "max_tokens": 40,  # Allow slightly more tokens for variety
+                "temperature": 0.9,  # CRITICAL: Higher temp for variety - DO NOT LOWER
             },
             timeout=10,
         )
