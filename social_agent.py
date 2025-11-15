@@ -1658,6 +1658,12 @@ def run_social_agent() -> None:
     if config.enable_dms:
         logger.info("ENABLE_DMS=true")
 
+    # Log referral link
+    if config.referral_link:
+        logger.info("REFERRAL_LINK=%s", config.referral_link)
+    else:
+        logger.warning("REFERRAL_LINK=NOT SET (replies won't include link)")
+
     # Also log that OpenAI is configured
     if config.openai_api_key and not config.openai_api_key.startswith("<set-your"):
         logger.info("AI_REPLIES=enabled (OpenAI)")
