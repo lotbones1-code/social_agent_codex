@@ -1186,12 +1186,24 @@ def generate_ai_reply(
         link_length = len(referral_link) + 1 if referral_link else 0
         max_reply_without_link = 280 - link_length - 10  # -10 for safety
 
-        prompt = f"""Write a unique, natural reply to this tweet: "{tweet_text[:200]}"
+        # Vary reply styles for maximum authenticity
+        import random
+        styles = [
+            "Share a quick personal insight or experience related to what they said. Sound like you've been there. Be specific.",
+            "Ask a thoughtful follow-up question that shows you read their tweet and are genuinely curious.",
+            "Agree strongly and add one concrete tip or observation that builds on their point.",
+            "Share what worked for you when dealing with this exact thing. Be conversational.",
+            "Point out something interesting they mentioned that most people miss. Show you paid attention.",
+        ]
+        style_instruction = random.choice(styles)
 
-Topic context: {topic}
-Max length: {max_reply_without_link} characters
+        prompt = f"""Reply to: "{tweet_text[:200]}"
 
-Be conversational and specific to what they said. Vary your style - sometimes ask a question, sometimes share insight, sometimes agree/disagree. NO link, NO hashtags, NO emojis. Each reply should sound different."""
+Style: {style_instruction}
+Max: {max_reply_without_link} chars
+Topic: {topic}
+
+Write like a real person. NO link, NO hashtags, NO emojis. Sound helpful and authentic."""
 
         response = requests.post(
             "https://api.openai.com/v1/chat/completions",
@@ -1202,11 +1214,11 @@ Be conversational and specific to what they said. Vary your style - sometimes as
             json={
                 "model": "gpt-4o-mini",
                 "messages": [
-                    {"role": "system", "content": f"You write diverse, natural Twitter replies. MAX {max_reply_without_link} characters. Each reply should be UNIQUE and SPECIFIC to the tweet content. Vary your approach."},
+                    {"role": "system", "content": f"You're a helpful builder on Twitter. Write natural, authentic replies (MAX {max_reply_without_link} chars). Every reply is DIFFERENT. Sound human, not corporate."},
                     {"role": "user", "content": prompt}
                 ],
-                "max_tokens": 40,  # Allow slightly more tokens for variety
-                "temperature": 0.9,  # CRITICAL: Higher temp for variety - DO NOT LOWER
+                "max_tokens": 50,  # Allow more for authentic conversations
+                "temperature": 1.0,  # CRITICAL: Maximum variety - DO NOT LOWER
             },
             timeout=10,
         )
