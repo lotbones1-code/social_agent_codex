@@ -1169,21 +1169,13 @@ def generate_ai_reply(
         return None
 
     try:
-        # Calculate space budget: 280 chars - link - spacing
+        # Calculate space budget: 280 chars - link - spacing - safety margin
         link_length = len(referral_link) + 1 if referral_link else 0
-        max_reply_without_link = 270 - link_length  # -10 for safety
+        max_reply_without_link = 280 - link_length - 10  # -10 for safety
 
-        prompt = f"""Reply in MAX {max_reply_without_link} chars (count carefully!):
+        prompt = f"""Write a {max_reply_without_link} character reply to: "{tweet_text[:60]}"
 
-Tweet: "{tweet_text[:80]}"
-
-Rules:
-- {max_reply_without_link} character limit (STRICT)
-- 1 sentence, casual tone
-- Quick insight about {topic}
-- NO link (I add that), NO hashtags, NO emojis
-
-Reply only:"""
+Be EXTREMELY brief. Just 1 short sentence about {topic}. No link, no hashtags, no emojis."""
 
         response = requests.post(
             "https://api.openai.com/v1/chat/completions",
@@ -1194,32 +1186,43 @@ Reply only:"""
             json={
                 "model": "gpt-4o-mini",
                 "messages": [
-                    {"role": "system", "content": f"Write ultra-short {max_reply_without_link}-char Twitter replies. Be very brief."},
+                    {"role": "system", "content": f"You write ultra-short Twitter replies. MAX {max_reply_without_link} characters. Count every character. Be extremely brief."},
                     {"role": "user", "content": prompt}
                 ],
-                "max_tokens": 40,  # Very restricted
-                "temperature": 0.5,
+                "max_tokens": 30,  # Even more restricted
+                "temperature": 0.3,  # Lower temperature for more predictable length
             },
             timeout=10,
         )
 
         if response.status_code == 200:
             data = response.json()
-            reply = data["choices"][0]["message"]["content"].strip().strip('"')
+            reply_text = data["choices"][0]["message"]["content"].strip().strip('"')
 
-            # Add the referral link at the end
+            # CRITICAL: Validate length BEFORE adding link
             if referral_link:
-                reply = f"{reply} {referral_link}"
+                # Calculate how much space we have for text (280 - link - space - safety margin)
+                max_text_len = 280 - len(referral_link) - 1 - 5  # -5 for extra safety
 
-            # FINAL safety check
-            if len(reply) > 280:
-                logger.warning(f"[AI] Reply still too long ({len(reply)} chars), force truncating...")
-                if referral_link:
-                    # Truncate text but keep link
-                    max_text_len = 280 - len(referral_link) - 4
-                    reply = reply[:max_text_len] + "... " + referral_link
+                # Truncate text if needed
+                if len(reply_text) > max_text_len:
+                    logger.warning(f"[AI] Reply text too long ({len(reply_text)} chars), truncating to {max_text_len}")
+                    reply_text = reply_text[:max_text_len].rstrip() + "..."
+
+                # Now add the link
+                reply = f"{reply_text} {referral_link}"
+            else:
+                # No link, just make sure text fits in 280
+                if len(reply_text) > 280:
+                    logger.warning(f"[AI] Reply too long ({len(reply_text)} chars), truncating to 277")
+                    reply = reply_text[:277] + "..."
                 else:
-                    reply = reply[:277] + "..."
+                    reply = reply_text
+
+            # FINAL safety check - this should never trigger now
+            if len(reply) > 280:
+                logger.error(f"[AI] BUG: Reply still {len(reply)} chars after all checks! Forcing hard truncate.")
+                reply = reply[:280]
 
             logger.info(f"[AI] Generated reply ({len(reply)} chars)")
             return reply
