@@ -1189,21 +1189,29 @@ def generate_ai_reply(
         # Vary reply styles for maximum authenticity
         import random
         styles = [
-            "Share a quick personal insight or experience related to what they said. Sound like you've been there. Be specific.",
-            "Ask a thoughtful follow-up question that shows you read their tweet and are genuinely curious.",
-            "Agree strongly and add one concrete tip or observation that builds on their point.",
-            "Share what worked for you when dealing with this exact thing. Be conversational.",
-            "Point out something interesting they mentioned that most people miss. Show you paid attention.",
+            "Jump straight into sharing a specific tip or insight. No intro fluff. Just drop value immediately.",
+            "Ask a direct, curious question about their approach. Skip the 'great point!' stuff.",
+            "Share exactly what happened when you tried this. Be specific with numbers or details.",
+            "Challenge or build on their point in an interesting way. Don't just agree - add something new.",
+            "Reference a specific part of their tweet and riff on it. Show you actually read it carefully.",
+            "Start mid-thought like you're continuing a conversation. 'So when I...' or 'The thing about...'",
+            "Be direct and casual. 'Here's what worked:' or 'Tried this last week:' or 'Real talk:'",
         ]
         style_instruction = random.choice(styles)
 
+        # Anti-pattern examples to avoid
+        banned_openers = "NEVER start with: 'That's amazing', 'You nailed it', 'Great point', 'This is awesome', 'Love this', 'Absolutely', 'Totally agree', 'So true', 'Facts'"
+
         prompt = f"""Reply to: "{tweet_text[:200]}"
 
-Style: {style_instruction}
+{style_instruction}
+
+{banned_openers}
+
 Max: {max_reply_without_link} chars
 Topic: {topic}
 
-Write like a real person. NO link, NO hashtags, NO emojis. Sound helpful and authentic."""
+Sound like a real person texting. Vary your starts. NO generic praise. NO link, NO hashtags, NO emojis. Each reply should start COMPLETELY different."""
 
         response = requests.post(
             "https://api.openai.com/v1/chat/completions",
@@ -1214,7 +1222,7 @@ Write like a real person. NO link, NO hashtags, NO emojis. Sound helpful and aut
             json={
                 "model": "gpt-4o-mini",
                 "messages": [
-                    {"role": "system", "content": f"You're a helpful builder on Twitter. Write natural, authentic replies (MAX {max_reply_without_link} chars). Every reply is DIFFERENT. Sound human, not corporate."},
+                    {"role": "system", "content": f"You're a builder replying on Twitter. Write like you're texting a friend (MAX {max_reply_without_link} chars). NEVER use canned openers like 'Great point!' or 'That's amazing!'. Every reply starts DIFFERENTLY. Skip the fluff. Be specific and casual."},
                     {"role": "user", "content": prompt}
                 ],
                 "max_tokens": 50,  # Allow more for authentic conversations
