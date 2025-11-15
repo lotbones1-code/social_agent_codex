@@ -1354,12 +1354,14 @@ def process_tweets(
                 analytics.log_like()
 
         # CRITICAL: Generate image attachment for engagement boost (2-3x better engagement with images)
+        # TEMPORARILY DISABLED - Twitter rejecting uploads with "media type unrecognized"
+        # Will re-enable once we fix the media upload format
         image_path = None
-        if random.random() < config.image_attach_rate:
-            logger.info(f"[IMAGE] Generating image for reply (rate={config.image_attach_rate})")
-            image_path = generate_reply_image(topic, data["text"], logger)
-            if image_path and analytics:
-                analytics.log_image()
+        # if random.random() < config.image_attach_rate:
+        #     logger.info(f"[IMAGE] Generating image for reply (rate={config.image_attach_rate})")
+        #     image_path = generate_reply_image(topic, data["text"], logger)
+        #     if image_path and analytics:
+        #         analytics.log_image()
 
         if send_reply(page, tweet, message, logger, image_path):
             registry.add(identifier)
