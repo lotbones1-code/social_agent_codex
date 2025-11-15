@@ -434,16 +434,20 @@ def ensure_logged_in(
 
 
 def load_tweets(page: Page, logger: logging.Logger) -> list[Locator]:
+    logger.info("[DEBUG] Waiting for tweet elements to appear...")
     try:
         page.wait_for_selector("article[data-testid='tweet']", timeout=15000)
+        logger.info("[DEBUG] Tweet elements found, collecting...")
     except PlaywrightTimeout:
-        logger.info("No tweets loaded within 15 seconds.")
+        logger.warning("No tweets loaded within 15 seconds. Page may not have loaded correctly.")
         return []
     except PlaywrightError as exc:
         logger.warning("Playwright error while waiting for tweets: %s", exc)
         return []
     try:
-        return page.locator("article[data-testid='tweet']").all()
+        tweets = page.locator("article[data-testid='tweet']").all()
+        logger.info("[DEBUG] Collected %d tweet elements", len(tweets))
+        return tweets
     except PlaywrightError as exc:
         logger.warning("Failed to collect tweet locators: %s", exc)
         return []
@@ -733,7 +737,10 @@ def handle_topic(
     logger.info("[INFO] Topic '%s' - loading search results...", topic)
     url = f"https://x.com/search?q={quote_plus(topic)}&src=typed_query&f=live"
     try:
-        page.goto(url, wait_until="networkidle", timeout=60000)
+        page.goto(url, wait_until="domcontentloaded", timeout=30000)
+        logger.info("[INFO] Search page loaded for '%s', waiting for tweets...", topic)
+        # Give Twitter a moment to render initial tweets
+        time.sleep(2)
     except PlaywrightTimeout:
         logger.warning("Timeout while loading topic '%s'.", topic)
         return
