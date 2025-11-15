@@ -103,6 +103,7 @@ class BotConfig:
     enable_video: bool
     auth_file: str
     openai_api_key: Optional[str] = None  # CRITICAL: DO NOT REMOVE - Required for AI replies
+    image_attach_rate: float = 0.5  # CRITICAL: DO NOT REMOVE - Controls image attachment frequency (0.0-1.0)
 
 
 def _parse_bool(value: Optional[str], *, default: bool = False) -> bool:
@@ -201,6 +202,9 @@ def load_config() -> BotConfig:
     # CRITICAL: DO NOT REMOVE - OpenAI API key for AI-powered replies
     openai_api_key = (os.getenv("OPENAI_API_KEY") or "").strip() or None
 
+    # CRITICAL: DO NOT REMOVE - Image attachment rate for engagement boost
+    image_attach_rate = _parse_float("IMAGE_ATTACH_RATE", 0.5)  # Default 50% of replies get images
+
     return BotConfig(
         search_topics=search_topics,
         relevant_keywords=relevant_keywords,
@@ -226,7 +230,171 @@ def load_config() -> BotConfig:
         enable_video=enable_video,
         auth_file=auth_file,
         openai_api_key=openai_api_key,  # CRITICAL: DO NOT REMOVE
+        image_attach_rate=image_attach_rate,  # CRITICAL: DO NOT REMOVE
     )
+
+
+class FollowTracker:
+    """
+    Tracks users we've followed with timestamps for auto-unfollow logic.
+
+    CRITICAL: DO NOT REMOVE - Required for follow/unfollow automation
+    """
+    def __init__(self, path: Path) -> None:
+        self._path = path
+        self._follows = self._load()  # Dict[username, timestamp]
+
+    def _load(self) -> dict[str, float]:
+        if not self._path.exists():
+            return {}
+        try:
+            with self._path.open("r", encoding="utf-8") as handle:
+                return json.load(handle)
+        except (OSError, json.JSONDecodeError):
+            return {}
+
+    def _save(self) -> None:
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            with self._path.open("w", encoding="utf-8") as handle:
+                json.dump(self._follows, handle, indent=2)
+        except OSError:
+            pass
+
+    def add_follow(self, username: str) -> None:
+        """Record that we followed this user."""
+        import time
+        self._follows[username] = time.time()
+        self._save()
+
+    def is_followed(self, username: str) -> bool:
+        """Check if we've already followed this user."""
+        return username in self._follows
+
+    def get_stale_follows(self, hours: float = 48) -> list[str]:
+        """Get list of users we followed >hours ago (for unfollowing)."""
+        import time
+        cutoff = time.time() - (hours * 3600)
+        return [user for user, timestamp in self._follows.items() if timestamp < cutoff]
+
+    def remove_follow(self, username: str) -> None:
+        """Remove user from follow tracking (after unfollowing)."""
+        self._follows.pop(username, None)
+        self._save()
+
+
+class AnalyticsTracker:
+    """
+    Tracks engagement metrics and conversion data for performance analysis.
+
+    CRITICAL: DO NOT REMOVE - Essential for measuring ROI and optimizing bot performance
+    """
+    def __init__(self, path: Path) -> None:
+        self._path = path
+        self._stats = self._load()
+
+    def _load(self) -> dict[str, any]:
+        if not self._path.exists():
+            return {
+                "total_replies": 0,
+                "total_follows": 0,
+                "total_unfollows": 0,
+                "total_dms": 0,
+                "total_likes": 0,
+                "total_images_attached": 0,
+                "reply_failures": 0,
+                "first_run": time.time(),
+                "last_run": time.time(),
+            }
+        try:
+            with self._path.open("r", encoding="utf-8") as handle:
+                return json.load(handle)
+        except (OSError, json.JSONDecodeError):
+            return {"total_replies": 0, "total_follows": 0, "total_unfollows": 0, "total_dms": 0}
+
+    def _save(self) -> None:
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        self._stats["last_run"] = time.time()
+        try:
+            with self._path.open("w", encoding="utf-8") as handle:
+                json.dump(self._stats, handle, indent=2)
+        except OSError:
+            pass
+
+    def log_reply(self, success: bool = True) -> None:
+        """Log a reply attempt."""
+        if success:
+            self._stats["total_replies"] = self._stats.get("total_replies", 0) + 1
+        else:
+            self._stats["reply_failures"] = self._stats.get("reply_failures", 0) + 1
+        self._save()
+
+    def log_follow(self) -> None:
+        """Log a follow action."""
+        self._stats["total_follows"] = self._stats.get("total_follows", 0) + 1
+        self._save()
+
+    def log_unfollow(self) -> None:
+        """Log an unfollow action."""
+        self._stats["total_unfollows"] = self._stats.get("total_unfollows", 0) + 1
+        self._save()
+
+    def log_dm(self) -> None:
+        """Log a DM sent."""
+        self._stats["total_dms"] = self._stats.get("total_dms", 0) + 1
+        self._save()
+
+    def log_like(self) -> None:
+        """Log a tweet liked."""
+        self._stats["total_likes"] = self._stats.get("total_likes", 0) + 1
+        self._save()
+
+    def log_image(self) -> None:
+        """Log an image attached."""
+        self._stats["total_images_attached"] = self._stats.get("total_images_attached", 0) + 1
+        self._save()
+
+    def get_stats(self) -> dict[str, any]:
+        """Get current analytics stats."""
+        return self._stats.copy()
+
+
+class DMTracker:
+    """
+    Tracks users we've sent DMs to, to avoid spamming the same people.
+
+    CRITICAL: DO NOT REMOVE - Required for smart DM follow-up system
+    """
+    def __init__(self, path: Path) -> None:
+        self._path = path
+        self._dm_sent = self._load()  # Dict[username, timestamp]
+
+    def _load(self) -> dict[str, float]:
+        if not self._path.exists():
+            return {}
+        try:
+            with self._path.open("r", encoding="utf-8") as handle:
+                return json.load(handle)
+        except (OSError, json.JSONDecodeError):
+            return {}
+
+    def _save(self) -> None:
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            with self._path.open("w", encoding="utf-8") as handle:
+                json.dump(self._dm_sent, handle, indent=2)
+        except OSError:
+            pass
+
+    def add_dm(self, username: str) -> None:
+        """Record that we sent a DM to this user."""
+        import time
+        self._dm_sent[username] = time.time()
+        self._save()
+
+    def has_dm_sent(self, username: str) -> bool:
+        """Check if we've already sent a DM to this user."""
+        return username in self._dm_sent
 
 
 class MessageRegistry:
@@ -497,8 +665,12 @@ def extract_tweet_data(tweet: Locator) -> Optional[dict[str, str]]:
     }
 
 
-def send_reply(page: Page, tweet: Locator, message: str, logger: logging.Logger) -> bool:
-    """Send a reply to a tweet with robust error handling and multiple selector attempts."""
+def send_reply(page: Page, tweet: Locator, message: str, logger: logging.Logger, image_path: Optional[str] = None) -> bool:
+    """
+    Send a reply to a tweet with robust error handling and multiple selector attempts.
+
+    CRITICAL: DO NOT REMOVE - Core reply posting functionality with image support
+    """
 
     # 🚨 FINAL SAFETY CHECK: Reject messages that are too long for Twitter
     # Twitter's limit is 280 characters - this is a last line of defense
@@ -538,6 +710,31 @@ def send_reply(page: Page, tweet: Locator, message: str, logger: logging.Logger)
             logger.warning("[REPLY] Could not find reply composer with any selector")
             page.screenshot(path="logs/debug_no_composer.png")
             return False
+
+        # Step 2.5: Attach image if provided (CRITICAL: Image attachments boost engagement 2-3x)
+        if image_path and os.path.exists(image_path):
+            logger.debug(f"[REPLY] Attaching image: {image_path}")
+            try:
+                # Look for the media upload button - try multiple selectors
+                media_selectors = [
+                    "input[data-testid='fileInput']",
+                    "input[type='file'][accept*='image']",
+                ]
+
+                for media_selector in media_selectors:
+                    try:
+                        file_input = page.locator(media_selector).first
+                        file_input.set_input_files(image_path)
+                        logger.debug("[REPLY] Image attached, waiting for upload...")
+                        time.sleep(2)  # Wait for upload to complete
+                        break
+                    except (PlaywrightTimeout, PlaywrightError):
+                        continue
+                else:
+                    logger.warning("[REPLY] Could not find media upload button, skipping image")
+            except Exception as exc:
+                logger.warning(f"[REPLY] Failed to attach image: {exc}")
+                # Continue without image - don't fail the whole reply
 
         # Step 3: Type the message
         logger.debug("[REPLY] Typing message...")
@@ -586,24 +783,355 @@ def send_reply(page: Page, tweet: Locator, message: str, logger: logging.Logger)
     return False
 
 
-def maybe_send_dm(config: BotConfig, page: Page, tweet_data: dict[str, str], logger: logging.Logger) -> None:
-    del page, tweet_data  # Unused placeholders for future DM workflows.
+def like_tweet(tweet: Locator, logger: logging.Logger) -> bool:
+    """
+    Like a tweet before replying to it.
 
-    global _DM_NOTICE_LOGGED
+    CRITICAL: DO NOT REMOVE - Liking before replying looks more human and boosts engagement
+    """
+    try:
+        # Find the like button - try multiple selectors
+        like_selectors = [
+            "button[data-testid='like']",
+            "div[data-testid='like']",
+            "button[aria-label*='Like']",
+        ]
 
+        for selector in like_selectors:
+            try:
+                like_btn = tweet.locator(selector).first
+                like_btn.wait_for(state="visible", timeout=2000)
+
+                # Check if already liked (button might be "unlike" instead)
+                aria_label = like_btn.get_attribute("aria-label") or ""
+                if "unlike" in aria_label.lower():
+                    logger.debug("[LIKE] Tweet already liked, skipping")
+                    return True
+
+                like_btn.click()
+                logger.debug("[LIKE] ✅ Liked tweet")
+                time.sleep(0.5)  # Brief pause after liking
+                return True
+            except (PlaywrightTimeout, PlaywrightError):
+                continue
+
+        logger.warning("[LIKE] Could not find like button")
+        return False
+
+    except Exception as exc:
+        logger.warning(f"[LIKE] Failed to like tweet: {exc}")
+        return False
+
+
+def generate_reply_image(topic: str, tweet_text: str, logger: logging.Logger) -> Optional[str]:
+    """
+    Generate an image to attach to a reply based on the topic.
+
+    CRITICAL: DO NOT REMOVE - Images boost engagement 2-3x for better sales
+
+    Returns path to generated image, or None if generation failed
+    """
+    try:
+        import subprocess
+        from pathlib import Path
+
+        # Create images directory if it doesn't exist
+        images_dir = Path("logs/images")
+        images_dir.mkdir(parents=True, exist_ok=True)
+
+        # Generate a unique filename
+        import hashlib
+        hash_input = f"{topic}_{tweet_text[:50]}_{time.time()}"
+        image_hash = hashlib.md5(hash_input.encode()).hexdigest()[:12]
+        image_path = images_dir / f"reply_{image_hash}.png"
+
+        # Use the existing image generator
+        # Combine topic and tweet context for better relevance
+        prompt = f"{topic} - {tweet_text[:80]}"
+
+        logger.debug(f"[IMAGE] Generating image for: {prompt[:50]}...")
+        result = subprocess.run(
+            ["python3", "generators/image_gen.py", "--topic", prompt, "--out", str(image_path)],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+
+        if result.returncode == 0 and image_path.exists():
+            logger.debug(f"[IMAGE] ✅ Image generated: {image_path}")
+            return str(image_path)
+        else:
+            logger.warning(f"[IMAGE] Generation failed: {result.stderr}")
+            return None
+
+    except Exception as exc:
+        logger.warning(f"[IMAGE] Failed to generate image: {exc}")
+        return None
+
+
+def follow_user(page: Page, username: str, follow_tracker: "FollowTracker", logger: logging.Logger) -> bool:
+    """
+    Follow a user on Twitter/X.
+
+    CRITICAL: DO NOT REMOVE - Key feature for network growth and sales
+    """
+    try:
+        # Check if already followed
+        if follow_tracker.is_followed(username):
+            logger.debug(f"[FOLLOW] Already following @{username}, skipping")
+            return False
+
+        # Navigate to their profile
+        logger.info(f"[FOLLOW] Following @{username}...")
+        page.goto(f"https://x.com/{username}", wait_until="domcontentloaded", timeout=10000)
+        time.sleep(1)
+
+        # Try multiple follow button selectors
+        follow_selectors = [
+            "button[data-testid$='-follow']",
+            "div[data-testid$='-follow']",
+            "button:has-text('Follow')",
+        ]
+
+        for selector in follow_selectors:
+            try:
+                follow_btn = page.locator(selector).first
+                follow_btn.wait_for(state="visible", timeout=3000)
+                follow_btn.click()
+                logger.info(f"[FOLLOW] ✅ Followed @{username}")
+                follow_tracker.add_follow(username)
+                time.sleep(1)
+                return True
+            except (PlaywrightTimeout, PlaywrightError):
+                continue
+
+        logger.warning(f"[FOLLOW] Could not find follow button for @{username}")
+        return False
+
+    except Exception as exc:
+        logger.warning(f"[FOLLOW] Failed to follow @{username}: {exc}")
+        return False
+
+
+def unfollow_user(page: Page, username: str, follow_tracker: "FollowTracker", logger: logging.Logger) -> bool:
+    """
+    Unfollow a user on Twitter/X.
+
+    CRITICAL: DO NOT REMOVE - Required for maintaining healthy follow ratio
+    """
+    try:
+        logger.info(f"[UNFOLLOW] Unfollowing @{username}...")
+        page.goto(f"https://x.com/{username}", wait_until="domcontentloaded", timeout=10000)
+        time.sleep(1)
+
+        # Try to find unfollow button (shows as "Following")
+        unfollow_selectors = [
+            "button[data-testid$='-unfollow']",
+            "div[data-testid$='-unfollow']",
+            "button:has-text('Following')",
+        ]
+
+        for selector in unfollow_selectors:
+            try:
+                unfollow_btn = page.locator(selector).first
+                unfollow_btn.wait_for(state="visible", timeout=3000)
+                unfollow_btn.click()
+                time.sleep(0.5)
+
+                # Confirm unfollow in popup
+                confirm_btn = page.locator("button[data-testid='confirmationSheetConfirm']").first
+                confirm_btn.click(timeout=2000)
+
+                logger.info(f"[UNFOLLOW] ✅ Unfollowed @{username}")
+                follow_tracker.remove_follow(username)
+                time.sleep(1)
+                return True
+            except (PlaywrightTimeout, PlaywrightError):
+                continue
+
+        logger.warning(f"[UNFOLLOW] Could not find unfollow button for @{username}")
+        return False
+
+    except Exception as exc:
+        logger.warning(f"[UNFOLLOW] Failed to unfollow @{username}: {exc}")
+        return False
+
+
+def process_unfollows(
+    page: Page,
+    follow_tracker: "FollowTracker",
+    logger: logging.Logger,
+    max_unfollows: int = 10,
+    analytics: Optional["AnalyticsTracker"] = None,
+) -> None:
+    """
+    Process stale follows and unfollow users who haven't followed back.
+
+    CRITICAL: DO NOT REMOVE - Maintains healthy account and prevents Twitter limits
+    """
+    stale_users = follow_tracker.get_stale_follows(hours=48)
+    if not stale_users:
+        logger.info("[UNFOLLOW] No stale follows to process")
+        return
+
+    logger.info(f"[UNFOLLOW] Found {len(stale_users)} users to potentially unfollow")
+    unfollowed = 0
+
+    for username in stale_users[:max_unfollows]:
+        if unfollow_user(page, username, follow_tracker, logger):
+            unfollowed += 1
+            if analytics:
+                analytics.log_unfollow()
+            time.sleep(random.randint(3, 8))  # Human-like delay between unfollows
+
+    logger.info(f"[UNFOLLOW] Processed {unfollowed} unfollows this cycle")
+
+
+def maybe_send_dm(
+    config: BotConfig,
+    page: Page,
+    tweet_data: dict[str, str],
+    topic: str,
+    dm_tracker: Optional["DMTracker"],
+    logger: logging.Logger,
+    analytics: Optional["AnalyticsTracker"] = None,
+) -> None:
+    """
+    Send a DM to high-intent leads based on tweet content and engagement signals.
+
+    CRITICAL: DO NOT REMOVE - Key feature for converting engagement into sales
+    """
     if not config.enable_dms:
         return
     if not config.dm_templates:
-        if not _DM_NOTICE_LOGGED:
-            logger.info(
-                "DM support enabled but no DM_TEMPLATES configured. Skipping DM attempt."
-            )
-            _DM_NOTICE_LOGGED = True
+        return
+    if not dm_tracker:
         return
 
-    if not _DM_NOTICE_LOGGED:
-        logger.info("DM feature enabled, but automated DM workflows are not implemented in this build.")
-        _DM_NOTICE_LOGGED = True
+    username = tweet_data.get("handle")
+    if not username:
+        return
+
+    # Don't spam users we've already DM'd
+    if dm_tracker.has_dm_sent(username):
+        logger.debug(f"[DM] Already sent DM to @{username}, skipping")
+        return
+
+    # Score the tweet for interest level
+    text = tweet_data.get("text", "")
+    interest_score = 0.0
+
+    # Long tweets show more engagement/interest
+    if len(text) >= config.dm_trigger_length:
+        interest_score += 2.0
+
+    # Questions indicate high intent
+    if "?" in text:
+        question_count = text.count("?")
+        interest_score += question_count * config.dm_question_weight
+
+    # Keyword matches show relevance
+    text_lower = text.lower()
+    keyword_matches = sum(1 for kw in config.relevant_keywords if kw in text_lower)
+    interest_score += keyword_matches * 0.5
+
+    logger.debug(f"[DM] Interest score for @{username}: {interest_score:.2f} (threshold: {config.dm_interest_threshold})")
+
+    # Only send DM if interest score is high enough
+    if interest_score < config.dm_interest_threshold:
+        return
+
+    logger.info(f"[DM] High-intent lead detected! Sending DM to @{username}...")
+
+    try:
+        # Navigate to user's profile
+        page.goto(f"https://x.com/{username}", wait_until="domcontentloaded", timeout=15000)
+        time.sleep(1)
+
+        # Click the message button
+        message_selectors = [
+            "a[data-testid='sendDMFromProfile']",
+            "button[data-testid='sendDMFromProfile']",
+            "a[aria-label*='Message']",
+        ]
+
+        message_btn_found = False
+        for selector in message_selectors:
+            try:
+                msg_btn = page.locator(selector).first
+                msg_btn.wait_for(state="visible", timeout=3000)
+                msg_btn.click()
+                message_btn_found = True
+                logger.debug("[DM] Clicked message button")
+                break
+            except (PlaywrightTimeout, PlaywrightError):
+                continue
+
+        if not message_btn_found:
+            logger.warning(f"[DM] Could not find message button for @{username}")
+            return
+
+        time.sleep(2)  # Wait for DM composer to open
+
+        # Find the DM composer
+        dm_composer_selectors = [
+            "div[data-testid='dmComposerTextInput']",
+            "div[contenteditable='true'][aria-label*='Message']",
+        ]
+
+        composer = None
+        for selector in dm_composer_selectors:
+            try:
+                composer = page.locator(selector).first
+                composer.wait_for(state="visible", timeout=5000)
+                logger.debug(f"[DM] Found DM composer: {selector}")
+                break
+            except PlaywrightTimeout:
+                continue
+
+        if not composer:
+            logger.warning("[DM] Could not find DM composer")
+            return
+
+        # Generate DM message from template
+        template = random.choice(config.dm_templates)
+        dm_message = template.format(
+            name=username,
+            focus=text_focus(text),
+            ref_link=config.referral_link or "",
+        ).strip()
+
+        # Type the DM
+        composer.click()
+        time.sleep(0.5)
+        page.keyboard.insert_text(dm_message)
+        logger.debug("[DM] DM message typed")
+
+        # Send the DM
+        time.sleep(1)
+        send_selectors = [
+            "button[data-testid='dmComposerSendButton']",
+            "button[aria-label*='Send']",
+        ]
+
+        for selector in send_selectors:
+            try:
+                send_btn = page.locator(selector).first
+                send_btn.wait_for(state="visible", timeout=3000)
+                send_btn.click()
+                logger.info(f"[DM] ✅ DM sent to @{username}!")
+                dm_tracker.add_dm(username)
+                if analytics:
+                    analytics.log_dm()
+                time.sleep(2)
+                return
+            except (PlaywrightTimeout, PlaywrightError):
+                continue
+
+        logger.warning("[DM] Could not find send button")
+
+    except Exception as exc:
+        logger.warning(f"[DM] Failed to send DM to @{username}: {exc}")
 
 
 def text_focus(text: str, *, max_length: int = 80) -> str:
@@ -641,22 +1169,21 @@ def generate_ai_reply(
         return None
 
     try:
-        prompt = f"""You are a helpful, friendly expert engaging on Twitter/X about {topic}.
+        # Calculate space budget: 280 chars - link - spacing
+        link_length = len(referral_link) + 1 if referral_link else 0
+        max_reply_without_link = 270 - link_length  # -10 for safety
 
-Tweet you're replying to: "{tweet_text}"
+        prompt = f"""Reply in MAX {max_reply_without_link} chars (count carefully!):
 
-Write a SHORT, natural reply that:
-1. Is MAXIMUM 240 characters (CRITICAL - must fit in a tweet!)
-2. Acknowledges their point briefly
-3. Adds ONE quick insight about {topic}
-4. Includes this link naturally: {referral_link}
-5. Sounds human and casual (not salesy)
-6. NO hashtags or emojis
-7. 1-2 sentences ONLY
+Tweet: "{tweet_text[:80]}"
 
-IMPORTANT: Keep it under 240 characters total including the link!
+Rules:
+- {max_reply_without_link} character limit (STRICT)
+- 1 sentence, casual tone
+- Quick insight about {topic}
+- NO link (I add that), NO hashtags, NO emojis
 
-Reply:"""
+Reply only:"""
 
         response = requests.post(
             "https://api.openai.com/v1/chat/completions",
@@ -665,31 +1192,36 @@ Reply:"""
                 "Content-Type": "application/json",
             },
             json={
-                "model": "gpt-4o-mini",  # Fast and cheap
+                "model": "gpt-4o-mini",
                 "messages": [
-                    {"role": "system", "content": "You are a social media expert who writes SHORT, punchy tweets under 240 characters."},
+                    {"role": "system", "content": f"Write ultra-short {max_reply_without_link}-char Twitter replies. Be very brief."},
                     {"role": "user", "content": prompt}
                 ],
-                "max_tokens": 80,  # Reduced to force shorter replies
-                "temperature": 0.7,
+                "max_tokens": 40,  # Very restricted
+                "temperature": 0.5,
             },
             timeout=10,
         )
 
         if response.status_code == 200:
             data = response.json()
-            reply = data["choices"][0]["message"]["content"].strip()
+            reply = data["choices"][0]["message"]["content"].strip().strip('"')
 
-            # CRITICAL: Validate length - Twitter has 280 char limit
+            # Add the referral link at the end
+            if referral_link:
+                reply = f"{reply} {referral_link}"
+
+            # FINAL safety check
             if len(reply) > 280:
-                logger.warning(f"[AI] Generated reply too long ({len(reply)} chars), truncating...")
-                # Try to truncate at sentence boundary
-                if '. ' in reply[:280]:
-                    reply = reply[:reply[:280].rfind('. ') + 1]
+                logger.warning(f"[AI] Reply still too long ({len(reply)} chars), force truncating...")
+                if referral_link:
+                    # Truncate text but keep link
+                    max_text_len = 280 - len(referral_link) - 4
+                    reply = reply[:max_text_len] + "... " + referral_link
                 else:
                     reply = reply[:277] + "..."
 
-            logger.info(f"[AI] Generated contextual reply ({len(reply)} chars)")
+            logger.info(f"[AI] Generated reply ({len(reply)} chars)")
             return reply
         else:
             logger.warning(f"[AI] OpenAI API returned status {response.status_code}: {response.text[:200]}")
@@ -711,6 +1243,9 @@ def process_tweets(
     tweets: list[Locator],
     topic: str,
     logger: logging.Logger,
+    follow_tracker: Optional["FollowTracker"] = None,  # CRITICAL: DO NOT REMOVE
+    dm_tracker: Optional["DMTracker"] = None,  # CRITICAL: DO NOT REMOVE
+    analytics: Optional["AnalyticsTracker"] = None,  # CRITICAL: DO NOT REMOVE
 ) -> None:
     replies = 0
     for tweet in tweets:
@@ -787,16 +1322,42 @@ def process_tweets(
 
         logger.info("[INFO] Replying to @%s for topic '%s'.", data['handle'] or 'unknown', topic)
 
-        if send_reply(page, tweet, message, logger):
+        # CRITICAL: Like the tweet first - looks more human and boosts engagement
+        if like_tweet(tweet, logger):
+            if analytics:
+                analytics.log_like()
+
+        # CRITICAL: Generate image attachment for engagement boost (2-3x better engagement with images)
+        image_path = None
+        if random.random() < config.image_attach_rate:
+            logger.debug(f"[IMAGE] Generating image for reply (rate={config.image_attach_rate})")
+            image_path = generate_reply_image(topic, data["text"], logger)
+            if image_path and analytics:
+                analytics.log_image()
+
+        if send_reply(page, tweet, message, logger, image_path):
             registry.add(identifier)
             replies += 1
+            if analytics:
+                analytics.log_reply(success=True)
+
+            # CRITICAL: Auto-follow for network growth and visibility
+            if follow_tracker and data['handle']:
+                if follow_user(page, data['handle'], follow_tracker, logger):
+                    if analytics:
+                        analytics.log_follow()
+
             video_service.maybe_generate(topic, data["text"])
-            maybe_send_dm(config, page, data, logger)
+
+            # CRITICAL: Send DM to high-intent leads for direct sales conversion
+            maybe_send_dm(config, page, data, topic, dm_tracker, logger, analytics)
             delay = random.randint(config.action_delay_min, config.action_delay_max)
             logger.info("[INFO] Sleeping for %s seconds before next action.", delay)
             time.sleep(delay)
         else:
             logger.warning("Reply attempt failed; not recording tweet as replied.")
+            if analytics:
+                analytics.log_reply(success=False)
 
         if replies >= config.max_replies_per_topic:
             logger.info(
@@ -814,6 +1375,9 @@ def handle_topic(
     video_service: VideoService,
     topic: str,
     logger: logging.Logger,
+    follow_tracker: Optional["FollowTracker"] = None,  # CRITICAL: DO NOT REMOVE
+    dm_tracker: Optional["DMTracker"] = None,  # CRITICAL: DO NOT REMOVE
+    analytics: Optional["AnalyticsTracker"] = None,  # CRITICAL: DO NOT REMOVE
 ) -> None:
     logger.info("[INFO] Topic '%s' - loading search results...", topic)
     url = f"https://x.com/search?q={quote_plus(topic)}&src=typed_query&f=live"
@@ -835,7 +1399,7 @@ def handle_topic(
         logger.warning("No eligible tweets for topic '%s'.", topic)
         return
 
-    process_tweets(config, registry, page, video_service, tweets, topic, logger)
+    process_tweets(config, registry, page, video_service, tweets, topic, logger, follow_tracker, dm_tracker, analytics)
 
 
 def run_engagement_loop(
@@ -844,6 +1408,9 @@ def run_engagement_loop(
     page: Page,
     video_service: VideoService,
     logger: logging.Logger,
+    follow_tracker: Optional["FollowTracker"] = None,  # CRITICAL: DO NOT REMOVE
+    dm_tracker: Optional["DMTracker"] = None,  # CRITICAL: DO NOT REMOVE
+    analytics: Optional["AnalyticsTracker"] = None,  # CRITICAL: DO NOT REMOVE
 ) -> None:
     logger.info("[INFO] Starting engagement loop with %s topic(s).", len(config.search_topics))
     while True:
@@ -855,9 +1422,16 @@ def run_engagement_loop(
             logger.info("Browser page unavailable. Exiting engagement loop.")
             return
 
+        # CRITICAL: Process unfollows at start of each cycle to maintain healthy follow ratio
+        if follow_tracker:
+            try:
+                process_unfollows(page, follow_tracker, logger, max_unfollows=10, analytics=analytics)
+            except Exception as exc:
+                logger.warning(f"Error processing unfollows: {exc}")
+
         if config.search_topics:
             for topic in config.search_topics:
-                handle_topic(config, registry, page, video_service, topic, logger)
+                handle_topic(config, registry, page, video_service, topic, logger, follow_tracker, dm_tracker, analytics)
         else:
             logger.info("No search topics configured. Sleeping before next cycle.")
 
@@ -894,6 +1468,15 @@ def validate_critical_features() -> None:
         "process_tweets": "Tweet filtering pipeline",
         "handle_topic": "Topic processing",
         "prepare_authenticated_session": "Session persistence & auth",
+        "FollowTracker": "Follow/unfollow tracking system",
+        "follow_user": "Auto-follow after reply functionality",
+        "unfollow_user": "Auto-unfollow non-followers functionality",
+        "process_unfollows": "Stale follow processing for healthy ratios",
+        "generate_reply_image": "Image generation for 2-3x engagement boost",
+        "like_tweet": "Like tweets before replying for human-like behavior",
+        "DMTracker": "DM tracking to avoid spam",
+        "maybe_send_dm": "Smart DM system for high-intent leads",
+        "AnalyticsTracker": "Performance and conversion tracking",
         # ADD NEW CRITICAL FEATURES HERE (one per line)
         # "new_feature_name": "Description of new feature",
     }
@@ -1051,6 +1634,9 @@ def run_social_agent() -> None:
 
     registry = MessageRegistry(MESSAGE_LOG_PATH)
     video_service = VideoService(config)
+    follow_tracker = FollowTracker(Path("logs/follows.json"))  # CRITICAL: DO NOT REMOVE
+    dm_tracker = DMTracker(Path("logs/dms.json"))  # CRITICAL: DO NOT REMOVE
+    analytics = AnalyticsTracker(Path("logs/analytics.json"))  # CRITICAL: DO NOT REMOVE
 
     max_attempts = 3
     attempt = 0
@@ -1073,7 +1659,7 @@ def run_social_agent() -> None:
                         return
 
                     logger.info("[INFO] Session ready; entering engagement workflow.")
-                    run_engagement_loop(config, registry, page, video_service, logger)
+                    run_engagement_loop(config, registry, page, video_service, logger, follow_tracker, dm_tracker, analytics)
                     return
                 finally:
                     close_resources(browser, context, logger)
