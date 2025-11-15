@@ -499,6 +499,14 @@ def extract_tweet_data(tweet: Locator) -> Optional[dict[str, str]]:
 
 def send_reply(page: Page, tweet: Locator, message: str, logger: logging.Logger) -> bool:
     """Send a reply to a tweet with robust error handling and multiple selector attempts."""
+
+    # 🚨 FINAL SAFETY CHECK: Reject messages that are too long for Twitter
+    # Twitter's limit is 280 characters - this is a last line of defense
+    if len(message) > 280:
+        logger.error(f"[REPLY] ❌ Message too long ({len(message)} chars) - Twitter limit is 280. Rejecting.")
+        logger.error(f"[REPLY] Message was: {message[:100]}...")
+        return False
+
     try:
         # Step 1: Click the reply button
         logger.debug("[REPLY] Looking for reply button...")
@@ -873,6 +881,9 @@ def validate_critical_features() -> None:
     """
     import sys
 
+    # 📋 WHEN ADDING NEW FEATURES: Add them to this dictionary!
+    # Format: "function_or_class_name": "Description of what it does"
+    # The bot will check that each of these exists before starting
     critical_features = {
         "generate_ai_reply": "OpenAI AI-powered reply generation",
         "MessageRegistry": "Tweet deduplication system",
@@ -883,6 +894,8 @@ def validate_critical_features() -> None:
         "process_tweets": "Tweet filtering pipeline",
         "handle_topic": "Topic processing",
         "prepare_authenticated_session": "Session persistence & auth",
+        # ADD NEW CRITICAL FEATURES HERE (one per line)
+        # "new_feature_name": "Description of new feature",
     }
 
     missing_features = []
