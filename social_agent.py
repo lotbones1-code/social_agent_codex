@@ -637,14 +637,16 @@ def generate_ai_reply(
 
 Tweet you're replying to: "{tweet_text}"
 
-Write a natural, conversational reply that:
-1. Acknowledges their point or question
-2. Adds value or insight related to {topic}
-3. Naturally mentions this resource: {referral_link}
-4. Sounds human and authentic (not salesy or robotic)
-5. Is 1-2 sentences max (under 280 characters)
-6. Does NOT use hashtags or emojis
-7. Does NOT sound like marketing copy
+Write a SHORT, natural reply that:
+1. Is MAXIMUM 240 characters (CRITICAL - must fit in a tweet!)
+2. Acknowledges their point briefly
+3. Adds ONE quick insight about {topic}
+4. Includes this link naturally: {referral_link}
+5. Sounds human and casual (not salesy)
+6. NO hashtags or emojis
+7. 1-2 sentences ONLY
+
+IMPORTANT: Keep it under 240 characters total including the link!
 
 Reply:"""
 
@@ -657,11 +659,11 @@ Reply:"""
             json={
                 "model": "gpt-4o-mini",  # Fast and cheap
                 "messages": [
-                    {"role": "system", "content": "You are a helpful social media expert who writes natural, conversational tweets."},
+                    {"role": "system", "content": "You are a social media expert who writes SHORT, punchy tweets under 240 characters."},
                     {"role": "user", "content": prompt}
                 ],
-                "max_tokens": 150,
-                "temperature": 0.8,
+                "max_tokens": 80,  # Reduced to force shorter replies
+                "temperature": 0.7,
             },
             timeout=10,
         )
@@ -669,7 +671,17 @@ Reply:"""
         if response.status_code == 200:
             data = response.json()
             reply = data["choices"][0]["message"]["content"].strip()
-            logger.info("[AI] Generated contextual reply using OpenAI")
+
+            # CRITICAL: Validate length - Twitter has 280 char limit
+            if len(reply) > 280:
+                logger.warning(f"[AI] Generated reply too long ({len(reply)} chars), truncating...")
+                # Try to truncate at sentence boundary
+                if '. ' in reply[:280]:
+                    reply = reply[:reply[:280].rfind('. ') + 1]
+                else:
+                    reply = reply[:277] + "..."
+
+            logger.info(f"[AI] Generated contextual reply ({len(reply)} chars)")
             return reply
         else:
             logger.warning(f"[AI] OpenAI API returned status {response.status_code}: {response.text[:200]}")
