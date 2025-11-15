@@ -305,6 +305,7 @@ class AnalyticsTracker:
                 "total_dms": 0,
                 "total_likes": 0,
                 "total_images_attached": 0,
+                "total_original_posts": 0,
                 "reply_failures": 0,
                 "first_run": time.time(),
                 "last_run": time.time(),
@@ -357,9 +358,72 @@ class AnalyticsTracker:
         self._stats["total_images_attached"] = self._stats.get("total_images_attached", 0) + 1
         self._save()
 
+    def log_post(self) -> None:
+        """Log an original post."""
+        self._stats["total_original_posts"] = self._stats.get("total_original_posts", 0) + 1
+        self._save()
+
     def get_stats(self) -> dict[str, any]:
         """Get current analytics stats."""
         return self._stats.copy()
+
+
+class PostTracker:
+    """
+    Tracks original posts to manage posting frequency.
+
+    CRITICAL: DO NOT REMOVE - Manages original content posting for visibility and growth
+    """
+    def __init__(self, path: Path) -> None:
+        self._path = path
+        self._data = self._load()
+
+    def _load(self) -> dict:
+        if not self._path.exists():
+            return {
+                "last_post_time": 0,
+                "total_posts": 0,
+                "posts_today": 0,
+                "last_reset_day": time.strftime("%Y-%m-%d"),
+            }
+        try:
+            with self._path.open("r", encoding="utf-8") as f:
+                return json.load(f)
+        except (OSError, json.JSONDecodeError):
+            return {"last_post_time": 0, "total_posts": 0, "posts_today": 0}
+
+    def _save(self) -> None:
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            with self._path.open("w", encoding="utf-8") as f:
+                json.dump(self._data, f, indent=2)
+        except OSError:
+            pass
+
+    def can_post(self, min_hours_between: float = 4.0, max_daily: int = 3) -> bool:
+        """Check if enough time has passed since last post and under daily limit."""
+        # Reset daily counter if it's a new day
+        today = time.strftime("%Y-%m-%d")
+        if self._data.get("last_reset_day") != today:
+            self._data["posts_today"] = 0
+            self._data["last_reset_day"] = today
+            self._save()
+
+        # Check daily limit
+        if self._data.get("posts_today", 0) >= max_daily:
+            return False
+
+        # Check time since last post
+        time_since_last = time.time() - self._data.get("last_post_time", 0)
+        hours_since_last = time_since_last / 3600
+        return hours_since_last >= min_hours_between
+
+    def log_post(self) -> None:
+        """Log that we posted."""
+        self._data["last_post_time"] = time.time()
+        self._data["total_posts"] = self._data.get("total_posts", 0) + 1
+        self._data["posts_today"] = self._data.get("posts_today", 0) + 1
+        self._save()
 
 
 class DMTracker:
@@ -794,6 +858,160 @@ def send_reply(page: Page, tweet: Locator, message: str, logger: logging.Logger,
         page.screenshot(path="logs/debug_reply_error.png")
 
     return False
+
+
+def generate_original_post(
+    topic: str,
+    referral_link: str,
+    openai_api_key: str,
+    logger: logging.Logger,
+) -> Optional[str]:
+    """
+    Generate an original tweet using ChatGPT with hashtags for discovery.
+
+    CRITICAL: DO NOT REMOVE - Original posts increase visibility and follower growth
+    """
+    if not openai_api_key or openai_api_key.startswith("<set-your"):
+        logger.debug("OpenAI API key not configured. Skipping original post generation.")
+        return None
+
+    try:
+        link_length = len(referral_link) + 1 if referral_link else 0
+        max_post_without_link = 280 - link_length - 10
+
+        post_styles = [
+            "Share a counterintuitive insight about {topic} that most people get wrong. Be specific.",
+            "Drop a quick tactical tip about {topic} with a concrete number or stat.",
+            "Ask a thought-provoking question about {topic} that sparks discussion.",
+            "Share what you learned this week about {topic}. Be authentic.",
+            "Challenge a common belief about {topic}. Be direct.",
+            "Share a mini case study or result from {topic}. Include numbers.",
+        ]
+
+        import random
+        style = random.choice(post_styles).format(topic=topic)
+
+        prompt = f"""{style}
+
+Max: {max_post_without_link} chars
+Include 2-3 relevant hashtags at the end (e.g. #AI #SaaS #GrowthHacking)
+
+Write like a builder sharing value. Be casual, specific, and interesting. NO emojis. NO link."""
+
+        response = requests.post(
+            "https://api.openai.com/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {openai_api_key}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": "gpt-4o-mini",
+                "messages": [
+                    {"role": "system", "content": f"You're a builder posting value on Twitter. MAX {max_post_without_link} chars including hashtags. Every post is DIFFERENT and interesting. Include 2-3 relevant hashtags."},
+                    {"role": "user", "content": prompt}
+                ],
+                "max_tokens": 60,
+                "temperature": 0.9,
+            },
+            timeout=10,
+        )
+
+        if response.status_code == 200:
+            data = response.json()
+            post_text = data["choices"][0]["message"]["content"].strip().strip('"')
+
+            # Add link
+            if referral_link:
+                max_text_len = 280 - len(referral_link) - 1 - 5
+                if len(post_text) > max_text_len:
+                    logger.warning(f"[POST] Text too long ({len(post_text)} chars), truncating")
+                    post_text = post_text[:max_text_len].rstrip() + "..."
+                post = f"{post_text}\n\n{referral_link}"
+            else:
+                if len(post_text) > 280:
+                    post = post_text[:277] + "..."
+                else:
+                    post = post_text
+
+            if len(post) > 280:
+                post = post[:280]
+
+            logger.info(f"[POST] Generated original post ({len(post)} chars)")
+            return post
+        else:
+            logger.warning(f"[POST] OpenAI API error: {response.status_code}")
+            return None
+
+    except Exception as exc:
+        logger.warning(f"[POST] Failed to generate original post: {exc}")
+        return None
+
+
+def post_original_tweet(page: Page, content: str, logger: logging.Logger) -> bool:
+    """
+    Post an original tweet to increase visibility and followers.
+
+    CRITICAL: DO NOT REMOVE - Original content posting for audience growth
+    """
+    try:
+        logger.info("[POST] Posting original tweet...")
+
+        # Go to home page
+        page.goto("https://x.com/home", wait_until="domcontentloaded", timeout=30000)
+        time.sleep(2)
+
+        # Find the compose box
+        compose_selectors = [
+            "div[data-testid='tweetTextarea_0']",
+            "div[contenteditable='true'][aria-label*='Post']",
+            "div[contenteditable='true'][aria-label*='Tweet']",
+        ]
+
+        composer = None
+        for selector in compose_selectors:
+            try:
+                composer = page.locator(selector).first
+                composer.wait_for(state="visible", timeout=5000)
+                logger.debug(f"[POST] Found composer with selector: {selector}")
+                break
+            except PlaywrightTimeout:
+                continue
+
+        if not composer:
+            logger.warning("[POST] Could not find compose box")
+            return False
+
+        # Type the content
+        composer.click()
+        time.sleep(0.5)
+        page.keyboard.insert_text(content)
+        logger.debug("[POST] Content typed, looking for post button...")
+
+        # Click post button
+        time.sleep(1)
+        post_selectors = [
+            "button[data-testid='tweetButton']",
+            "button[data-testid='tweetButtonInline']",
+            "div[data-testid='tweetButton']",
+        ]
+
+        for selector in post_selectors:
+            try:
+                post_btn = page.locator(selector).first
+                post_btn.wait_for(state="visible", timeout=3000)
+                post_btn.click()
+                logger.info("[POST] ✅ Original tweet posted successfully!")
+                time.sleep(2)
+                return True
+            except (PlaywrightTimeout, PlaywrightError):
+                continue
+
+        logger.warning("[POST] Could not find post button")
+        return False
+
+    except Exception as exc:
+        logger.warning(f"[POST] Failed to post tweet: {exc}")
+        return False
 
 
 def like_tweet(tweet: Locator, logger: logging.Logger) -> bool:
@@ -1459,6 +1677,7 @@ def run_engagement_loop(
     follow_tracker: Optional["FollowTracker"] = None,  # CRITICAL: DO NOT REMOVE
     dm_tracker: Optional["DMTracker"] = None,  # CRITICAL: DO NOT REMOVE
     analytics: Optional["AnalyticsTracker"] = None,  # CRITICAL: DO NOT REMOVE
+    post_tracker: Optional["PostTracker"] = None,  # CRITICAL: DO NOT REMOVE - Original content posting
 ) -> None:
     logger.info("[INFO] Starting engagement loop with %s topic(s).", len(config.search_topics))
     while True:
@@ -1476,6 +1695,27 @@ def run_engagement_loop(
                 process_unfollows(page, follow_tracker, logger, max_unfollows=10, analytics=analytics)
             except Exception as exc:
                 logger.warning(f"Error processing unfollows: {exc}")
+
+        # CRITICAL: Post original content for visibility and follower growth (2-3x per day)
+        if post_tracker and post_tracker.can_post(min_hours_between=4.0, max_daily=3):
+            if config.search_topics and config.openai_api_key:
+                import random
+                topic = random.choice(config.search_topics)
+                logger.info(f"[POST] Time to post original content about '{topic}'")
+                post_content = generate_original_post(
+                    topic=topic,
+                    referral_link=config.referral_link or "",
+                    openai_api_key=config.openai_api_key,
+                    logger=logger,
+                )
+                if post_content:
+                    if post_original_tweet(page, post_content, logger):
+                        post_tracker.log_post()
+                        if analytics:
+                            analytics.log_post()
+                        logger.info(f"[POST] ✅ Posted! ({post_tracker._data.get('posts_today', 0)}/3 today)")
+                    else:
+                        logger.warning("[POST] Failed to post tweet")
 
         if config.search_topics:
             for topic in config.search_topics:
@@ -1525,6 +1765,9 @@ def validate_critical_features() -> None:
         "DMTracker": "DM tracking to avoid spam",
         "maybe_send_dm": "Smart DM system for high-intent leads",
         "AnalyticsTracker": "Performance and conversion tracking",
+        "PostTracker": "Original content posting tracker for growth",
+        "generate_original_post": "AI-powered original tweet generation with hashtags",
+        "post_original_tweet": "Post original content for visibility and follower growth",
         # ADD NEW CRITICAL FEATURES HERE (one per line)
         # "new_feature_name": "Description of new feature",
     }
@@ -1697,6 +1940,7 @@ def run_social_agent() -> None:
     follow_tracker = FollowTracker(Path("logs/follows.json"))  # CRITICAL: DO NOT REMOVE
     dm_tracker = DMTracker(Path("logs/dms.json"))  # CRITICAL: DO NOT REMOVE
     analytics = AnalyticsTracker(Path("logs/analytics.json"))  # CRITICAL: DO NOT REMOVE
+    post_tracker = PostTracker(Path("logs/posts.json"))  # CRITICAL: DO NOT REMOVE - Original content posting
 
     max_attempts = 3
     attempt = 0
@@ -1719,7 +1963,7 @@ def run_social_agent() -> None:
                         return
 
                     logger.info("[INFO] Session ready; entering engagement workflow.")
-                    run_engagement_loop(config, registry, page, video_service, logger, follow_tracker, dm_tracker, analytics)
+                    run_engagement_loop(config, registry, page, video_service, logger, follow_tracker, dm_tracker, analytics, post_tracker)
                     return
                 finally:
                     close_resources(browser, context, logger)
