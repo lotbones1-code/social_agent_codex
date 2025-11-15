@@ -808,11 +808,11 @@ def like_tweet(tweet: Locator, logger: logging.Logger) -> bool:
                 # Check if already liked (button might be "unlike" instead)
                 aria_label = like_btn.get_attribute("aria-label") or ""
                 if "unlike" in aria_label.lower():
-                    logger.debug("[LIKE] Tweet already liked, skipping")
+                    logger.info("[LIKE] Tweet already liked, skipping")
                     return True
 
                 like_btn.click()
-                logger.debug("[LIKE] ✅ Liked tweet")
+                logger.info("[LIKE] ✅ Liked tweet")
                 time.sleep(0.5)  # Brief pause after liking
                 return True
             except (PlaywrightTimeout, PlaywrightError):
@@ -852,7 +852,7 @@ def generate_reply_image(topic: str, tweet_text: str, logger: logging.Logger) ->
         # Combine topic and tweet context for better relevance
         prompt = f"{topic} - {tweet_text[:80]}"
 
-        logger.debug(f"[IMAGE] Generating image for: {prompt[:50]}...")
+        logger.info(f"[IMAGE] Generating image for: {prompt[:50]}...")
         result = subprocess.run(
             ["python3", "generators/image_gen.py", "--topic", prompt, "--out", str(image_path)],
             capture_output=True,
@@ -861,7 +861,7 @@ def generate_reply_image(topic: str, tweet_text: str, logger: logging.Logger) ->
         )
 
         if result.returncode == 0 and image_path.exists():
-            logger.debug(f"[IMAGE] ✅ Image generated: {image_path}")
+            logger.info(f"[IMAGE] ✅ Image generated: {image_path}")
             return str(image_path)
         else:
             logger.warning(f"[IMAGE] Generation failed: {result.stderr}")
@@ -1336,7 +1336,7 @@ def process_tweets(
         # CRITICAL: Generate image attachment for engagement boost (2-3x better engagement with images)
         image_path = None
         if random.random() < config.image_attach_rate:
-            logger.debug(f"[IMAGE] Generating image for reply (rate={config.image_attach_rate})")
+            logger.info(f"[IMAGE] Generating image for reply (rate={config.image_attach_rate})")
             image_path = generate_reply_image(topic, data["text"], logger)
             if image_path and analytics:
                 analytics.log_image()
