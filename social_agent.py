@@ -716,27 +716,37 @@ def send_reply(page: Page, tweet: Locator, message: str, logger: logging.Logger,
 
         # Step 2.5: Attach image if provided (CRITICAL: Image attachments boost engagement 2-3x)
         if image_path and os.path.exists(image_path):
-            logger.debug(f"[REPLY] Attaching image: {image_path}")
+            logger.info(f"[IMAGE-ATTACH] Attempting to attach: {image_path}")
             try:
+                # Convert to absolute path
+                abs_image_path = os.path.abspath(image_path)
+                logger.info(f"[IMAGE-ATTACH] Absolute path: {abs_image_path}")
+
                 # Look for the media upload button - try multiple selectors
                 media_selectors = [
                     "input[data-testid='fileInput']",
                     "input[type='file'][accept*='image']",
+                    "input[type='file']",
                 ]
 
+                attached = False
                 for media_selector in media_selectors:
                     try:
+                        logger.info(f"[IMAGE-ATTACH] Trying selector: {media_selector}")
                         file_input = page.locator(media_selector).first
-                        file_input.set_input_files(image_path)
-                        logger.debug("[REPLY] Image attached, waiting for upload...")
-                        time.sleep(2)  # Wait for upload to complete
+                        file_input.set_input_files(abs_image_path)
+                        logger.info("[IMAGE-ATTACH] ✅ Image attached successfully, waiting for upload...")
+                        time.sleep(3)  # Wait longer for upload to complete
+                        attached = True
                         break
-                    except (PlaywrightTimeout, PlaywrightError):
+                    except (PlaywrightTimeout, PlaywrightError) as e:
+                        logger.info(f"[IMAGE-ATTACH] Selector failed: {media_selector} - {e}")
                         continue
-                else:
-                    logger.warning("[REPLY] Could not find media upload button, skipping image")
+
+                if not attached:
+                    logger.warning("[IMAGE-ATTACH] ❌ Could not find media upload button with any selector, skipping image")
             except Exception as exc:
-                logger.warning(f"[REPLY] Failed to attach image: {exc}")
+                logger.warning(f"[IMAGE-ATTACH] ❌ Failed to attach image: {exc}")
                 # Continue without image - don't fail the whole reply
 
         # Step 3: Type the message
