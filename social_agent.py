@@ -469,8 +469,31 @@ def extract_tweet_data(tweet: Locator) -> Optional[dict[str, str]]:
     }
 
 
+def dismiss_interfering_elements(page: Page, logger: logging.Logger) -> None:
+    """Dismiss any modals, dropdowns, or overlays that might interfere with clicking."""
+    try:
+        # Close any autocomplete dropdowns
+        dropdowns = page.locator("div[role='listbox']").all()
+        if dropdowns:
+            logger.debug("[DEBUG] Dismissing interfering dropdowns by pressing Escape")
+            page.keyboard.press("Escape")
+            page.wait_for_timeout(300)
+
+        # Close any modals by clicking away or pressing Escape
+        modals = page.locator("div[role='dialog']").all()
+        if modals:
+            logger.debug("[DEBUG] Dismissing interfering modals")
+            page.keyboard.press("Escape")
+            page.wait_for_timeout(300)
+    except PlaywrightError:
+        pass  # Ignore errors, this is just cleanup
+
+
 def send_reply(page: Page, tweet: Locator, message: str, logger: logging.Logger) -> bool:
     try:
+        # Dismiss any interfering UI elements first
+        dismiss_interfering_elements(page, logger)
+
         logger.debug("[DEBUG] Scrolling tweet into view...")
         tweet.scroll_into_view_if_needed()
         page.wait_for_timeout(1000)
