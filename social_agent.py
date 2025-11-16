@@ -494,29 +494,40 @@ def extract_tweet_data(tweet: Locator) -> Optional[dict[str, str]]:
 def send_reply(page: Page, tweet: Locator, message: str, logger: logging.Logger) -> bool:
     try:
         # Click reply button
-        tweet.locator("div[data-testid='reply']").click()
-        time.sleep(1)  # Give modal time to open
+        logger.info("[DEBUG] Clicking reply button...")
+        reply_button = tweet.locator("div[data-testid='reply']")
+        reply_button.click()
+        time.sleep(2)  # Give modal time to open
 
         # Wait for composer to appear
+        logger.info("[DEBUG] Waiting for composer...")
         composer = page.locator("div[data-testid^='tweetTextarea_']").first
-        composer.wait_for(timeout=20000)
-        composer.click()
-        time.sleep(0.5)
+        composer.wait_for(timeout=15000, state="visible")
 
-        # Clear any existing text and type message
-        page.keyboard.press("Control+A" if not page.evaluate("() => navigator.platform.includes('Mac')") else "Meta+A")
-        page.keyboard.press("Backspace")
-        time.sleep(0.3)
-        page.keyboard.insert_text(message)
+        logger.info("[DEBUG] Clicking composer and typing message...")
+        composer.click()
         time.sleep(1)
 
-        # Click post button
-        page.locator("div[data-testid='tweetButtonInline']").click()
-        time.sleep(3)  # Give it time to post
+        # Type message using fill and type for better reliability
+        composer.fill("")  # Clear any existing text
+        time.sleep(0.5)
+        composer.type(message, delay=50)  # Type with 50ms delay between chars
+        time.sleep(1)
+
+        # Click post button - try both selectors
+        logger.info("[DEBUG] Clicking post button...")
+        try:
+            post_button = page.locator("div[data-testid='tweetButton']").first
+            post_button.click(timeout=5000)
+        except PlaywrightTimeout:
+            post_button = page.locator("div[data-testid='tweetButtonInline']").first
+            post_button.click(timeout=5000)
+
+        time.sleep(4)  # Give it time to post
         logger.info("[INFO] Reply posted successfully.")
         return True
-    except PlaywrightTimeout:
-        logger.warning("Timeout while composing reply.")
+    except PlaywrightTimeout as exc:
+        logger.warning("Timeout while composing reply: %s", exc)
     except PlaywrightError as exc:
         logger.warning("Failed to send reply: %s", exc)
     return False
