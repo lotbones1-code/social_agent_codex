@@ -464,8 +464,9 @@ def extract_tweet_data(tweet: Locator) -> Optional[dict[str, str]]:
 def send_reply(page: Page, tweet: Locator, message: str, logger: logging.Logger) -> bool:
     try:
         tweet.locator("div[data-testid='reply']").click()
+        page.wait_for_timeout(2000)  # Wait for reply composer to appear
         composer = page.locator("div[data-testid^='tweetTextarea_']").first
-        composer.wait_for(timeout=10000)
+        composer.wait_for(timeout=20000)  # Increased timeout to 20s
         composer.click()
         page.keyboard.press("Control+A")
         page.keyboard.press("Backspace")
