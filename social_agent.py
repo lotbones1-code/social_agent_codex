@@ -584,8 +584,8 @@ def send_reply(page: Page, tweet: Locator, message: str, logger: logging.Logger)
 
         # Type message using keyboard (works better for contenteditable divs)
         logger.info("[DEBUG] Typing message with keyboard...")
-        page.keyboard.type(message, delay=30)
-        time.sleep(2)
+        page.keyboard.type(message, delay=10)  # Faster typing: 10ms instead of 30ms
+        time.sleep(1.5)
 
         logger.info(f"[DEBUG] Message typed: {message[:50]}...")
 
@@ -886,7 +886,7 @@ def generate_ai_reply(config: BotConfig, tweet_text: str, topic: str, handle: st
         return None
 
 
-def text_focus(text: str, *, max_length: int = 80) -> str:
+def text_focus(text: str, *, max_length: int = 50) -> str:
     cleaned = " ".join(text.split())
     if len(cleaned) <= max_length:
         return cleaned
