@@ -493,18 +493,23 @@ def extract_tweet_data(tweet: Locator) -> Optional[dict[str, str]]:
 
 def send_reply(page: Page, tweet: Locator, message: str, logger: logging.Logger) -> bool:
     try:
-        # Check if reply button exists first (skip ads/promoted tweets)
+        # Scroll tweet into view first
+        logger.info("[DEBUG] Scrolling tweet into view...")
+        tweet.scroll_into_view_if_needed(timeout=5000)
+        time.sleep(0.5)
+
+        # Check if reply button exists
         logger.info("[DEBUG] Looking for reply button...")
         reply_button = tweet.locator("div[data-testid='reply']")
 
-        # Wait for button to be visible with short timeout
-        if not reply_button.is_visible(timeout=3000):
-            logger.warning("Reply button not visible - skipping (likely ad/promoted tweet)")
+        # Try to click - if it fails, skip the tweet
+        logger.info("[DEBUG] Clicking reply button...")
+        try:
+            reply_button.click(timeout=5000)
+        except PlaywrightTimeout:
+            logger.warning("Reply button not found or not clickable - skipping tweet")
             return False
 
-        # Click reply button
-        logger.info("[DEBUG] Clicking reply button...")
-        reply_button.click(timeout=5000)
         time.sleep(2)  # Give modal time to open
 
         # Wait for composer to appear
