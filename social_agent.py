@@ -25,6 +25,11 @@ from playwright.sync_api import (
     sync_playwright,
 )
 
+try:
+    from openai import OpenAI
+except ImportError:
+    OpenAI = None  # type: ignore
+
 try:  # Playwright 1.49 exports TargetClosedError; older builds may not.
     from playwright.sync_api import TargetClosedError  # type: ignore
 except ImportError:  # pragma: no cover - fallback for minimal builds.
@@ -75,6 +80,7 @@ class BotConfig:
     video_model: str
     enable_video: bool
     auth_file: str
+    enable_ai_replies: bool
 
 
 def _parse_bool(value: Optional[str], *, default: bool = False) -> bool:
@@ -149,6 +155,7 @@ def load_config() -> BotConfig:
     headless = _parse_bool(os.getenv("HEADLESS"), default=True)
     debug = _parse_bool(os.getenv("DEBUG"), default=False)
     enable_dms = _parse_bool(os.getenv("ENABLE_DMS"), default=False)
+    enable_ai_replies = _parse_bool(os.getenv("ENABLE_AI_REPLIES"), default=False)
 
     referral_link = (os.getenv("REFERRAL_LINK") or "").strip() or None
     reply_templates = _split_env("REPLY_TEMPLATES")
@@ -194,6 +201,7 @@ def load_config() -> BotConfig:
         video_model=video_model,
         enable_video=enable_video,
         auth_file=auth_file,
+        enable_ai_replies=enable_ai_replies,
     )
 
 
@@ -568,6 +576,73 @@ def text_focus(text: str, *, max_length: int = 80) -> str:
     return f"{cleaned[: max_length - 3]}..."
 
 
+def generate_ai_reply(tweet_text: str, topic: str, config: BotConfig, logger: logging.Logger) -> Optional[str]:
+    """Generate a unique, persuasive reply using OpenAI that promotes the product."""
+    if OpenAI is None:
+        logger.warning("OpenAI package not installed. Falling back to templates.")
+        return None
+
+    api_key = os.getenv("OPENAI_API_KEY", "").strip()
+    if not api_key:
+        logger.warning("OPENAI_API_KEY not set. Falling back to templates.")
+        return None
+
+    try:
+        client = OpenAI(api_key=api_key)
+
+        # Create a persuasive system prompt that instructs the AI to promote the product
+        system_prompt = f"""You are a highly persuasive social media engagement expert. Your goal is to write compelling Twitter replies that:
+
+1. Are SHORT (max 200 characters including the link)
+2. Acknowledge the tweet's main point naturally
+3. Smoothly transition to promoting this product: {config.referral_link or ""}
+4. Create genuine interest and FOMO (fear of missing out)
+5. Sound authentic, not spammy or repetitive
+6. Use casual, conversational language
+7. Make people want to click the link and buy
+
+CRITICAL RULES:
+- ALWAYS include the product link: {config.referral_link or ""}
+- NEVER use the same patterns or phrases twice
+- Be creative, varied, and unique each time
+- Make it sound like a real person sharing something valuable
+- Create urgency without being pushy
+- Focus on benefits, not features
+- Keep it SHORT and punchy
+
+Topic context: {topic}"""
+
+        user_prompt = f"""Write a persuasive Twitter reply to this tweet:
+
+"{tweet_text}"
+
+Make it unique, compelling, and include the product link. Keep it under 200 characters total."""
+
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            max_tokens=100,
+            temperature=0.9,  # High temperature for more creative, varied responses
+        )
+
+        reply = response.choices[0].message.content.strip()
+
+        # Ensure the link is included
+        if config.referral_link and config.referral_link not in reply:
+            logger.warning("AI reply didn't include referral link. Falling back to template.")
+            return None
+
+        logger.info(f"[AI] Generated unique reply: {reply[:100]}...")
+        return reply
+
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(f"OpenAI API error: {exc}. Falling back to templates.")
+        return None
+
+
 def process_tweets(
     config: BotConfig,
     registry: MessageRegistry,
@@ -625,12 +700,19 @@ def process_tweets(
             )
             continue
 
-        template = random.choice(config.reply_templates)
-        message = template.format(
-            topic=topic,
-            focus=text_focus(data["text"]),
-            ref_link=config.referral_link or "",
-        ).strip()
+        # Try AI-generated reply if enabled
+        message = None
+        if config.enable_ai_replies:
+            message = generate_ai_reply(data["text"], topic, config, logger)
+
+        # Fall back to templates if AI fails or is disabled
+        if not message:
+            template = random.choice(config.reply_templates)
+            message = template.format(
+                topic=topic,
+                focus=text_focus(data["text"]),
+                ref_link=config.referral_link or "",
+            ).strip()
 
         if not message:
             logger.warning("Generated empty reply. Skipping tweet.")
