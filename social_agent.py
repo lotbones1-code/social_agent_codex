@@ -463,16 +463,48 @@ def extract_tweet_data(tweet: Locator) -> Optional[dict[str, str]]:
 
 def send_reply(page: Page, tweet: Locator, message: str, logger: logging.Logger) -> bool:
     try:
-        tweet.locator("div[data-testid='reply']").click()
-        page.wait_for_timeout(2000)  # Wait for reply composer to appear
-        composer = page.locator("div[data-testid^='tweetTextarea_']").first
-        composer.wait_for(timeout=20000)  # Increased timeout to 20s
+        # Scroll tweet into view
+        tweet.scroll_into_view_if_needed()
+        page.wait_for_timeout(500)
+
+        # Click reply button
+        reply_button = tweet.locator("div[data-testid='reply']")
+        reply_button.click()
+        page.wait_for_timeout(3000)  # Wait for modal to open
+
+        # Try multiple selectors for the compose box
+        composer = None
+        selectors = [
+            "div[data-testid='tweetTextarea_0']",
+            "div[data-testid^='tweetTextarea']",
+            "div.public-DraftStyleDefault-block",
+            "div[contenteditable='true'][role='textbox']",
+        ]
+
+        for selector in selectors:
+            try:
+                composer = page.locator(selector).first
+                composer.wait_for(state="visible", timeout=5000)
+                logger.debug(f"Found composer with selector: {selector}")
+                break
+            except PlaywrightError:
+                continue
+
+        if not composer:
+            logger.warning("Could not find reply composer")
+            return False
+
+        # Type the message
         composer.click()
-        page.keyboard.press("Control+A")
-        page.keyboard.press("Backspace")
-        page.keyboard.insert_text(message)
-        page.locator("div[data-testid='tweetButtonInline']").click()
-        time.sleep(2)
+        page.wait_for_timeout(500)
+        composer.fill(message)
+        page.wait_for_timeout(1000)
+
+        # Click post button
+        post_button = page.locator("button[data-testid='tweetButton']").first
+        post_button.click()
+        page.wait_for_timeout(3000)
+
         logger.info("[INFO] Reply posted successfully.")
         return True
     except PlaywrightTimeout:
