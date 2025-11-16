@@ -825,77 +825,65 @@ def prepare_authenticated_session(
     config: BotConfig,
     logger: logging.Logger,
 ) -> Optional[tuple[Browser, BrowserContext, Page]]:
-    storage_env = (os.getenv("AUTH_FILE") or config.auth_file).strip() or config.auth_file
-    auth_path = ensure_auth_storage_path(storage_env, logger)
+    # Use persistent context like regular Chrome - stores all cookies, cache, etc
+    user_data_dir = os.getenv("PW_PROFILE_DIR", ".pwprofile_live")
 
     try:
-        browser = playwright.chromium.launch(
+        context = playwright.chromium.launch_persistent_context(
+            user_data_dir,
             headless=config.headless,
             args=["--start-maximized", "--no-sandbox"],
         )
+        browser = None  # persistent context doesn't return a browser object
     except PlaywrightError as exc:
-        logger.error("Failed to launch browser: %s", exc)
+        logger.error("Failed to launch persistent browser context: %s", exc)
         return None
 
-    storage_file = auth_path
-    context: BrowserContext
-    session_loaded = False
+    logger.info("[INFO] Using persistent browser profile at %s", user_data_dir)
+    page = context.pages[0] if context.pages else context.new_page()
 
-    storage_exists = os.path.exists(storage_file)
-    if storage_exists:
-        logger.info("[INFO] Restoring saved session from %s", storage_file)
-        try:
-            context = browser.new_context(storage_state=storage_file)
-            session_loaded = True
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("[WARN] auth.json missing or invalid — regenerating login session")
-            logger.debug("Storage state recovery error: %s", exc)
-            context = browser.new_context()
-            session_loaded = False
-    else:
-        logger.info("[INFO] No session found — creating new context for manual login.")
-        context = browser.new_context()
+    # Check if already logged in
+    try:
+        page.goto("https://x.com/home", wait_until="domcontentloaded", timeout=60000)
+    except PlaywrightTimeout:
+        logger.warning("Timeout while loading home page.")
+    except (PlaywrightError, TargetClosedError) as exc:
+        logger.warning("Error while loading home page: %s", exc)
 
-    page = context.new_page()
+    if is_logged_in(page):
+        logger.info("[INFO] Session restored successfully from persistent profile")
+        return None, context, page
 
-    if session_loaded:
-        try:
-            page.goto("https://x.com/home", wait_until="domcontentloaded", timeout=60000)
-        except PlaywrightTimeout:
-            logger.warning("Timeout while verifying restored session; prompting login.")
-        except (PlaywrightError, TargetClosedError) as exc:
-            logger.warning("Error while verifying restored session: %s", exc)
-        else:
-            if is_logged_in(page):
-                logger.info("[INFO] Session restored successfully")
-                try:
-                    context.storage_state(path=storage_file)
-                except PlaywrightError as exc:
-                    logger.debug("Unable to refresh storage state: %s", exc)
-                return browser, context, page
-            logger.warning("Saved session present but user is logged out; manual login required.")
-
+    # Not logged in, try automated login or wait for manual
     try:
         page.goto("https://x.com/login", wait_until="domcontentloaded", timeout=60000)
     except PlaywrightTimeout:
-        logger.warning("Timeout while opening login page. Proceeding to login checks.")
+        logger.warning("Timeout while opening login page.")
     except PlaywrightError as exc:
         logger.error("Failed to load login page: %s", exc)
 
-    if not ensure_logged_in(
-        context,
-        page,
-        config,
-        logger,
-        automated_attempt=True,
-        auth_file=storage_file,
-    ):
-        logger.error("Login process did not complete successfully.")
-        close_resources(browser, context, logger)
-        return None
+    # Try automated login
+    if config.x_username and config.x_password and automated_login(page, config, logger):
+        logger.info("[INFO] Automated login succeeded with persistent profile")
+        return None, context, page
 
-    logger.info("[INFO] Authentication complete; proceeding to engagement loop.")
-    return browser, context, page
+    # Wait for manual login
+    logger.info("[INFO] Please complete the login in the opened browser.")
+    deadline = time.time() + 600
+    last_status_log = 0.0
+    while time.time() < deadline:
+        if is_logged_in(page):
+            logger.info("[INFO] Login success detected with persistent profile")
+            return None, context, page
+        now = time.time()
+        if now - last_status_log > 15:
+            logger.info("[INFO] Waiting for manual login... (%d seconds remaining)", int(deadline - now))
+            last_status_log = now
+        time.sleep(3)
+
+    logger.error("Timed out waiting for login.")
+    close_resources(None, context, logger)
+    return None
 
 
 def run_social_agent() -> None:
