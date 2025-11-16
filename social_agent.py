@@ -890,7 +890,8 @@ def text_focus(text: str, *, max_length: int = 80) -> str:
     cleaned = " ".join(text.split())
     if len(cleaned) <= max_length:
         return cleaned
-    return f"{cleaned[: max_length - 3]}..."
+    # Truncate without adding "..." to avoid repetitive formatting
+    return cleaned[:max_length].rstrip()
 
 
 def process_tweets(
