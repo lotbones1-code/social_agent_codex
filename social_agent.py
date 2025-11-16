@@ -539,13 +539,16 @@ def send_reply(page: Page, tweet: Locator, message: str, logger: logging.Logger)
         composer = page.locator("div[data-testid^='tweetTextarea_']").first
         composer.wait_for(timeout=15000, state="visible")
 
-        logger.info("[DEBUG] Typing message...")
+        logger.info("[DEBUG] Clicking composer...")
         composer.click()
-        time.sleep(0.5)
+        time.sleep(1)
 
-        # Type message directly
-        composer.fill(message)
-        time.sleep(1.5)
+        # Type message using keyboard (works better for contenteditable divs)
+        logger.info("[DEBUG] Typing message with keyboard...")
+        page.keyboard.type(message, delay=30)
+        time.sleep(2)
+
+        logger.info(f"[DEBUG] Message typed: {message[:50]}...")
 
         # Click post button - try both selectors
         logger.info("[DEBUG] Clicking post button...")
