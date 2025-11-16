@@ -550,21 +550,54 @@ def send_reply(page: Page, tweet: Locator, message: str, logger: logging.Logger)
 
         logger.info(f"[DEBUG] Message typed: {message[:50]}...")
 
-        # Click post button - try both selectors
+        # Click post button - try multiple selectors
         logger.info("[DEBUG] Clicking post button...")
-        try:
-            post_button = page.locator("div[data-testid='tweetButton']").first
-            if post_button.is_visible(timeout=2000):
-                post_button.click(timeout=5000)
-            else:
-                raise PlaywrightTimeout("tweetButton not visible")
-        except (PlaywrightTimeout, PlaywrightError):
-            post_button = page.locator("div[data-testid='tweetButtonInline']").first
-            post_button.click(timeout=5000)
+        post_button = None
 
-        time.sleep(4)  # Give it time to post
-        logger.info("[INFO] Reply posted successfully.")
-        return True
+        post_selectors = [
+            "button[data-testid='tweetButton']",
+            "div[data-testid='tweetButton']",
+            "button[data-testid='tweetButtonInline']",
+            "div[data-testid='tweetButtonInline']",
+            "[aria-label*='Post']",
+            "[aria-label*='Reply']",
+        ]
+
+        for selector in post_selectors:
+            try:
+                btn = page.locator(selector).first
+                if btn.count() > 0 and btn.is_visible(timeout=1000):
+                    post_button = btn
+                    logger.info(f"[DEBUG] Found post button with selector: {selector}")
+                    break
+            except:
+                continue
+
+        if post_button:
+            try:
+                post_button.click(timeout=5000)
+                time.sleep(4)
+                logger.info("[INFO] Reply posted successfully.")
+                return True
+            except:
+                logger.info("[DEBUG] Click failed, trying keyboard shortcut...")
+
+        # Fallback: use keyboard shortcut (Cmd+Enter or Ctrl+Enter)
+        logger.info("[DEBUG] Using keyboard shortcut to post...")
+        try:
+            # Detect if Mac
+            is_mac = page.evaluate("() => navigator.platform.includes('Mac')")
+            if is_mac:
+                page.keyboard.press("Meta+Enter")
+            else:
+                page.keyboard.press("Control+Enter")
+            time.sleep(4)
+            logger.info("[INFO] Reply posted successfully via keyboard shortcut.")
+            return True
+        except Exception as e:
+            logger.warning(f"Keyboard shortcut failed: {str(e)[:50]}")
+
+        return False
     except PlaywrightTimeout as exc:
         logger.warning("Timeout while composing reply: %s", str(exc)[:100])
     except PlaywrightError as exc:
