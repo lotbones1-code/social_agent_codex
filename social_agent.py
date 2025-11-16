@@ -825,14 +825,18 @@ def prepare_authenticated_session(
     config: BotConfig,
     logger: logging.Logger,
 ) -> Optional[tuple[Browser, BrowserContext, Page]]:
-    # Use persistent context like regular Chrome - stores all cookies, cache, etc
-    user_data_dir = os.getenv("PW_PROFILE_DIR", ".pwprofile_live")
+    # Use actual Chrome profile on Mac - where user is already logged in
+    home = os.path.expanduser("~")
+    chrome_profile = os.path.join(home, "Library/Application Support/Google/Chrome")
+    user_data_dir = os.getenv("PW_PROFILE_DIR", chrome_profile)
 
     try:
+        # Use actual Chrome browser (not Chromium)
         context = playwright.chromium.launch_persistent_context(
             user_data_dir,
             headless=config.headless,
-            args=["--start-maximized", "--no-sandbox"],
+            channel="chrome",  # Use actual Google Chrome
+            args=["--start-maximized", "--no-sandbox", "--disable-blink-features=AutomationControlled"],
         )
         browser = None  # persistent context doesn't return a browser object
     except PlaywrightError as exc:
