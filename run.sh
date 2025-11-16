@@ -66,6 +66,13 @@ if ! "${PYTHON_BIN}" -m playwright install --check >/dev/null 2>&1; then
 fi
 
 # start
-nohup "${PYTHON_BIN}" social_agent.py >> logs/session.log 2>&1 &
-sleep 4
-tail -n 200 -f logs/session.log
+# Check if running in headless mode from .env
+if grep -q "^HEADLESS=false" .env 2>/dev/null || grep -q "^HEADLESS=False" .env 2>/dev/null; then
+  echo "[run.sh] Running in FOREGROUND mode (HEADLESS=false) - browser will be visible" >&2
+  "${PYTHON_BIN}" social_agent.py 2>&1 | tee -a logs/session.log
+else
+  echo "[run.sh] Running in BACKGROUND mode (HEADLESS=true)" >&2
+  nohup "${PYTHON_BIN}" social_agent.py >> logs/session.log 2>&1 &
+  sleep 4
+  tail -n 200 -f logs/session.log
+fi
