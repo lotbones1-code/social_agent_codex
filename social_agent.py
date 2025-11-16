@@ -71,6 +71,7 @@ class BotConfig:
     dm_templates: list[str]
     dm_interest_threshold: float
     dm_question_weight: float
+    dm_trigger_length: int
     video_provider: str
     video_model: str
     enable_video: bool
@@ -182,6 +183,7 @@ def load_config() -> BotConfig:
 
     dm_interest_threshold = _parse_float("DM_INTEREST_THRESHOLD", 3.0)
     dm_question_weight = _parse_float("DM_QUESTION_WEIGHT", 0.75)
+    dm_trigger_length = _parse_int("DM_TRIGGER_LENGTH", 220)
 
     x_username = (os.getenv("X_USERNAME") or "").strip() or None
     x_password = (os.getenv("X_PASSWORD") or "").strip() or None
@@ -242,6 +244,7 @@ def load_config() -> BotConfig:
         dm_templates=dm_templates,
         dm_interest_threshold=dm_interest_threshold,
         dm_question_weight=dm_question_weight,
+        dm_trigger_length=dm_trigger_length,
         video_provider=video_provider,
         video_model=video_model,
         enable_video=enable_video,
