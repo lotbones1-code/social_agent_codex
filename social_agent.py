@@ -463,54 +463,66 @@ def extract_tweet_data(tweet: Locator) -> Optional[dict[str, str]]:
 
 def send_reply(page: Page, tweet: Locator, message: str, logger: logging.Logger) -> bool:
     try:
-        # Scroll tweet into view
+        logger.debug("[DEBUG] Scrolling tweet into view...")
         tweet.scroll_into_view_if_needed()
-        page.wait_for_timeout(500)
-
-        # Click reply button
-        reply_button = tweet.locator("div[data-testid='reply']")
-        reply_button.click()
-        page.wait_for_timeout(3000)  # Wait for modal to open
-
-        # Try multiple selectors for the compose box
-        composer = None
-        selectors = [
-            "div[data-testid='tweetTextarea_0']",
-            "div[data-testid^='tweetTextarea']",
-            "div.public-DraftStyleDefault-block",
-            "div[contenteditable='true'][role='textbox']",
-        ]
-
-        for selector in selectors:
-            try:
-                composer = page.locator(selector).first
-                composer.wait_for(state="visible", timeout=5000)
-                logger.debug(f"Found composer with selector: {selector}")
-                break
-            except PlaywrightError:
-                continue
-
-        if not composer:
-            logger.warning("Could not find reply composer")
-            return False
-
-        # Type the message
-        composer.click()
-        page.wait_for_timeout(500)
-        composer.fill(message)
         page.wait_for_timeout(1000)
 
-        # Click post button
+        logger.debug("[DEBUG] Hovering over tweet...")
+        tweet.hover()
+        page.wait_for_timeout(500)
+
+        logger.debug("[DEBUG] Looking for reply button...")
+        reply_button = tweet.locator("button[data-testid='reply']").or_(tweet.locator("div[data-testid='reply']"))
+
+        # Check if button exists and is visible
+        if not reply_button.count() > 0:
+            logger.warning("Reply button not found on tweet")
+            return False
+
+        logger.debug(f"[DEBUG] Found reply button with selector: button[data-testid='reply']")
+
+        logger.debug("[DEBUG] Clicking reply button...")
+        reply_button.first.click()
+        page.wait_for_timeout(4000)  # Wait longer for modal
+
+        logger.debug("[DEBUG] Looking for compose textbox...")
+
+        # Wait for the compose textbox to appear
+        try:
+            # Use a simple, reliable selector
+            page.wait_for_selector("div[data-testid='tweetTextarea_0']", state="visible", timeout=10000)
+            composer = page.locator("div[data-testid='tweetTextarea_0']")
+            logger.debug("[DEBUG] Found composer: div[data-testid='tweetTextarea_0']")
+        except PlaywrightTimeout:
+            logger.warning("[DEBUG] Primary selector failed, trying fallback...")
+            try:
+                page.wait_for_selector("div[contenteditable='true'][role='textbox']", state="visible", timeout=5000)
+                composer = page.locator("div[contenteditable='true'][role='textbox']").first
+                logger.debug("[DEBUG] Found composer with fallback selector")
+            except PlaywrightTimeout:
+                logger.warning("Could not find reply composer after waiting")
+                return False
+
+        logger.debug("[DEBUG] Clicking composer and typing message...")
+        composer.click()
+        page.wait_for_timeout(500)
+        composer.type(message, delay=50)  # Type with delay to avoid issues
+        page.wait_for_timeout(1500)
+
+        logger.debug("[DEBUG] Looking for post button...")
         post_button = page.locator("button[data-testid='tweetButton']").first
+        post_button.wait_for(state="visible", timeout=5000)
+
+        logger.debug("[DEBUG] Clicking post button...")
         post_button.click()
         page.wait_for_timeout(3000)
 
         logger.info("[INFO] Reply posted successfully.")
         return True
-    except PlaywrightTimeout:
-        logger.warning("Timeout while composing reply.")
+    except PlaywrightTimeout as exc:
+        logger.warning(f"Timeout while composing reply: {exc}")
     except PlaywrightError as exc:
-        logger.warning("Failed to send reply: %s", exc)
+        logger.warning(f"Failed to send reply: {exc}")
     return False
 
 
