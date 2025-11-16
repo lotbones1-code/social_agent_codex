@@ -498,18 +498,40 @@ def send_reply(page: Page, tweet: Locator, message: str, logger: logging.Logger)
         tweet.scroll_into_view_if_needed(timeout=5000)
         time.sleep(0.5)
 
-        # Check if reply button exists
-        logger.info("[DEBUG] Looking for reply button...")
-        reply_button = tweet.locator("div[data-testid='reply']")
+        # Hover over tweet to reveal action buttons
+        logger.info("[DEBUG] Hovering over tweet...")
+        tweet.hover()
+        time.sleep(0.3)
 
-        # Try to click - if it fails, skip the tweet
-        logger.info("[DEBUG] Clicking reply button...")
-        try:
-            reply_button.click(timeout=5000)
-        except PlaywrightTimeout:
-            logger.warning("Reply button not found or not clickable - skipping tweet")
+        # Try multiple possible selectors for reply button
+        logger.info("[DEBUG] Looking for reply button...")
+        reply_button = None
+
+        # Try different selectors
+        selectors = [
+            "div[data-testid='reply']",
+            "button[data-testid='reply']",
+            "[aria-label*='Reply']",
+            "[aria-label*='reply']",
+        ]
+
+        for selector in selectors:
+            try:
+                btn = tweet.locator(selector).first
+                if btn.count() > 0:
+                    reply_button = btn
+                    logger.info(f"[DEBUG] Found reply button with selector: {selector}")
+                    break
+            except:
+                continue
+
+        if not reply_button:
+            logger.warning("Reply button not found with any selector - skipping tweet")
             return False
 
+        # Click reply button
+        logger.info("[DEBUG] Clicking reply button...")
+        reply_button.click(timeout=5000)
         time.sleep(2)  # Give modal time to open
 
         # Wait for composer to appear
