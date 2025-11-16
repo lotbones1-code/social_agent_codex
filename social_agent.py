@@ -526,6 +526,21 @@ def send_reply(page: Page, tweet: Locator, message: str, logger: logging.Logger)
     return False
 
 
+def like_tweet(tweet: Locator, logger: logging.Logger) -> bool:
+    """Like a tweet."""
+    try:
+        like_button = tweet.locator("button[data-testid='like']").or_(tweet.locator("div[data-testid='like']"))
+        if like_button.count() > 0:
+            like_button.first.click()
+            logger.info("[INFO] Liked tweet successfully.")
+            return True
+        logger.warning("Like button not found on tweet")
+        return False
+    except PlaywrightError as exc:
+        logger.warning(f"Failed to like tweet: {exc}")
+        return False
+
+
 def maybe_send_dm(config: BotConfig, page: Page, tweet_data: dict[str, str], logger: logging.Logger) -> None:
     del page, tweet_data  # Unused placeholders for future DM workflows.
 
@@ -622,6 +637,10 @@ def process_tweets(
             continue
 
         logger.info("[INFO] Replying to @%s for topic '%s'.", data['handle'] or 'unknown', topic)
+
+        # Like the tweet before replying
+        like_tweet(tweet, logger)
+        page.wait_for_timeout(1000)  # Wait 1 second after liking
 
         if send_reply(page, tweet, message, logger):
             registry.add(identifier)
