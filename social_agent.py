@@ -493,15 +493,26 @@ def extract_tweet_data(tweet: Locator) -> Optional[dict[str, str]]:
 
 def send_reply(page: Page, tweet: Locator, message: str, logger: logging.Logger) -> bool:
     try:
+        # Click reply button
         tweet.locator("div[data-testid='reply']").click()
+        time.sleep(1)  # Give modal time to open
+
+        # Wait for composer to appear
         composer = page.locator("div[data-testid^='tweetTextarea_']").first
-        composer.wait_for(timeout=10000)
+        composer.wait_for(timeout=20000)
         composer.click()
-        page.keyboard.press("Control+A")
+        time.sleep(0.5)
+
+        # Clear any existing text and type message
+        page.keyboard.press("Control+A" if not page.evaluate("() => navigator.platform.includes('Mac')") else "Meta+A")
         page.keyboard.press("Backspace")
+        time.sleep(0.3)
         page.keyboard.insert_text(message)
+        time.sleep(1)
+
+        # Click post button
         page.locator("div[data-testid='tweetButtonInline']").click()
-        time.sleep(2)
+        time.sleep(3)  # Give it time to post
         logger.info("[INFO] Reply posted successfully.")
         return True
     except PlaywrightTimeout:
