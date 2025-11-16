@@ -644,73 +644,113 @@ def send_reply(page: Page, tweet: Locator, message: str, logger: logging.Logger)
     return False
 
 
-def maybe_send_dm(config: BotConfig, page: Page, tweet_data: dict[str, str], logger: logging.Logger) -> None:
-    del page, tweet_data  # Unused placeholders for future DM workflows.
-
-    global _DM_NOTICE_LOGGED
-
+def maybe_send_dm(config: BotConfig, page: Page, tweet_data: dict[str, str], logger: logging.Logger, dm_count: dict) -> None:
+    """Send a personalized DM using ChatGPT if the tweet meets interest criteria."""
     if not config.enable_dms:
         return
-    if not config.dm_templates:
-        if not _DM_NOTICE_LOGGED:
-            logger.info(
-                "DM support enabled but no DM_TEMPLATES configured. Skipping DM attempt."
-            )
-            _DM_NOTICE_LOGGED = True
+
+    # Check if we've hit the DM limit for this cycle
+    if dm_count.get("count", 0) >= config.max_dms_per_cycle:
         return
 
-    if not _DM_NOTICE_LOGGED:
-        logger.info("DM feature enabled, but automated DM workflows are not implemented in this build.")
-        _DM_NOTICE_LOGGED = True
+    if not config.openai_api_key:
+        logger.info("[DM] Skipped - OpenAI API key not configured")
+        return
 
+    # Calculate interest score (from original DM logic)
+    tweet_text = tweet_data.get("text", "")
+    text_lower = tweet_text.lower()
 
-def build_reply_messages(tweet_text: str, topic: str, handle: str, config: BotConfig) -> list[dict]:
-    """Build ChatGPT messages for AI-powered reply generation."""
-    system_prompt = f"""You are a human social media growth operator writing replies on X (Twitter).
+    # Base interest from keyword matches
+    keyword_matches = sum(1 for kw in config.relevant_keywords if kw in text_lower)
 
-Product you are softly promoting:
-- Name: {config.product_name}
-- What it does: {config.product_short_pitch}
-- How to get it: {config.product_cta}
+    # Add weight for questions
+    question_indicators = ["?", "how to", "how do", "what is", "where can", "any tips", "help me"]
+    has_question = any(q in text_lower for q in question_indicators)
+    question_bonus = config.dm_question_weight if has_question else 0
 
-Your goals, in this order:
-1. First, add real value to the conversation so the author and readers see you as sharp and helpful.
-2. Second, sometimes (not always) weave in a soft, natural plug for the product.
+    # Add weight for longer tweets (more engagement signals)
+    length_bonus = min(len(tweet_text) / config.dm_trigger_length, 1.0) if config.dm_trigger_length > 0 else 0
 
-Style rules:
-- Write like a real person on X, not like a corporate blog or an AI.
-- Tone: {config.reply_tone} (interpret this as the general vibe, e.g. "casual" = relaxed, friendly, direct).
-- Keep replies short and punchy: ideally 1–3 sentences.
-- Avoid generic filler like "great point" or "this is interesting" unless you immediately follow with something specific and useful.
-- Never mention that you are an AI, a bot, or a language model. Always speak as "I".
-- Use emojis only when they genuinely fit the vibe. Do NOT spam emojis.
-- Do not overuse hashtags. Only use a hashtag if it feels natural and is directly relevant.
+    interest_score = keyword_matches + question_bonus + length_bonus
 
-Promotion behavior:
-- Roughly 70% of replies should be pure value with **no promotion**.
-- Roughly 30% of replies can include a **soft plug** at the end, for example:
-  - "btw, I got tired of doing this manually so I built {config.product_name} to handle it → {config.product_cta}"
-  - "I've been automating this with {config.product_name} and it's been a game changer ({config.product_cta})."
-- The plug should never be the whole reply. It should come **after** you've added real value.
+    if interest_score < config.dm_interest_threshold:
+        logger.info("[DM] Interest score %.2f < threshold %.2f - skipping", interest_score, config.dm_interest_threshold)
+        return
 
-General behavior:
-- Always base your reply on the tweet content and topic you are given.
-- If the tweet is low quality, still be polite or neutral; don't be rude or hostile.
-- Do NOT argue with people unless the topic clearly invites debate and it still feels on-brand.
-""".strip()
+    handle = tweet_data.get("handle", "")
+    if not handle:
+        return
 
-    user_content = f"""Tweet text:
-\"\"\"{tweet_text}\"\"\"
+    logger.info("[DM] Interest score %.2f - generating DM for @%s", interest_score, handle)
 
-Topic: {topic}
-Author handle: @{handle}
+    # Generate personalized DM using ChatGPT
+    messages = build_dm_messages(tweet_text, handle, config)
+    dm_text = generate_ai_content(messages, config, logger, max_tokens=300)
 
-Write a reply that follows the system instructions. Do NOT include explanations, just the reply text I should post on X.""".strip()
+    if not dm_text:
+        logger.warning("[DM] Failed to generate DM content")
+        return
 
-    return [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": user_content},
-    ]
+    logger.info("[DM] Generated DM for @%s: %s", handle, dm_text[:80])
+
+    # Send the DM via Twitter UI
+    try:
+        # Navigate to DM compose URL
+        dm_url = f"https://x.com/messages/compose?recipient_id={handle}"
+        page.goto(dm_url, wait_until="domcontentloaded", timeout=30000)
+        time.sleep(3)
+
+        # Find the message input box
+        message_selectors = [
+            "div[data-testid='dmComposerTextInput']",
+            "div[aria-label='Message']",
+            "div[contenteditable='true'][data-testid*='message']",
+        ]
+
+        message_box = None
+        for selector in message_selectors:
+            try:
+                box = page.locator(selector).first
+                if box.count() > 0 and box.is_visible(timeout=3000):
+                    message_box = box
+                    break
+            except:
+                continue
+
+        if not message_box:
+            logger.warning("[DM] Could not find message input box")
+            return
+
+        # Click and type DM
+        message_box.click()
+        time.sleep(1)
+        page.keyboard.type(dm_text, delay=15)
+        time.sleep(2)
+
+        # Click send button
+        send_selectors = [
+            "button[data-testid='dmComposerSendButton']",
+            "div[data-testid='dmComposerSendButton']",
+            "[aria-label*='Send']",
+        ]
+
+        for selector in send_selectors:
+            try:
+                btn = page.locator(selector).first
+                if btn.count() > 0 and btn.is_visible(timeout=2000):
+                    btn.click(timeout=5000)
+                    time.sleep(2)
+                    logger.info("[DM] Successfully sent DM to @%s", handle)
+                    dm_count["count"] = dm_count.get("count", 0) + 1
+                    return
+            except:
+                continue
+
+        logger.warning("[DM] Could not find send button")
+
+    except PlaywrightError as exc:
+        logger.warning("[DM] Failed to send DM to @%s: %s", handle, str(exc)[:100])
 
 
 def build_reply_messages(tweet_text: str, topic: str, handle: str, config: BotConfig) -> list[dict]:
@@ -894,6 +934,205 @@ def text_focus(text: str, *, max_length: int = 50) -> str:
     return cleaned[:max_length].rstrip()
 
 
+def generate_ai_content(messages: list[dict], config: BotConfig, logger: logging.Logger, *, max_tokens: int = 280) -> Optional[str]:
+    """General helper to call ChatGPT API with given messages."""
+    if not config.openai_api_key:
+        return None
+
+    try:
+        import json as json_lib
+        import urllib.request
+
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {config.openai_api_key}",
+        }
+
+        data = {
+            "model": config.openai_model,
+            "messages": messages,
+            "temperature": 0.7,
+            "max_tokens": max_tokens,
+        }
+
+        req = urllib.request.Request(
+            "https://api.openai.com/v1/chat/completions",
+            data=json_lib.dumps(data).encode("utf-8"),
+            headers=headers,
+            method="POST",
+        )
+
+        with urllib.request.urlopen(req, timeout=30) as response:
+            result = json_lib.loads(response.read().decode("utf-8"))
+            content = result["choices"][0]["message"]["content"].strip()
+            return content
+
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("AI content generation failed: %s", exc)
+        return None
+
+
+def maybe_post_original_tweet(config: BotConfig, page: Page, logger: logging.Logger, last_post_time: dict) -> None:
+    """Post an original tweet if enough time has passed since last post."""
+    if not config.enable_original_posts:
+        return
+
+    if not config.openai_api_key:
+        logger.info("[ORIGINAL POST] Skipped - OpenAI API key not configured")
+        return
+
+    # Check if enough time has passed
+    now = time.time()
+    interval_seconds = config.original_post_interval_minutes * 60
+    time_since_last = now - last_post_time.get("timestamp", 0)
+
+    if time_since_last < interval_seconds:
+        return
+
+    # Pick a random topic for the post
+    if not config.search_topics:
+        return
+
+    topic = random.choice(config.search_topics)
+    logger.info("[ORIGINAL POST] Generating tweet about: %s", topic)
+
+    # Generate tweet using ChatGPT
+    messages = build_original_post_messages(config, topic)
+    tweet_text = generate_ai_content(messages, config, logger, max_tokens=280)
+
+    if not tweet_text:
+        logger.warning("[ORIGINAL POST] Failed to generate tweet content")
+        return
+
+    logger.info("[ORIGINAL POST] Generated: %s", tweet_text[:100])
+
+    # Post the tweet
+    try:
+        # Go to home to access compose button
+        page.goto("https://x.com/home", wait_until="domcontentloaded", timeout=30000)
+        time.sleep(2)
+
+        # Click compose button
+        compose_selectors = [
+            "a[href='/compose/post']",
+            "a[aria-label='Post']",
+            "a[data-testid='SideNav_NewTweet_Button']",
+        ]
+
+        compose_clicked = False
+        for selector in compose_selectors:
+            try:
+                btn = page.locator(selector).first
+                if btn.count() > 0 and btn.is_visible(timeout=2000):
+                    btn.click(timeout=5000)
+                    compose_clicked = True
+                    logger.info("[ORIGINAL POST] Clicked compose button")
+                    break
+            except:
+                continue
+
+        if not compose_clicked:
+            logger.warning("[ORIGINAL POST] Could not find compose button")
+            return
+
+        time.sleep(2)
+
+        # Find composer and type tweet
+        composer = page.locator("div[data-testid^='tweetTextarea_']").first
+        composer.wait_for(timeout=15000, state="visible")
+        composer.click()
+        time.sleep(1)
+
+        # Type the tweet
+        page.keyboard.type(tweet_text, delay=10)
+        time.sleep(2)
+
+        # Click post button
+        post_selectors = [
+            "button[data-testid='tweetButton']",
+            "div[data-testid='tweetButton']",
+            "[aria-label*='Post']",
+        ]
+
+        for selector in post_selectors:
+            try:
+                btn = page.locator(selector).first
+                if btn.count() > 0 and btn.is_visible(timeout=2000):
+                    btn.click(timeout=5000)
+                    time.sleep(3)
+                    logger.info("[ORIGINAL POST] Tweet posted successfully")
+                    last_post_time["timestamp"] = now
+                    return
+            except:
+                continue
+
+        # Fallback to keyboard shortcut
+        is_mac = page.evaluate("() => navigator.platform.includes('Mac')")
+        if is_mac:
+            page.keyboard.press("Meta+Enter")
+        else:
+            page.keyboard.press("Control+Enter")
+        time.sleep(3)
+        logger.info("[ORIGINAL POST] Tweet posted via keyboard shortcut")
+        last_post_time["timestamp"] = now
+
+    except PlaywrightError as exc:
+        logger.warning("[ORIGINAL POST] Failed to post tweet: %s", str(exc)[:100])
+
+
+def maybe_follow_author(page: Page, tweet_data: dict[str, str], config: BotConfig, logger: logging.Logger, follow_count: dict) -> None:
+    """Follow the author of a tweet we replied to."""
+    if not config.enable_auto_follow:
+        return
+
+    # Check if we've hit the follow limit for this cycle
+    if follow_count.get("count", 0) >= config.max_auto_follows_per_cycle:
+        return
+
+    handle = tweet_data.get("handle", "")
+    if not handle:
+        return
+
+    logger.info("[AUTO-FOLLOW] Attempting to follow @%s", handle)
+
+    try:
+        # Navigate to user's profile
+        profile_url = f"https://x.com/{handle}"
+        page.goto(profile_url, wait_until="domcontentloaded", timeout=30000)
+        time.sleep(2)
+
+        # Try to find and click follow button
+        follow_selectors = [
+            "div[data-testid$='-follow']",
+            "button[data-testid$='-follow']",
+            "[aria-label*='Follow @']",
+            "[aria-label='Follow']",
+        ]
+
+        for selector in follow_selectors:
+            try:
+                btn = page.locator(selector).first
+                if btn.count() > 0 and btn.is_visible(timeout=2000):
+                    btn_text = btn.inner_text().strip().lower()
+                    # Only click if it says "follow" (not "following")
+                    if "follow" in btn_text and "following" not in btn_text:
+                        btn.click(timeout=5000)
+                        time.sleep(2)
+                        logger.info("[AUTO-FOLLOW] Successfully followed @%s", handle)
+                        follow_count["count"] = follow_count.get("count", 0) + 1
+                        return
+                    else:
+                        logger.info("[AUTO-FOLLOW] Already following @%s", handle)
+                        return
+            except:
+                continue
+
+        logger.info("[AUTO-FOLLOW] Could not find follow button for @%s", handle)
+
+    except PlaywrightError as exc:
+        logger.warning("[AUTO-FOLLOW] Failed to follow @%s: %s", handle, str(exc)[:100])
+
+
 def process_tweets(
     config: BotConfig,
     registry: MessageRegistry,
@@ -902,6 +1141,8 @@ def process_tweets(
     tweets: list[Locator],
     topic: str,
     logger: logging.Logger,
+    follow_count: dict,
+    dm_count: dict,
 ) -> None:
     replies = 0
     for tweet in tweets:
@@ -978,7 +1219,13 @@ def process_tweets(
             registry.add(identifier)
             replies += 1
             video_service.maybe_generate(topic, data["text"])
-            maybe_send_dm(config, page, data, logger)
+
+            # Try to follow the author after successful reply
+            maybe_follow_author(page, data, config, logger, follow_count)
+
+            # Try to send DM if interest score is high enough
+            maybe_send_dm(config, page, data, logger, dm_count)
+
             delay = random.randint(config.action_delay_min, config.action_delay_max)
             logger.info("[INFO] Sleeping for %s seconds before next action.", delay)
             time.sleep(delay)
@@ -1001,6 +1248,8 @@ def handle_topic(
     video_service: VideoService,
     topic: str,
     logger: logging.Logger,
+    follow_count: dict,
+    dm_count: dict,
 ) -> None:
     logger.info("[INFO] Topic '%s' - loading search results...", topic)
     url = f"https://x.com/search?q={quote_plus(topic)}&src=typed_query&f=live"
@@ -1020,7 +1269,7 @@ def handle_topic(
         logger.warning("No eligible tweets for topic '%s'.", topic)
         return
 
-    process_tweets(config, registry, page, video_service, tweets, topic, logger)
+    process_tweets(config, registry, page, video_service, tweets, topic, logger, follow_count, dm_count)
 
 
 def run_engagement_loop(
@@ -1031,6 +1280,12 @@ def run_engagement_loop(
     logger: logging.Logger,
 ) -> None:
     logger.info("[INFO] Starting engagement loop with %s topic(s).", len(config.search_topics))
+
+    # State tracking for new growth features
+    last_post_time = {"timestamp": 0}  # Track when we last posted an original tweet
+    follow_count = {"count": 0}  # Track follows this cycle
+    dm_count = {"count": 0}  # Track DMs this cycle
+
     while True:
         try:
             if page.is_closed():
@@ -1040,9 +1295,17 @@ def run_engagement_loop(
             logger.info("Browser page unavailable. Exiting engagement loop.")
             return
 
+        # Reset counters at the start of each cycle
+        follow_count["count"] = 0
+        dm_count["count"] = 0
+
+        # Try to post an original tweet if enough time has passed
+        maybe_post_original_tweet(config, page, logger, last_post_time)
+
+        # Process search topics
         if config.search_topics:
             for topic in config.search_topics:
-                handle_topic(config, registry, page, video_service, topic, logger)
+                handle_topic(config, registry, page, video_service, topic, logger, follow_count, dm_count)
         else:
             logger.info("No search topics configured. Sleeping before next cycle.")
 
