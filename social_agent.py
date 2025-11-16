@@ -83,8 +83,21 @@ class BotConfig:
     # Product/sales settings for AI replies
     product_name: str = "Social Agent Codex Bot"
     product_short_pitch: str = "An AI-powered X engagement bot that auto-replies to relevant tweets."
-    product_cta: str = "DM me 'BOT' and I'll send you the link + setup guide."
+    product_cta: str = "DM me '5223' and I'll send you the link + setup guide."
+    dm_access_code: str = "5223"
     reply_tone: str = "casual"
+    growth_goal: str = "sales_and_followers"
+    # Original posts settings
+    enable_original_posts: bool = False
+    original_post_interval_minutes: int = 90
+    # Auto-follow settings
+    enable_auto_follow: bool = False
+    max_auto_follows_per_cycle: int = 10
+    # DM settings (extended)
+    max_dms_per_cycle: int = 5
+    # Hashtags for original posts
+    primary_hashtags: list[str] = None
+    secondary_hashtags: list[str] = None
 
 
 def _parse_bool(value: Optional[str], *, default: bool = False) -> bool:
@@ -189,8 +202,25 @@ def load_config() -> BotConfig:
     # Product/sales settings
     product_name = (os.getenv("PRODUCT_NAME") or "Social Agent Codex Bot").strip()
     product_short_pitch = (os.getenv("PRODUCT_SHORT_PITCH") or "An AI-powered X engagement bot that auto-replies to relevant tweets.").strip()
-    product_cta = (os.getenv("PRODUCT_CTA") or "DM me 'BOT' and I'll send you the link + setup guide.").strip()
+    product_cta = (os.getenv("PRODUCT_CTA") or "DM me '5223' and I'll send you the link + setup guide.").strip()
+    dm_access_code = (os.getenv("DM_ACCESS_CODE") or "5223").strip()
     reply_tone = (os.getenv("REPLY_TONE") or "casual").strip()
+    growth_goal = (os.getenv("GROWTH_GOAL") or "sales_and_followers").strip()
+
+    # Original posts settings
+    enable_original_posts = _parse_bool(os.getenv("ENABLE_ORIGINAL_POSTS"), default=False)
+    original_post_interval_minutes = _parse_int("ORIGINAL_POST_INTERVAL_MINUTES", 90)
+
+    # Auto-follow settings
+    enable_auto_follow = _parse_bool(os.getenv("ENABLE_AUTO_FOLLOW"), default=False)
+    max_auto_follows_per_cycle = _parse_int("MAX_AUTO_FOLLOWS_PER_CYCLE", 10)
+
+    # Extended DM settings
+    max_dms_per_cycle = _parse_int("MAX_DMS_PER_CYCLE", 5)
+
+    # Hashtags for original posts
+    primary_hashtags = _split_env("PRIMARY_HASHTAGS")
+    secondary_hashtags = _split_env("SECONDARY_HASHTAGS")
 
     return BotConfig(
         search_topics=search_topics,
@@ -223,7 +253,16 @@ def load_config() -> BotConfig:
         product_name=product_name,
         product_short_pitch=product_short_pitch,
         product_cta=product_cta,
+        dm_access_code=dm_access_code,
         reply_tone=reply_tone,
+        growth_goal=growth_goal,
+        enable_original_posts=enable_original_posts,
+        original_post_interval_minutes=original_post_interval_minutes,
+        enable_auto_follow=enable_auto_follow,
+        max_auto_follows_per_cycle=max_auto_follows_per_cycle,
+        max_dms_per_cycle=max_dms_per_cycle,
+        primary_hashtags=primary_hashtags,
+        secondary_hashtags=secondary_hashtags,
     )
 
 
@@ -667,6 +706,134 @@ Topic: {topic}
 Author handle: @{handle}
 
 Write a reply that follows the system instructions. Do NOT include explanations, just the reply text I should post on X.""".strip()
+
+    return [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_content},
+    ]
+
+
+def build_reply_messages(tweet_text: str, topic: str, handle: str, config: BotConfig) -> list[dict]:
+    """Build ChatGPT messages for AI-powered reply generation with better sales prompts."""
+    system_prompt = f"""You are a human X (Twitter) growth operator.
+
+Product you are softly promoting:
+- Name: {config.product_name}
+- What it does: {config.product_short_pitch}
+- How to get it: {config.product_cta}
+- DM access code: {config.dm_access_code}
+
+Goals (in this order):
+1. Add **real value** to the conversation so the author and readers see you as sharp, useful, and not a bot.
+2. Build trust and curiosity around you and your product.
+3. Sometimes (not always) create **soft sales opportunities** and drive DMs or clicks.
+
+Style rules:
+- Tone: {config.reply_tone}, confident, like a young entrepreneur who actually does this in real life.
+- Reply as a **real person**, never mention being an AI or bot.
+- Use **normal punctuation**. Avoid starting or ending most replies with "—" or "...".
+- No weird repetitive patterns: don't structure every reply the same way, don't always end with the same phrase.
+- 1–3 sentences max. Short, punchy, specific.
+- If you use emojis, keep it to 0–2 per reply and only when they naturally fit.
+- Avoid fake generic phrases like "great point" or "this is so interesting" unless followed by a specific insight.
+
+Promotion behavior:
+- ~70% of replies: pure value, no pitch.
+- ~30% of replies: soft plug at the **end**, for example:
+  - "I've been automating this with {config.product_name} and it's been insane for growth."
+  - "If you want my exact setup, DM me '{config.dm_access_code}' and I'll send it."
+- The plug should **never** be the whole reply. Always give value first.
+
+General behavior:
+- Always anchor the reply on the actual tweet content and topic.
+- Focus on specific, tactical ideas: a step, a framework, an angle, not vague motivation.
+- Don't be hostile or cringe; direct is fine, but not toxic.
+""".strip()
+
+    user_content = f"""Tweet text:
+\"\"\"{tweet_text}\"\"\"
+
+Topic: {topic}
+Author handle: @{handle}
+
+Write ONE reply that follows the system instructions.
+Output ONLY the reply text that should be posted on X, nothing else.""".strip()
+
+    return [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_content},
+    ]
+
+
+def build_original_post_messages(config: BotConfig, topic: str) -> list[dict]:
+    """Build ChatGPT messages for generating original tweets."""
+    primary_tags = ", ".join(config.primary_hashtags) if config.primary_hashtags else "ai, automation, growth, sidehustle"
+    secondary_tags = ", ".join(config.secondary_hashtags) if config.secondary_hashtags else "buildinpublic, xgrowth, content"
+
+    system_prompt = f"""You are a content creator on X (Twitter) focused on {config.growth_goal}.
+You want to grow followers AND sell {config.product_name}.
+
+Product:
+- What it does: {config.product_short_pitch}
+- CTA: {config.product_cta}
+- DM access code: {config.dm_access_code}
+
+Style rules:
+- Tone: {config.reply_tone}, confident, slightly opinionated, not cringe.
+- Write **one original tweet**, not a thread.
+- Use a strong hook in the first line that would make someone stop scrolling.
+- Teach a quick insight, framework, or punchy take related to: {topic}.
+- At most 1 subtle mention of your product in the middle or at the end.
+- Use 2–4 relevant hashtags at the **end** of the tweet, not in the middle of sentences.
+- Prefer hashtags from:
+  - Primary: {primary_tags}
+  - Secondary: {secondary_tags}
+- Do NOT use the exact same hashtags every time; rotate and mix them.
+
+Format:
+- No intro text, no explanations.
+- Just output the tweet exactly as it should appear on X.""".strip()
+
+    user_content = f"""Generate one tweet about topic: {topic}.
+Make it optimized for engagement AND aligned with selling {config.product_name}.
+Remember to add hashtags at the end only.""".strip()
+
+    return [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_content},
+    ]
+
+
+def build_dm_messages(tweet_text: str, handle: str, config: BotConfig) -> list[dict]:
+    """Build ChatGPT messages for generating personalized DMs."""
+    system_prompt = f"""You are writing a DM on X (Twitter) to someone who looks like a good fit for {config.product_name}.
+
+Product:
+- What it does: {config.product_short_pitch}
+- CTA: {config.product_cta}
+- DM access code: {config.dm_access_code}
+
+Goals:
+1. Be respectful and non-spammy.
+2. Show you actually read their tweet.
+3. Make a short, clear offer that feels personal, not like a mass blast.
+
+Style:
+- 2–4 short lines.
+- No fake hype. Sound like a real builder talking to another builder.
+- No "hey [name]" + generic pitch. Reference something specific they said.
+- You can mention:
+  - "If you DM me '{config.dm_access_code}', I'll send you the full breakdown / setup."
+
+You are NOT allowed to mention being an AI or a bot.""".strip()
+
+    user_content = f"""Their tweet:
+\"\"\"{tweet_text}\"\"\"
+
+Their handle: @{handle}
+
+Write a short DM that follows the system instructions.
+Output ONLY the DM content, with line breaks where appropriate.""".strip()
 
     return [
         {"role": "system", "content": system_prompt},
