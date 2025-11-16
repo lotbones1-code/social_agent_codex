@@ -75,6 +75,16 @@ class BotConfig:
     video_model: str
     enable_video: bool
     auth_file: str
+    # OpenAI settings
+    openai_api_key: Optional[str] = None
+    openai_model: str = "gpt-4o-mini"
+    enable_ai_replies: bool = False
+    ai_reply_rate: float = 0.3
+    # Product/sales settings for AI replies
+    product_name: str = "Social Agent Codex Bot"
+    product_short_pitch: str = "An AI-powered X engagement bot that auto-replies to relevant tweets."
+    product_cta: str = "DM me 'BOT' and I'll send you the link + setup guide."
+    reply_tone: str = "casual"
 
 
 def _parse_bool(value: Optional[str], *, default: bool = False) -> bool:
@@ -170,6 +180,18 @@ def load_config() -> BotConfig:
 
     auth_file = (os.getenv("AUTH_FILE") or DEFAULT_AUTH_FILE).strip() or DEFAULT_AUTH_FILE
 
+    # OpenAI settings
+    openai_api_key = (os.getenv("OPENAI_API_KEY") or "").strip() or None
+    openai_model = (os.getenv("OPENAI_MODEL") or "gpt-4o-mini").strip()
+    enable_ai_replies = _parse_bool(os.getenv("ENABLE_AI_REPLIES"), default=False)
+    ai_reply_rate = _parse_float("AI_REPLY_RATE", 0.3)
+
+    # Product/sales settings
+    product_name = (os.getenv("PRODUCT_NAME") or "Social Agent Codex Bot").strip()
+    product_short_pitch = (os.getenv("PRODUCT_SHORT_PITCH") or "An AI-powered X engagement bot that auto-replies to relevant tweets.").strip()
+    product_cta = (os.getenv("PRODUCT_CTA") or "DM me 'BOT' and I'll send you the link + setup guide.").strip()
+    reply_tone = (os.getenv("REPLY_TONE") or "casual").strip()
+
     return BotConfig(
         search_topics=search_topics,
         relevant_keywords=relevant_keywords,
@@ -194,6 +216,14 @@ def load_config() -> BotConfig:
         video_model=video_model,
         enable_video=enable_video,
         auth_file=auth_file,
+        openai_api_key=openai_api_key,
+        openai_model=openai_model,
+        enable_ai_replies=enable_ai_replies,
+        ai_reply_rate=ai_reply_rate,
+        product_name=product_name,
+        product_short_pitch=product_short_pitch,
+        product_cta=product_cta,
+        reply_tone=reply_tone,
     )
 
 
@@ -501,6 +531,100 @@ def maybe_send_dm(config: BotConfig, page: Page, tweet_data: dict[str, str], log
         _DM_NOTICE_LOGGED = True
 
 
+def build_reply_messages(tweet_text: str, topic: str, handle: str, config: BotConfig) -> list[dict]:
+    """Build ChatGPT messages for AI-powered reply generation."""
+    system_prompt = f"""You are a human social media growth operator writing replies on X (Twitter).
+
+Product you are softly promoting:
+- Name: {config.product_name}
+- What it does: {config.product_short_pitch}
+- How to get it: {config.product_cta}
+
+Your goals, in this order:
+1. First, add real value to the conversation so the author and readers see you as sharp and helpful.
+2. Second, sometimes (not always) weave in a soft, natural plug for the product.
+
+Style rules:
+- Write like a real person on X, not like a corporate blog or an AI.
+- Tone: {config.reply_tone} (interpret this as the general vibe, e.g. "casual" = relaxed, friendly, direct).
+- Keep replies short and punchy: ideally 1–3 sentences.
+- Avoid generic filler like "great point" or "this is interesting" unless you immediately follow with something specific and useful.
+- Never mention that you are an AI, a bot, or a language model. Always speak as "I".
+- Use emojis only when they genuinely fit the vibe. Do NOT spam emojis.
+- Do not overuse hashtags. Only use a hashtag if it feels natural and is directly relevant.
+
+Promotion behavior:
+- Roughly 70% of replies should be pure value with **no promotion**.
+- Roughly 30% of replies can include a **soft plug** at the end, for example:
+  - "btw, I got tired of doing this manually so I built {config.product_name} to handle it → {config.product_cta}"
+  - "I've been automating this with {config.product_name} and it's been a game changer ({config.product_cta})."
+- The plug should never be the whole reply. It should come **after** you've added real value.
+
+General behavior:
+- Always base your reply on the tweet content and topic you are given.
+- If the tweet is low quality, still be polite or neutral; don't be rude or hostile.
+- Do NOT argue with people unless the topic clearly invites debate and it still feels on-brand.
+""".strip()
+
+    user_content = f"""Tweet text:
+\"\"\"{tweet_text}\"\"\"
+
+Topic: {topic}
+Author handle: @{handle}
+
+Write a reply that follows the system instructions. Do NOT include explanations, just the reply text I should post on X.""".strip()
+
+    return [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_content},
+    ]
+
+
+def generate_ai_reply(config: BotConfig, tweet_text: str, topic: str, handle: str, logger: logging.Logger) -> Optional[str]:
+    """Generate an AI-powered reply using OpenAI ChatGPT API."""
+    if not config.enable_ai_replies:
+        return None
+
+    if not config.openai_api_key:
+        logger.warning("AI replies enabled but OPENAI_API_KEY not configured. Falling back to templates.")
+        return None
+
+    try:
+        import json as json_lib
+        import urllib.request
+
+        messages = build_reply_messages(tweet_text, topic, handle, config)
+
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {config.openai_api_key}",
+        }
+
+        data = {
+            "model": config.openai_model,
+            "messages": messages,
+            "temperature": 0.7,
+            "max_tokens": 280,
+        }
+
+        req = urllib.request.Request(
+            "https://api.openai.com/v1/chat/completions",
+            data=json_lib.dumps(data).encode("utf-8"),
+            headers=headers,
+            method="POST",
+        )
+
+        with urllib.request.urlopen(req, timeout=30) as response:
+            result = json_lib.loads(response.read().decode("utf-8"))
+            reply_text = result["choices"][0]["message"]["content"].strip()
+            logger.info("[AI] Generated reply using %s", config.openai_model)
+            return reply_text
+
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("AI reply generation failed: %s. Falling back to templates.", exc)
+        return None
+
+
 def text_focus(text: str, *, max_length: int = 80) -> str:
     cleaned = " ".join(text.split())
     if len(cleaned) <= max_length:
@@ -565,12 +689,22 @@ def process_tweets(
             )
             continue
 
-        template = random.choice(config.reply_templates)
-        message = template.format(
-            topic=topic,
-            focus=text_focus(data["text"]),
-            ref_link=config.referral_link or "",
-        ).strip()
+        # Try AI-powered reply first if enabled, otherwise use templates
+        message = None
+        if config.enable_ai_replies and config.openai_api_key:
+            # Use AI reply with probability based on ai_reply_rate
+            use_ai = random.random() < config.ai_reply_rate
+            if use_ai:
+                message = generate_ai_reply(config, data["text"], topic, data["handle"] or "unknown", logger)
+
+        # Fallback to template-based reply if AI didn't generate one
+        if not message:
+            template = random.choice(config.reply_templates)
+            message = template.format(
+                topic=topic,
+                focus=text_focus(data["text"]),
+                ref_link=config.referral_link or "",
+            ).strip()
 
         if not message:
             logger.warning("Generated empty reply. Skipping tweet.")
