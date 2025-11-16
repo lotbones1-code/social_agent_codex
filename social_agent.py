@@ -1415,7 +1415,7 @@ def prepare_authenticated_session(
 
 
 def run_social_agent() -> None:
-    load_dotenv()
+    load_dotenv(override=True)  # Force override existing env vars
     config = load_config()
 
     logging.basicConfig(
