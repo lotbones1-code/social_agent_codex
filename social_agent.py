@@ -493,10 +493,18 @@ def extract_tweet_data(tweet: Locator) -> Optional[dict[str, str]]:
 
 def send_reply(page: Page, tweet: Locator, message: str, logger: logging.Logger) -> bool:
     try:
+        # Check if reply button exists first (skip ads/promoted tweets)
+        logger.info("[DEBUG] Looking for reply button...")
+        reply_button = tweet.locator("div[data-testid='reply']")
+
+        # Wait for button to be visible with short timeout
+        if not reply_button.is_visible(timeout=3000):
+            logger.warning("Reply button not visible - skipping (likely ad/promoted tweet)")
+            return False
+
         # Click reply button
         logger.info("[DEBUG] Clicking reply button...")
-        reply_button = tweet.locator("div[data-testid='reply']")
-        reply_button.click()
+        reply_button.click(timeout=5000)
         time.sleep(2)  # Give modal time to open
 
         # Wait for composer to appear
@@ -504,22 +512,23 @@ def send_reply(page: Page, tweet: Locator, message: str, logger: logging.Logger)
         composer = page.locator("div[data-testid^='tweetTextarea_']").first
         composer.wait_for(timeout=15000, state="visible")
 
-        logger.info("[DEBUG] Clicking composer and typing message...")
+        logger.info("[DEBUG] Typing message...")
         composer.click()
-        time.sleep(1)
-
-        # Type message using fill and type for better reliability
-        composer.fill("")  # Clear any existing text
         time.sleep(0.5)
-        composer.type(message, delay=50)  # Type with 50ms delay between chars
-        time.sleep(1)
+
+        # Type message directly
+        composer.fill(message)
+        time.sleep(1.5)
 
         # Click post button - try both selectors
         logger.info("[DEBUG] Clicking post button...")
         try:
             post_button = page.locator("div[data-testid='tweetButton']").first
-            post_button.click(timeout=5000)
-        except PlaywrightTimeout:
+            if post_button.is_visible(timeout=2000):
+                post_button.click(timeout=5000)
+            else:
+                raise PlaywrightTimeout("tweetButton not visible")
+        except (PlaywrightTimeout, PlaywrightError):
             post_button = page.locator("div[data-testid='tweetButtonInline']").first
             post_button.click(timeout=5000)
 
@@ -527,9 +536,9 @@ def send_reply(page: Page, tweet: Locator, message: str, logger: logging.Logger)
         logger.info("[INFO] Reply posted successfully.")
         return True
     except PlaywrightTimeout as exc:
-        logger.warning("Timeout while composing reply: %s", exc)
+        logger.warning("Timeout while composing reply: %s", str(exc)[:100])
     except PlaywrightError as exc:
-        logger.warning("Failed to send reply: %s", exc)
+        logger.warning("Failed to send reply: %s", str(exc)[:100])
     return False
 
 
