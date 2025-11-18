@@ -1018,15 +1018,43 @@ def handle_topic(
 ) -> None:
     logger.info("[INFO] Topic '%s' - loading search results...", topic)
     url = f"https://x.com/search?q={quote_plus(topic)}&src=typed_query&f=live"
+
+    # Check if page/browser is still alive
     try:
+        if page.is_closed():
+            logger.error("Page is closed before navigation")
+            return
+    except PlaywrightError:
+        logger.error("Cannot check page state - browser may be closed")
+        return
+
+    try:
+        logger.debug("Navigating to: %s", url)
         page.goto(url, wait_until="domcontentloaded", timeout=30000)
+        logger.debug("Navigation complete, current URL: %s", page.url)
+
+        # Check if we got redirected or blocked
+        if "login" in page.url.lower() or "account/access" in page.url.lower():
+            logger.error("Redirected to login/blocked page. Session may be expired.")
+            return
+
         logger.debug("Page loaded, waiting for tweets to render...")
         page.wait_for_timeout(3000)  # Give tweets time to render
     except PlaywrightTimeout:
-        logger.warning("Timeout while loading topic '%s'.", topic)
+        logger.warning("Timeout while loading topic '%s'. Current URL: %s", topic, page.url if page else "unknown")
+        # Try to get page title for debugging
+        try:
+            title = page.title()
+            logger.debug("Page title: %s", title)
+        except Exception:  # noqa: BLE001
+            pass
         return
     except PlaywrightError as exc:
         logger.warning("Error while loading topic '%s': %s", topic, exc)
+        try:
+            logger.debug("Current URL after error: %s", page.url if page else "unknown")
+        except Exception:  # noqa: BLE001
+            pass
         return
 
     tweets = load_tweets(page, logger)
