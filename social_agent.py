@@ -35,6 +35,16 @@ DEFAULT_REPLY_TEMPLATES = [
     "Been riffing with other builders about {topic}, and this {focus} breakdown keeps delivering wins. Shortcut link: {ref_link}",
     "Every time {topic} comes up, I point people to this {focus} playbook: {ref_link}",
 ]
+DEFAULT_HELPFUL_REPLY_TEMPLATES = [
+    "This is a really interesting perspective on {topic}. The way you explained {focus} is spot on.",
+    "Love this take! I've been exploring {topic} too and your point about {focus} resonates.",
+    "Great thread on {topic}. Your insights on {focus} are really valuable.",
+    "This {focus} approach to {topic} is exactly what more people need to understand.",
+    "Couldn't agree more about {topic}. Your breakdown of {focus} is excellent.",
+    "Really appreciate how you framed {topic} here. The {focus} angle is underrated.",
+    "This is gold! More people need to see this perspective on {topic} and {focus}.",
+    "Been thinking about {topic} a lot lately, and your {focus} point is really well articulated.",
+]
 DEFAULT_SEARCH_TOPICS = ["AI automation"]
 MESSAGE_LOG_PATH = Path("logs/replied.json")
 MESSAGE_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -75,6 +85,10 @@ class BotConfig:
     video_model: str
     enable_video: bool
     auth_file: str
+    like_before_reply: bool
+    retweet_probability: float
+    link_reply_probability: float
+    helpful_reply_templates: list[str]
 
 
 def _parse_bool(value: Optional[str], *, default: bool = False) -> bool:
@@ -170,6 +184,15 @@ def load_config() -> BotConfig:
 
     auth_file = (os.getenv("AUTH_FILE") or DEFAULT_AUTH_FILE).strip() or DEFAULT_AUTH_FILE
 
+    # New engagement settings to avoid spam filters
+    like_before_reply = _parse_bool(os.getenv("LIKE_BEFORE_REPLY"), default=True)
+    retweet_probability = _parse_float("RETWEET_PROBABILITY", 0.15)  # 15% chance to retweet
+    link_reply_probability = _parse_float("LINK_REPLY_PROBABILITY", 0.25)  # Only 25% of replies have links
+
+    helpful_reply_templates = _split_env("HELPFUL_REPLY_TEMPLATES")
+    if not helpful_reply_templates:
+        helpful_reply_templates = DEFAULT_HELPFUL_REPLY_TEMPLATES.copy()
+
     return BotConfig(
         search_topics=search_topics,
         relevant_keywords=relevant_keywords,
@@ -194,6 +217,10 @@ def load_config() -> BotConfig:
         video_model=video_model,
         enable_video=enable_video,
         auth_file=auth_file,
+        like_before_reply=like_before_reply,
+        retweet_probability=retweet_probability,
+        link_reply_probability=link_reply_probability,
+        helpful_reply_templates=helpful_reply_templates,
     )
 
 
@@ -461,6 +488,43 @@ def extract_tweet_data(tweet: Locator) -> Optional[dict[str, str]]:
     }
 
 
+def like_tweet(tweet: Locator, logger: logging.Logger) -> bool:
+    """Like a tweet to appear more human and build engagement."""
+    try:
+        like_button = tweet.locator("div[data-testid='like']").first
+        # Check if already liked
+        if like_button.count() > 0:
+            like_button.click()
+            time.sleep(random.uniform(0.5, 1.5))
+            logger.info("[INFO] Liked tweet.")
+            return True
+    except PlaywrightTimeout:
+        logger.debug("Timeout while liking tweet.")
+    except PlaywrightError as exc:
+        logger.debug("Failed to like tweet: %s", exc)
+    return False
+
+
+def retweet_tweet(tweet: Locator, logger: logging.Logger) -> bool:
+    """Retweet content to appear more engaged."""
+    try:
+        retweet_button = tweet.locator("div[data-testid='retweet']").first
+        if retweet_button.count() > 0:
+            retweet_button.click()
+            time.sleep(random.uniform(0.5, 1.0))
+            # Click the "Retweet" option in the menu
+            page_context = tweet.page
+            page_context.locator("div[data-testid='retweetConfirm']").first.click()
+            time.sleep(random.uniform(0.5, 1.5))
+            logger.info("[INFO] Retweeted content.")
+            return True
+    except PlaywrightTimeout:
+        logger.debug("Timeout while retweeting.")
+    except PlaywrightError as exc:
+        logger.debug("Failed to retweet: %s", exc)
+    return False
+
+
 def send_reply(page: Page, tweet: Locator, message: str, logger: logging.Logger) -> bool:
     try:
         tweet.locator("div[data-testid='reply']").click()
@@ -565,23 +629,60 @@ def process_tweets(
             )
             continue
 
-        template = random.choice(config.reply_templates)
-        message = template.format(
-            topic=topic,
-            focus=text_focus(data["text"]),
-            ref_link=config.referral_link or "",
-        ).strip()
+        # Decide whether to retweet instead of replying (helps build credibility)
+        if random.random() < config.retweet_probability:
+            logger.info("[INFO] Retweeting content from @%s for topic '%s'.", data['handle'] or 'unknown', topic)
+            if retweet_tweet(tweet, logger):
+                registry.add(identifier)
+                replies += 1  # Count retweets toward the limit
+                delay = random.randint(config.action_delay_min, config.action_delay_max)
+                logger.info("[INFO] Sleeping for %s seconds before next action.", delay)
+                time.sleep(delay)
+                if replies >= config.max_replies_per_topic:
+                    logger.info(
+                        "[INFO] Reached MAX_REPLIES_PER_TOPIC=%s for '%s'. Moving to next topic.",
+                        config.max_replies_per_topic,
+                        topic,
+                    )
+                    return
+                continue
+            else:
+                logger.debug("Retweet failed, will try to reply instead.")
+
+        # Like the tweet before replying (makes bot look more human)
+        if config.like_before_reply:
+            like_tweet(tweet, logger)
+
+        # Decide between helpful (no link) and promotional (with link) reply
+        use_promotional = random.random() < config.link_reply_probability
+
+        if use_promotional and config.referral_link:
+            # Use promotional template with link
+            template = random.choice(config.reply_templates)
+            message = template.format(
+                topic=topic,
+                focus=text_focus(data["text"]),
+                ref_link=config.referral_link,
+            ).strip()
+            logger.info("[INFO] Sending promotional reply to @%s for topic '%s'.", data['handle'] or 'unknown', topic)
+        else:
+            # Use helpful template without link
+            template = random.choice(config.helpful_reply_templates)
+            message = template.format(
+                topic=topic,
+                focus=text_focus(data["text"]),
+            ).strip()
+            logger.info("[INFO] Sending helpful reply to @%s for topic '%s'.", data['handle'] or 'unknown', topic)
 
         if not message:
             logger.warning("Generated empty reply. Skipping tweet.")
             continue
 
-        logger.info("[INFO] Replying to @%s for topic '%s'.", data['handle'] or 'unknown', topic)
-
         if send_reply(page, tweet, message, logger):
             registry.add(identifier)
             replies += 1
-            video_service.maybe_generate(topic, data["text"])
+            if use_promotional:
+                video_service.maybe_generate(topic, data["text"])
             maybe_send_dm(config, page, data, logger)
             delay = random.randint(config.action_delay_min, config.action_delay_max)
             logger.info("[INFO] Sleeping for %s seconds before next action.", delay)
