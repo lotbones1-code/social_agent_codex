@@ -45,6 +45,16 @@ DEFAULT_HELPFUL_REPLY_TEMPLATES = [
     "This is gold! More people need to see this perspective on {topic} and {focus}.",
     "Been thinking about {topic} a lot lately, and your {focus} point is really well articulated.",
 ]
+DEFAULT_ORIGINAL_TWEET_TEMPLATES = [
+    "Been diving deep into {topic} lately. The patterns I'm seeing are wild.",
+    "Quick thought on {topic}: most people are missing the core fundamentals.",
+    "Unpopular opinion: {topic} is way more nuanced than people realize.",
+    "Just finished a deep dive into {topic}. Thread coming soon 👀",
+    "The best {topic} advice I got this year: start small, iterate fast, learn constantly.",
+    "Working on something related to {topic}. Can't wait to share what I'm building.",
+    "Hot take: if you're not experimenting with {topic} yet, you're already behind.",
+    "Three things I wish I knew about {topic} when I started...",
+]
 DEFAULT_SEARCH_TOPICS = ["AI automation"]
 MESSAGE_LOG_PATH = Path("logs/replied.json")
 MESSAGE_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -89,6 +99,12 @@ class BotConfig:
     retweet_probability: float
     link_reply_probability: float
     helpful_reply_templates: list[str]
+    follow_after_reply: bool
+    follow_probability: float
+    bookmark_probability: float
+    quote_tweet_probability: float
+    post_original_probability: float
+    original_tweet_templates: list[str]
 
 
 def _parse_bool(value: Optional[str], *, default: bool = False) -> bool:
@@ -193,6 +209,17 @@ def load_config() -> BotConfig:
     if not helpful_reply_templates:
         helpful_reply_templates = DEFAULT_HELPFUL_REPLY_TEMPLATES.copy()
 
+    # Advanced human-like engagement settings
+    follow_after_reply = _parse_bool(os.getenv("FOLLOW_AFTER_REPLY"), default=False)
+    follow_probability = _parse_float("FOLLOW_PROBABILITY", 0.30)  # 30% chance to follow
+    bookmark_probability = _parse_float("BOOKMARK_PROBABILITY", 0.10)  # 10% chance to bookmark
+    quote_tweet_probability = _parse_float("QUOTE_TWEET_PROBABILITY", 0.05)  # 5% chance to quote tweet
+    post_original_probability = _parse_float("POST_ORIGINAL_PROBABILITY", 0.10)  # 10% chance per cycle
+
+    original_tweet_templates = _split_env("ORIGINAL_TWEET_TEMPLATES")
+    if not original_tweet_templates:
+        original_tweet_templates = DEFAULT_ORIGINAL_TWEET_TEMPLATES.copy()
+
     return BotConfig(
         search_topics=search_topics,
         relevant_keywords=relevant_keywords,
@@ -221,6 +248,12 @@ def load_config() -> BotConfig:
         retweet_probability=retweet_probability,
         link_reply_probability=link_reply_probability,
         helpful_reply_templates=helpful_reply_templates,
+        follow_after_reply=follow_after_reply,
+        follow_probability=follow_probability,
+        bookmark_probability=bookmark_probability,
+        quote_tweet_probability=quote_tweet_probability,
+        post_original_probability=post_original_probability,
+        original_tweet_templates=original_tweet_templates,
     )
 
 
@@ -525,6 +558,124 @@ def retweet_tweet(tweet: Locator, logger: logging.Logger) -> bool:
     return False
 
 
+def follow_user(page: Page, author_handle: str, logger: logging.Logger) -> bool:
+    """Follow a user to build connections and appear more human."""
+    if not author_handle:
+        return False
+    try:
+        # Navigate to user profile
+        profile_url = f"https://x.com/{author_handle}"
+        page.goto(profile_url, wait_until="domcontentloaded", timeout=15000)
+        time.sleep(random.uniform(1.0, 2.0))
+
+        # Look for follow button
+        follow_button = page.locator("div[data-testid$='-follow']").first
+        if follow_button.count() > 0:
+            follow_button.click()
+            time.sleep(random.uniform(0.5, 1.5))
+            logger.info("[INFO] Followed user @%s", author_handle)
+            return True
+    except PlaywrightTimeout:
+        logger.debug("Timeout while following user @%s", author_handle)
+    except PlaywrightError as exc:
+        logger.debug("Failed to follow user @%s: %s", author_handle, exc)
+    return False
+
+
+def bookmark_tweet(tweet: Locator, logger: logging.Logger) -> bool:
+    """Bookmark a tweet to appear more engaged and human-like."""
+    try:
+        # Click the "more" menu (three dots)
+        more_button = tweet.locator("div[data-testid='caret']").first
+        if more_button.count() > 0:
+            more_button.click()
+            time.sleep(random.uniform(0.3, 0.8))
+
+            # Click bookmark option in the menu
+            page_context = tweet.page
+            bookmark_option = page_context.locator("div[data-testid='Bookmark']").first
+            if bookmark_option.count() > 0:
+                bookmark_option.click()
+                time.sleep(random.uniform(0.5, 1.0))
+                logger.info("[INFO] Bookmarked tweet.")
+                return True
+    except PlaywrightTimeout:
+        logger.debug("Timeout while bookmarking tweet.")
+    except PlaywrightError as exc:
+        logger.debug("Failed to bookmark tweet: %s", exc)
+    return False
+
+
+def quote_tweet(page: Page, tweet: Locator, message: str, logger: logging.Logger) -> bool:
+    """Quote tweet content with a comment to increase engagement variety."""
+    try:
+        retweet_button = tweet.locator("div[data-testid='retweet']").first
+        if retweet_button.count() > 0:
+            retweet_button.click()
+            time.sleep(random.uniform(0.5, 1.0))
+
+            # Click "Quote Tweet" option
+            quote_option = page.locator("div[data-testid='quoteButton']").first
+            if quote_option.count() > 0:
+                quote_option.click()
+                time.sleep(random.uniform(1.0, 2.0))
+
+                # Type the quote message
+                composer = page.locator("div[data-testid^='tweetTextarea_']").first
+                composer.wait_for(timeout=10000)
+                composer.click()
+                page.keyboard.insert_text(message)
+
+                # Post the quote tweet
+                page.locator("div[data-testid='tweetButton']").click()
+                time.sleep(random.uniform(1.5, 2.5))
+                logger.info("[INFO] Quote tweeted successfully.")
+                return True
+    except PlaywrightTimeout:
+        logger.debug("Timeout while quote tweeting.")
+    except PlaywrightError as exc:
+        logger.debug("Failed to quote tweet: %s", exc)
+    return False
+
+
+def post_original_tweet(page: Page, message: str, logger: logging.Logger) -> bool:
+    """Post an original tweet to build credibility and look like a real account."""
+    try:
+        # Navigate to home
+        page.goto("https://x.com/home", wait_until="domcontentloaded", timeout=30000)
+        time.sleep(random.uniform(2.0, 3.0))
+
+        # Click compose tweet button
+        compose_button = page.locator("a[href='/compose/post']").first
+        if compose_button.count() > 0:
+            compose_button.click()
+        else:
+            # Alternative: click the tweet box
+            tweet_box = page.locator("div[data-testid='tweetTextarea_0']").first
+            tweet_box.click()
+
+        time.sleep(random.uniform(1.0, 2.0))
+
+        # Type the tweet
+        composer = page.locator("div[data-testid^='tweetTextarea_']").first
+        composer.wait_for(timeout=10000)
+        composer.click()
+        page.keyboard.insert_text(message)
+
+        # Post the tweet
+        time.sleep(random.uniform(1.0, 2.0))
+        page.locator("div[data-testid='tweetButton']").click()
+        time.sleep(random.uniform(2.0, 3.0))
+
+        logger.info("[INFO] Posted original tweet successfully.")
+        return True
+    except PlaywrightTimeout:
+        logger.debug("Timeout while posting original tweet.")
+    except PlaywrightError as exc:
+        logger.debug("Failed to post original tweet: %s", exc)
+    return False
+
+
 def send_reply(page: Page, tweet: Locator, message: str, logger: logging.Logger) -> bool:
     try:
         tweet.locator("div[data-testid='reply']").click()
@@ -649,9 +800,39 @@ def process_tweets(
             else:
                 logger.debug("Retweet failed, will try to reply instead.")
 
+        # Occasionally bookmark interesting tweets (makes bot look more engaged)
+        if random.random() < config.bookmark_probability:
+            bookmark_tweet(tweet, logger)
+
         # Like the tweet before replying (makes bot look more human)
         if config.like_before_reply:
             like_tweet(tweet, logger)
+
+        # Occasionally quote tweet instead of regular reply (adds variety)
+        if random.random() < config.quote_tweet_probability:
+            # Use helpful template for quote tweets (less promotional)
+            template = random.choice(config.helpful_reply_templates)
+            quote_message = template.format(
+                topic=topic,
+                focus=text_focus(data["text"]),
+            ).strip()
+            if quote_message and quote_tweet(page, tweet, quote_message, logger):
+                registry.add(identifier)
+                replies += 1
+                # Optionally follow the author after quote tweeting
+                if config.follow_after_reply and random.random() < config.follow_probability:
+                    follow_user(page, data["handle"], logger)
+                delay = random.randint(config.action_delay_min, config.action_delay_max)
+                logger.info("[INFO] Sleeping for %s seconds before next action.", delay)
+                time.sleep(delay)
+                if replies >= config.max_replies_per_topic:
+                    logger.info(
+                        "[INFO] Reached MAX_REPLIES_PER_TOPIC=%s for '%s'. Moving to next topic.",
+                        config.max_replies_per_topic,
+                        topic,
+                    )
+                    return
+                continue
 
         # Decide between helpful (no link) and promotional (with link) reply
         use_promotional = random.random() < config.link_reply_probability
@@ -681,6 +862,11 @@ def process_tweets(
         if send_reply(page, tweet, message, logger):
             registry.add(identifier)
             replies += 1
+
+            # Follow the author after replying (if enabled and probability triggers)
+            if config.follow_after_reply and random.random() < config.follow_probability:
+                follow_user(page, data["handle"], logger)
+
             if use_promotional:
                 video_service.maybe_generate(topic, data["text"])
             maybe_send_dm(config, page, data, logger)
@@ -743,6 +929,21 @@ def run_engagement_loop(
         except PlaywrightError:
             logger.info("Browser page unavailable. Exiting engagement loop.")
             return
+
+        # Occasionally post an original tweet to build credibility (at start of cycle)
+        if config.original_tweet_templates and random.random() < config.post_original_probability:
+            if config.search_topics:
+                # Pick a random topic to tweet about
+                topic = random.choice(config.search_topics)
+                template = random.choice(config.original_tweet_templates)
+                original_message = template.format(topic=topic).strip()
+                if original_message:
+                    logger.info("[INFO] Attempting to post original tweet about '%s'.", topic)
+                    post_original_tweet(page, original_message, logger)
+                    # Wait a bit after posting original content
+                    delay = random.randint(config.action_delay_min, config.action_delay_max)
+                    logger.info("[INFO] Sleeping for %s seconds after original tweet.", delay)
+                    time.sleep(delay)
 
         if config.search_topics:
             for topic in config.search_topics:
