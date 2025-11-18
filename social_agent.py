@@ -61,6 +61,85 @@ MESSAGE_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
 _DM_NOTICE_LOGGED = False
 
 
+class SessionStats:
+    """Track session statistics and enforce safety limits."""
+    def __init__(self, logger: logging.Logger):
+        self.logger = logger
+        self.replies_sent = 0
+        self.likes_given = 0
+        self.retweets_made = 0
+        self.follows_made = 0
+        self.bookmarks_made = 0
+        self.quote_tweets_made = 0
+        self.original_tweets_posted = 0
+        self.errors_encountered = 0
+        self.start_time = time.time()
+
+        # Safety limits per hour
+        self.max_actions_per_hour = 60
+        self.action_timestamps: list[float] = []
+
+    def record_action(self, action_type: str) -> bool:
+        """Record an action and check if we're within safe limits."""
+        now = time.time()
+
+        # Remove actions older than 1 hour
+        self.action_timestamps = [t for t in self.action_timestamps if now - t < 3600]
+
+        # Check if we're hitting rate limits
+        if len(self.action_timestamps) >= self.max_actions_per_hour:
+            self.logger.warning(
+                "[SAFETY] Hit action rate limit (%d actions/hour). Consider slowing down.",
+                self.max_actions_per_hour
+            )
+            return False
+
+        # Record the action
+        self.action_timestamps.append(now)
+
+        # Update counters
+        if action_type == "reply":
+            self.replies_sent += 1
+        elif action_type == "like":
+            self.likes_given += 1
+        elif action_type == "retweet":
+            self.retweets_made += 1
+        elif action_type == "follow":
+            self.follows_made += 1
+        elif action_type == "bookmark":
+            self.bookmarks_made += 1
+        elif action_type == "quote_tweet":
+            self.quote_tweets_made += 1
+        elif action_type == "original_tweet":
+            self.original_tweets_posted += 1
+
+        return True
+
+    def record_error(self) -> None:
+        """Record an error."""
+        self.errors_encountered += 1
+
+    def get_summary(self) -> str:
+        """Get a summary of session statistics."""
+        runtime = time.time() - self.start_time
+        runtime_hours = runtime / 3600
+
+        return (
+            f"\n=== SESSION STATISTICS ===\n"
+            f"Runtime: {runtime_hours:.2f} hours\n"
+            f"Replies: {self.replies_sent}\n"
+            f"Likes: {self.likes_given}\n"
+            f"Retweets: {self.retweets_made}\n"
+            f"Follows: {self.follows_made}\n"
+            f"Bookmarks: {self.bookmarks_made}\n"
+            f"Quote Tweets: {self.quote_tweets_made}\n"
+            f"Original Tweets: {self.original_tweets_posted}\n"
+            f"Errors: {self.errors_encountered}\n"
+            f"Actions/hour: {len(self.action_timestamps)}\n"
+            f"========================="
+        )
+
+
 def ensure_auth_storage_path(auth_file: str, logger: logging.Logger) -> str:
     path = Path(auth_file).expanduser()
     try:
@@ -521,7 +600,7 @@ def extract_tweet_data(tweet: Locator) -> Optional[dict[str, str]]:
     }
 
 
-def like_tweet(tweet: Locator, logger: logging.Logger) -> bool:
+def like_tweet(tweet: Locator, logger: logging.Logger, stats: Optional['SessionStats'] = None) -> bool:
     """Like a tweet to appear more human and build engagement."""
     try:
         like_button = tweet.locator("div[data-testid='like']").first
@@ -530,15 +609,21 @@ def like_tweet(tweet: Locator, logger: logging.Logger) -> bool:
             like_button.click()
             time.sleep(random.uniform(0.5, 1.5))
             logger.info("[INFO] Liked tweet.")
+            if stats:
+                stats.record_action("like")
             return True
     except PlaywrightTimeout:
         logger.debug("Timeout while liking tweet.")
+        if stats:
+            stats.record_error()
     except PlaywrightError as exc:
         logger.debug("Failed to like tweet: %s", exc)
+        if stats:
+            stats.record_error()
     return False
 
 
-def retweet_tweet(tweet: Locator, logger: logging.Logger) -> bool:
+def retweet_tweet(tweet: Locator, logger: logging.Logger, stats: Optional['SessionStats'] = None) -> bool:
     """Retweet content to appear more engaged."""
     try:
         retweet_button = tweet.locator("div[data-testid='retweet']").first
@@ -550,15 +635,21 @@ def retweet_tweet(tweet: Locator, logger: logging.Logger) -> bool:
             page_context.locator("div[data-testid='retweetConfirm']").first.click()
             time.sleep(random.uniform(0.5, 1.5))
             logger.info("[INFO] Retweeted content.")
+            if stats:
+                stats.record_action("retweet")
             return True
     except PlaywrightTimeout:
         logger.debug("Timeout while retweeting.")
+        if stats:
+            stats.record_error()
     except PlaywrightError as exc:
         logger.debug("Failed to retweet: %s", exc)
+        if stats:
+            stats.record_error()
     return False
 
 
-def follow_user(page: Page, author_handle: str, logger: logging.Logger) -> bool:
+def follow_user(page: Page, author_handle: str, logger: logging.Logger, stats: Optional['SessionStats'] = None) -> bool:
     """Follow a user to build connections and appear more human."""
     if not author_handle:
         return False
@@ -574,15 +665,21 @@ def follow_user(page: Page, author_handle: str, logger: logging.Logger) -> bool:
             follow_button.click()
             time.sleep(random.uniform(0.5, 1.5))
             logger.info("[INFO] Followed user @%s", author_handle)
+            if stats:
+                stats.record_action("follow")
             return True
     except PlaywrightTimeout:
         logger.debug("Timeout while following user @%s", author_handle)
+        if stats:
+            stats.record_error()
     except PlaywrightError as exc:
         logger.debug("Failed to follow user @%s: %s", author_handle, exc)
+        if stats:
+            stats.record_error()
     return False
 
 
-def bookmark_tweet(tweet: Locator, logger: logging.Logger) -> bool:
+def bookmark_tweet(tweet: Locator, logger: logging.Logger, stats: Optional['SessionStats'] = None) -> bool:
     """Bookmark a tweet to appear more engaged and human-like."""
     try:
         # Click the "more" menu (three dots)
@@ -598,15 +695,21 @@ def bookmark_tweet(tweet: Locator, logger: logging.Logger) -> bool:
                 bookmark_option.click()
                 time.sleep(random.uniform(0.5, 1.0))
                 logger.info("[INFO] Bookmarked tweet.")
+                if stats:
+                    stats.record_action("bookmark")
                 return True
     except PlaywrightTimeout:
         logger.debug("Timeout while bookmarking tweet.")
+        if stats:
+            stats.record_error()
     except PlaywrightError as exc:
         logger.debug("Failed to bookmark tweet: %s", exc)
+        if stats:
+            stats.record_error()
     return False
 
 
-def quote_tweet(page: Page, tweet: Locator, message: str, logger: logging.Logger) -> bool:
+def quote_tweet(page: Page, tweet: Locator, message: str, logger: logging.Logger, stats: Optional['SessionStats'] = None) -> bool:
     """Quote tweet content with a comment to increase engagement variety."""
     try:
         retweet_button = tweet.locator("div[data-testid='retweet']").first
@@ -630,15 +733,21 @@ def quote_tweet(page: Page, tweet: Locator, message: str, logger: logging.Logger
                 page.locator("div[data-testid='tweetButton']").click()
                 time.sleep(random.uniform(1.5, 2.5))
                 logger.info("[INFO] Quote tweeted successfully.")
+                if stats:
+                    stats.record_action("quote_tweet")
                 return True
     except PlaywrightTimeout:
         logger.debug("Timeout while quote tweeting.")
+        if stats:
+            stats.record_error()
     except PlaywrightError as exc:
         logger.debug("Failed to quote tweet: %s", exc)
+        if stats:
+            stats.record_error()
     return False
 
 
-def post_original_tweet(page: Page, message: str, logger: logging.Logger) -> bool:
+def post_original_tweet(page: Page, message: str, logger: logging.Logger, stats: Optional['SessionStats'] = None) -> bool:
     """Post an original tweet to build credibility and look like a real account."""
     try:
         # Navigate to home
@@ -668,15 +777,21 @@ def post_original_tweet(page: Page, message: str, logger: logging.Logger) -> boo
         time.sleep(random.uniform(2.0, 3.0))
 
         logger.info("[INFO] Posted original tweet successfully.")
+        if stats:
+            stats.record_action("original_tweet")
         return True
     except PlaywrightTimeout:
         logger.debug("Timeout while posting original tweet.")
+        if stats:
+            stats.record_error()
     except PlaywrightError as exc:
         logger.debug("Failed to post original tweet: %s", exc)
+        if stats:
+            stats.record_error()
     return False
 
 
-def send_reply(page: Page, tweet: Locator, message: str, logger: logging.Logger) -> bool:
+def send_reply(page: Page, tweet: Locator, message: str, logger: logging.Logger, stats: Optional['SessionStats'] = None) -> bool:
     try:
         tweet.locator("div[data-testid='reply']").click()
         composer = page.locator("div[data-testid^='tweetTextarea_']").first
@@ -688,11 +803,17 @@ def send_reply(page: Page, tweet: Locator, message: str, logger: logging.Logger)
         page.locator("div[data-testid='tweetButtonInline']").click()
         time.sleep(2)
         logger.info("[INFO] Reply posted successfully.")
+        if stats:
+            stats.record_action("reply")
         return True
     except PlaywrightTimeout:
         logger.warning("Timeout while composing reply.")
+        if stats:
+            stats.record_error()
     except PlaywrightError as exc:
         logger.warning("Failed to send reply: %s", exc)
+        if stats:
+            stats.record_error()
     return False
 
 
@@ -731,6 +852,7 @@ def process_tweets(
     tweets: list[Locator],
     topic: str,
     logger: logging.Logger,
+    stats: Optional['SessionStats'] = None,
 ) -> None:
     replies = 0
     for tweet in tweets:
@@ -783,7 +905,7 @@ def process_tweets(
         # Decide whether to retweet instead of replying (helps build credibility)
         if random.random() < config.retweet_probability:
             logger.info("[INFO] Retweeting content from @%s for topic '%s'.", data['handle'] or 'unknown', topic)
-            if retweet_tweet(tweet, logger):
+            if retweet_tweet(tweet, logger, stats):
                 registry.add(identifier)
                 replies += 1  # Count retweets toward the limit
                 delay = random.randint(config.action_delay_min, config.action_delay_max)
@@ -802,11 +924,11 @@ def process_tweets(
 
         # Occasionally bookmark interesting tweets (makes bot look more engaged)
         if random.random() < config.bookmark_probability:
-            bookmark_tweet(tweet, logger)
+            bookmark_tweet(tweet, logger, stats)
 
         # Like the tweet before replying (makes bot look more human)
         if config.like_before_reply:
-            like_tweet(tweet, logger)
+            like_tweet(tweet, logger, stats)
 
         # Occasionally quote tweet instead of regular reply (adds variety)
         if random.random() < config.quote_tweet_probability:
@@ -816,12 +938,12 @@ def process_tweets(
                 topic=topic,
                 focus=text_focus(data["text"]),
             ).strip()
-            if quote_message and quote_tweet(page, tweet, quote_message, logger):
+            if quote_message and quote_tweet(page, tweet, quote_message, logger, stats):
                 registry.add(identifier)
                 replies += 1
                 # Optionally follow the author after quote tweeting
                 if config.follow_after_reply and random.random() < config.follow_probability:
-                    follow_user(page, data["handle"], logger)
+                    follow_user(page, data["handle"], logger, stats)
                 delay = random.randint(config.action_delay_min, config.action_delay_max)
                 logger.info("[INFO] Sleeping for %s seconds before next action.", delay)
                 time.sleep(delay)
@@ -859,13 +981,13 @@ def process_tweets(
             logger.warning("Generated empty reply. Skipping tweet.")
             continue
 
-        if send_reply(page, tweet, message, logger):
+        if send_reply(page, tweet, message, logger, stats):
             registry.add(identifier)
             replies += 1
 
             # Follow the author after replying (if enabled and probability triggers)
             if config.follow_after_reply and random.random() < config.follow_probability:
-                follow_user(page, data["handle"], logger)
+                follow_user(page, data["handle"], logger, stats)
 
             if use_promotional:
                 video_service.maybe_generate(topic, data["text"])
@@ -892,6 +1014,7 @@ def handle_topic(
     video_service: VideoService,
     topic: str,
     logger: logging.Logger,
+    stats: Optional['SessionStats'] = None,
 ) -> None:
     logger.info("[INFO] Topic '%s' - loading search results...", topic)
     url = f"https://x.com/search?q={quote_plus(topic)}&src=typed_query&f=live"
@@ -910,7 +1033,7 @@ def handle_topic(
         logger.warning("No eligible tweets for topic '%s'.", topic)
         return
 
-    process_tweets(config, registry, page, video_service, tweets, topic, logger)
+    process_tweets(config, registry, page, video_service, tweets, topic, logger, stats)
 
 
 def run_engagement_loop(
@@ -921,14 +1044,23 @@ def run_engagement_loop(
     logger: logging.Logger,
 ) -> None:
     logger.info("[INFO] Starting engagement loop with %s topic(s).", len(config.search_topics))
+
+    # Create session statistics tracker
+    stats = SessionStats(logger)
+    cycle_count = 0
+
     while True:
         try:
             if page.is_closed():
                 logger.info("Browser page closed. Exiting engagement loop.")
+                logger.info(stats.get_summary())
                 return
         except PlaywrightError:
             logger.info("Browser page unavailable. Exiting engagement loop.")
+            logger.info(stats.get_summary())
             return
+
+        cycle_count += 1
 
         # Occasionally post an original tweet to build credibility (at start of cycle)
         if config.original_tweet_templates and random.random() < config.post_original_probability:
@@ -939,7 +1071,7 @@ def run_engagement_loop(
                 original_message = template.format(topic=topic).strip()
                 if original_message:
                     logger.info("[INFO] Attempting to post original tweet about '%s'.", topic)
-                    post_original_tweet(page, original_message, logger)
+                    post_original_tweet(page, original_message, logger, stats)
                     # Wait a bit after posting original content
                     delay = random.randint(config.action_delay_min, config.action_delay_max)
                     logger.info("[INFO] Sleeping for %s seconds after original tweet.", delay)
@@ -947,14 +1079,19 @@ def run_engagement_loop(
 
         if config.search_topics:
             for topic in config.search_topics:
-                handle_topic(config, registry, page, video_service, topic, logger)
+                handle_topic(config, registry, page, video_service, topic, logger, stats)
         else:
             logger.info("No search topics configured. Sleeping before next cycle.")
+
+        # Print statistics summary every 5 cycles
+        if cycle_count % 5 == 0:
+            logger.info(stats.get_summary())
 
         logger.info("[INFO] Cycle complete. Sleeping for %s seconds.", config.loop_delay_seconds)
         try:
             time.sleep(config.loop_delay_seconds)
         except KeyboardInterrupt:
+            logger.info(stats.get_summary())
             raise
 
 
