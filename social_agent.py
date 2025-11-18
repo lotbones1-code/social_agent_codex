@@ -983,38 +983,53 @@ def prepare_authenticated_session(
     storage_env = (os.getenv("AUTH_FILE") or config.auth_file).strip() or config.auth_file
     auth_path = ensure_auth_storage_path(storage_env, logger)
 
+    # Use custom user data directory to avoid conflicts with system Chrome
+    user_data_dir = str(Path.home() / ".social_agent_codex" / "browser_session")
     try:
-        user_data_dir = str(Path.home() / ".social_agent_codex/browser_session/")                
         os.makedirs(user_data_dir, exist_ok=True)
-        browser = playwright.chromium.launch_persistent_context(
-                        user_data_dir=user_data_dir,
-            headless=config.headless,
-            args=["--start-maximized", "--no-sandbox"],
-        )
-    except PlaywrightError as exc:
-        logger.error("Failed to launch browser: %s", exc)
-        return None
+    except OSError as exc:
+        logger.warning("Could not create user data directory: %s", exc)
 
     storage_file = auth_path
-    context: BrowserContext
-    session_loaded = False
-
     storage_exists = os.path.exists(storage_file)
-    if storage_exists:
-        logger.info("[INFO] Restoring saved session from %s", storage_file)
-        try:
-            context = browser.new_context(storage_state=storage_file)
-            session_loaded = True
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("[WARN] auth.json missing or invalid — regenerating login session")
-            logger.debug("Storage state recovery error: %s", exc)
-            context = browser.new_context()
-            session_loaded = False
-    else:
-        logger.info("[INFO] No session found — creating new context for manual login.")
-        context = browser.new_context()
 
-    page = context.new_page()
+    # Launch persistent context with storage state if available
+    try:
+        launch_args = {
+            "user_data_dir": user_data_dir,
+            "headless": config.headless,
+            "args": ["--start-maximized", "--no-sandbox", "--disable-blink-features=AutomationControlled"],
+        }
+
+        # Load saved session if it exists
+        if storage_exists:
+            logger.info("[INFO] Restoring saved session from %s", storage_file)
+            try:
+                launch_args["storage_state"] = storage_file
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("[WARN] Could not load storage state: %s", exc)
+        else:
+            logger.info("[INFO] No saved session found — starting fresh login.")
+
+        context = playwright.chromium.launch_persistent_context(**launch_args)
+        # Note: launch_persistent_context returns a BrowserContext, not a Browser
+        # So we don't need browser.new_context() calls
+    except PlaywrightError as exc:
+        logger.error("Failed to launch browser context: %s", exc)
+        return None
+
+    # Create a page from the context
+    try:
+        page = context.new_page()
+    except PlaywrightError as exc:
+        logger.error("Failed to create page: %s", exc)
+        try:
+            context.close()
+        except PlaywrightError:
+            pass
+        return None
+
+    session_loaded = storage_exists
 
     if session_loaded:
         try:
@@ -1030,7 +1045,7 @@ def prepare_authenticated_session(
                     context.storage_state(path=storage_file)
                 except PlaywrightError as exc:
                     logger.debug("Unable to refresh storage state: %s", exc)
-                return browser, context, page
+                return None, context, page  # No separate browser object in persistent context
             logger.warning("Saved session present but user is logged out; manual login required.")
 
     try:
@@ -1049,11 +1064,11 @@ def prepare_authenticated_session(
         auth_file=storage_file,
     ):
         logger.error("Login process did not complete successfully.")
-        close_resources(browser, context, logger)
+        close_resources(None, context, logger)  # No separate browser in persistent context
         return None
 
     logger.info("[INFO] Authentication complete; proceeding to engagement loop.")
-    return browser, context, page
+    return None, context, page  # No separate browser object in persistent context
 
 
 def run_social_agent() -> None:
