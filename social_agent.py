@@ -1020,6 +1020,8 @@ def handle_topic(
     url = f"https://x.com/search?q={quote_plus(topic)}&src=typed_query&f=live"
     try:
         page.goto(url, wait_until="domcontentloaded", timeout=30000)
+        logger.debug("Page loaded, waiting for tweets to render...")
+        page.wait_for_timeout(3000)  # Give tweets time to render
     except PlaywrightTimeout:
         logger.warning("Timeout while loading topic '%s'.", topic)
         return
