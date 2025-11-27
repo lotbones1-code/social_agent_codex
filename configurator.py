@@ -129,9 +129,11 @@ def _escape_value(value: str) -> str:
 def parse_delimited_list(raw: str) -> List[str]:
     if not raw:
         return []
-    parts: Iterable[str]
-    if TEMPLATE_DELIMITER in raw:
-        parts = raw.split(TEMPLATE_DELIMITER)
-    else:
-        parts = raw.splitlines()
-    return [part.strip() for part in parts if part.strip()]
+    normalized = raw.replace(TEMPLATE_DELIMITER, "\n")
+    items: List[str] = []
+    for line in normalized.splitlines():
+        for piece in line.split(","):
+            item = piece.strip()
+            if item:
+                items.append(item)
+    return items
