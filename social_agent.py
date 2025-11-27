@@ -691,20 +691,17 @@ def prepare_authenticated_session(
 ) -> Optional[tuple[Browser, BrowserContext, Page]]:
     storage_env = (os.getenv("AUTH_FILE") or config.auth_file).strip() or config.auth_file
     auth_path = ensure_auth_storage_path(storage_env, logger)
+    storage_file = auth_path
 
     try:
-        user_data_dir = str(Path.home() / ".social_agent_codex/browser_session/")                
-        os.makedirs(user_data_dir, exist_ok=True)
-        browser = playwright.chromium.launch_persistent_context(
-                        user_data_dir=user_data_dir,
+        browser = playwright.chromium.launch(
             headless=config.headless,
-            args=["--start-maximized", "--no-sandbox"],
+            args=["--start-maximized", "--no-sandbox", "--disable-blink-features=AutomationControlled"],
         )
     except PlaywrightError as exc:
         logger.error("Failed to launch browser: %s", exc)
         return None
 
-    storage_file = auth_path
     context: BrowserContext
     session_loaded = False
 
@@ -728,6 +725,9 @@ def prepare_authenticated_session(
     if session_loaded:
         try:
             page.goto("https://x.com/home", wait_until="domcontentloaded", timeout=60000)
+            time.sleep(2)
+            page.reload(wait_until="domcontentloaded", timeout=60000)
+            time.sleep(1)
         except PlaywrightTimeout:
             logger.warning("Timeout while verifying restored session; prompting login.")
         except (PlaywrightError, TargetClosedError) as exc:
