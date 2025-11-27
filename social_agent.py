@@ -53,10 +53,10 @@ def handle_topic(
     for post in posts:
         if len(repost_candidates) >= config.max_videos_per_topic:
             break
-        if not post.video_url:
-            continue
         slug = _slug_from_url(post.url)
-        downloaded = downloader.download(post.video_url, filename_hint=slug)
+        # Try direct video URL first, fall back to tweet URL
+        download_url = post.video_url if post.video_url else post.url
+        downloaded = downloader.download(download_url, filename_hint=slug)
         if not downloaded:
             continue
         context = VideoContext(
