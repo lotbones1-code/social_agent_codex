@@ -55,5 +55,17 @@ run-bot
    RUN=1 bash ./run.sh
    ```
 
+## Login flow
+
+**First run (saves your session):**
+
+- Run `HEADLESS=0 bash run_agent.sh`.
+- Log into X manually in the Playwright window. Once you land on the Home timeline, the agent writes your session to `auth.json` (or the path defined by `AUTH_FILE`).
+
+**Subsequent runs (reuse the saved session):**
+
+- Run `bash run_agent.sh` (or `HEADLESS=1 bash run_agent.sh` for a headless window).
+- The bot loads `auth.json` automatically, jumps straight to the Home feed, and skips the login prompt.
+
 ## Sanity check
 Set `SOCIAL_AGENT_MOCK_LOGIN=1` to run the bot in a mocked mode that exercises the startup flow without a real browser session. This prints the "Logged in & ready" banner once the initialization succeeds and is useful when credentials are unavailable.
