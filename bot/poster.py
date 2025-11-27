@@ -36,7 +36,12 @@ class VideoPoster:
         try:
             upload_input = self.page.locator("input[data-testid='fileInput']").first
             upload_input.set_input_files(str(video_path))
-            self.page.wait_for_selector("div[data-testid='media-preview']", timeout=45000)
+            # Wait for video to upload and process (can take longer for larger videos)
+            time.sleep(3)
+            self.page.wait_for_selector("div[data-testid='media-preview']", timeout=90000)
+            self.logger.info("Video uploaded successfully")
+            # Wait a bit more for processing
+            time.sleep(2)
             return True
         except PlaywrightTimeout:
             self.logger.warning("Video upload timed out for %s", video_path)
@@ -60,10 +65,18 @@ class VideoPoster:
             return False
         if not self._open_composer():
             return False
+
+        # Wait for composer to open
+        time.sleep(2)
+
         try:
-            composer = self.page.locator("div[data-testid^='tweetTextarea_']").first
+            # Find the actual editable div (contenteditable)
+            composer = self.page.locator("div[contenteditable='true'][data-testid='tweetTextarea_0']").first
             composer.click()
-            composer.fill(caption)
+            time.sleep(0.5)
+            # Use keyboard to type since it's contenteditable
+            composer.type(caption, delay=50)
+            time.sleep(0.5)
         except PlaywrightError as exc:
             self.logger.warning("Could not type caption: %s", exc)
             return False
