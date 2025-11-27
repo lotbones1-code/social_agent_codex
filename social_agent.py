@@ -52,6 +52,11 @@ def ensure_auth_storage_path(auth_file: str, logger: logging.Logger) -> str:
 
 @dataclass
 class BotConfig:
+    # Mode flags
+    influencer_mode: bool
+    strict_mode: bool
+
+    # Promo mode settings
     search_topics: list[str]
     relevant_keywords: list[str]
     spam_keywords: list[str]
@@ -75,6 +80,15 @@ class BotConfig:
     video_model: str
     enable_video: bool
     auth_file: str
+
+    # Influencer mode settings
+    influencer_posts_per_day_min: int
+    influencer_posts_per_day_max: int
+    influencer_reply_targets: list[str]
+    influencer_replies_per_target: int
+    influencer_video_topics: list[str]
+    openai_api_key: Optional[str]
+    openai_model: str
 
 
 def _parse_bool(value: Optional[str], *, default: bool = False) -> bool:
@@ -170,7 +184,20 @@ def load_config() -> BotConfig:
 
     auth_file = (os.getenv("AUTH_FILE") or DEFAULT_AUTH_FILE).strip() or DEFAULT_AUTH_FILE
 
+    # Influencer mode settings
+    influencer_mode = _parse_bool(os.getenv("INFLUENCER_MODE"), default=False)
+    strict_mode = _parse_bool(os.getenv("STRICT_MODE"), default=True)
+    influencer_posts_per_day_min = _parse_int("INFLUENCER_POSTS_PER_DAY_MIN", 4)
+    influencer_posts_per_day_max = _parse_int("INFLUENCER_POSTS_PER_DAY_MAX", 7)
+    influencer_reply_targets = _split_env("INFLUENCER_REPLY_TARGETS")
+    influencer_replies_per_target = _parse_int("INFLUENCER_REPLIES_PER_TARGET", 2)
+    influencer_video_topics = _split_env("INFLUENCER_VIDEO_TOPICS")
+    openai_api_key = (os.getenv("OPENAI_API_KEY") or "").strip() or None
+    openai_model = (os.getenv("OPENAI_MODEL") or "gpt-4o-mini").strip()
+
     return BotConfig(
+        influencer_mode=influencer_mode,
+        strict_mode=strict_mode,
         search_topics=search_topics,
         relevant_keywords=relevant_keywords,
         spam_keywords=spam_keywords,
@@ -194,6 +221,13 @@ def load_config() -> BotConfig:
         video_model=video_model,
         enable_video=enable_video,
         auth_file=auth_file,
+        influencer_posts_per_day_min=influencer_posts_per_day_min,
+        influencer_posts_per_day_max=influencer_posts_per_day_max,
+        influencer_reply_targets=influencer_reply_targets,
+        influencer_replies_per_target=influencer_replies_per_target,
+        influencer_video_topics=influencer_video_topics,
+        openai_api_key=openai_api_key,
+        openai_model=openai_model,
     )
 
 
@@ -723,24 +757,45 @@ def prepare_authenticated_session(
     page = context.new_page()
 
     if session_loaded:
-        try:
-            page.goto("https://x.com/home", wait_until="domcontentloaded", timeout=60000)
-            time.sleep(2)
-            page.reload(wait_until="domcontentloaded", timeout=60000)
-            time.sleep(1)
-        except PlaywrightTimeout:
-            logger.warning("Timeout while verifying restored session; prompting login.")
-        except (PlaywrightError, TargetClosedError) as exc:
-            logger.warning("Error while verifying restored session: %s", exc)
-        else:
-            if is_logged_in(page):
-                logger.info("[INFO] Session restored successfully")
+        # Retry logic for session restore
+        max_retries = 3
+        for retry in range(max_retries):
+            try:
+                logger.debug("Session restore attempt %d/%d", retry + 1, max_retries)
+                page.goto("https://x.com/home", wait_until="domcontentloaded", timeout=45000)
+                time.sleep(2)
+
+                # Reload to activate cookies
                 try:
-                    context.storage_state(path=storage_file)
-                except PlaywrightError as exc:
-                    logger.debug("Unable to refresh storage state: %s", exc)
-                return browser, context, page
-            logger.warning("Saved session present but user is logged out; manual login required.")
+                    page.reload(wait_until="domcontentloaded", timeout=30000)
+                    time.sleep(1)
+                except PlaywrightTimeout:
+                    logger.debug("Reload timeout, continuing anyway")
+
+            except PlaywrightTimeout:
+                if retry < max_retries - 1:
+                    logger.warning("Timeout on attempt %d, retrying...", retry + 1)
+                    time.sleep(3)
+                    continue
+                logger.warning("Timeout while verifying restored session after retries")
+            except (PlaywrightError, TargetClosedError) as exc:
+                if retry < max_retries - 1:
+                    logger.warning("Error on attempt %d: %s, retrying...", retry + 1, exc)
+                    time.sleep(3)
+                    continue
+                logger.warning("Error while verifying restored session: %s", exc)
+            else:
+                if is_logged_in(page):
+                    logger.info("[INFO] Session restored successfully")
+                    try:
+                        context.storage_state(path=storage_file)
+                    except PlaywrightError as exc:
+                        logger.debug("Unable to refresh storage state: %s", exc)
+                    return browser, context, page
+
+            break  # Exit retry loop
+
+        logger.warning("Saved session present but user is logged out; manual login required.")
 
     try:
         page.goto("https://x.com/login", wait_until="domcontentloaded", timeout=60000)
@@ -765,6 +820,53 @@ def prepare_authenticated_session(
     return browser, context, page
 
 
+def run_influencer_mode(config: BotConfig, page: Page, logger: logging.Logger) -> None:
+    """Run influencer mode: scrape, download, post videos, auto-reply."""
+    from bot.influencer_agent import InfluencerAgent
+
+    logger.info("Initializing influencer agent...")
+
+    try:
+        agent = InfluencerAgent(page, config, logger)
+    except Exception as exc:
+        logger.error("Failed to initialize influencer agent: %s", exc)
+        if config.debug:
+            logger.exception("Influencer agent initialization error")
+        return
+
+    logger.info("Influencer agent initialized successfully")
+
+    # Calculate cycle delay
+    if config.strict_mode:
+        # Production: check every 15 minutes
+        cycle_delay = 900
+    else:
+        # Testing: check every 2 minutes
+        cycle_delay = 120
+
+    logger.info("Cycle delay: %d seconds", cycle_delay)
+
+    # Main loop
+    while True:
+        try:
+            if page.is_closed():
+                logger.info("Browser page closed. Exiting influencer loop.")
+                return
+
+            agent.run_cycle()
+
+            logger.info("Cycle complete. Sleeping for %d seconds.", cycle_delay)
+            time.sleep(cycle_delay)
+
+        except KeyboardInterrupt:
+            raise
+        except Exception as exc:
+            logger.error("Error in influencer cycle: %s", exc)
+            if config.debug:
+                logger.exception("Influencer cycle exception")
+            time.sleep(60)  # Brief pause before retry
+
+
 def run_social_agent() -> None:
     load_dotenv()
     config = load_config()
@@ -775,10 +877,19 @@ def run_social_agent() -> None:
     )
     logger = logging.getLogger("social_agent")
 
-    logger.info("Search topics configured: %s", ", ".join(config.search_topics))
-    logger.info("HEADLESS=%s, DEBUG=%s", config.headless, config.debug)
-    if config.enable_dms:
-        logger.info("ENABLE_DMS=true")
+    # Log mode
+    mode_name = "INFLUENCER" if config.influencer_mode else "PROMO"
+    logger.info("=" * 60)
+    logger.info("MODE: %s", mode_name)
+    logger.info("STRICT_MODE: %s", config.strict_mode)
+    logger.info("HEADLESS: %s, DEBUG: %s", config.headless, config.debug)
+    logger.info("=" * 60)
+
+    if not config.influencer_mode:
+        # Promo mode settings
+        logger.info("Search topics configured: %s", ", ".join(config.search_topics))
+        if config.enable_dms:
+            logger.info("ENABLE_DMS=true")
 
     registry = MessageRegistry(MESSAGE_LOG_PATH)
     video_service = VideoService(config)
@@ -803,8 +914,14 @@ def run_social_agent() -> None:
                         logger.error("Browser page unavailable. Exiting run.")
                         return
 
-                    logger.info("[INFO] Session ready; entering engagement workflow.")
-                    run_engagement_loop(config, registry, page, video_service, logger)
+                    logger.info("[INFO] Session ready; entering workflow.")
+
+                    # Mode switch: Influencer vs Promo
+                    if config.influencer_mode:
+                        run_influencer_mode(config, page, logger)
+                    else:
+                        run_engagement_loop(config, registry, page, video_service, logger)
+
                     return
                 finally:
                     close_resources(browser, context, logger)

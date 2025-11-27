@@ -37,6 +37,11 @@ DEFAULT_DM_TEMPLATES: List[str] = [
 
 
 ENV_DEFAULTS: Dict[str, str] = {
+    # Mode selection
+    "INFLUENCER_MODE": "0",
+    "STRICT_MODE": "1",
+
+    # Promo mode settings (INFLUENCER_MODE=0)
     "SEARCH_TOPICS": "AI automation||growth hacking||product launches",
     "USERNAME": "changeme@example.com",
     "PASSWORD": "super-secret-password",
@@ -56,6 +61,17 @@ ENV_DEFAULTS: Dict[str, str] = {
     "ACTION_DELAY_MIN_SECONDS": "60",
     "ACTION_DELAY_MAX_SECONDS": "600",
     "MESSAGE_REGISTRY_PATH": "logs/messaged_users.json",
+
+    # Influencer mode settings (INFLUENCER_MODE=1)
+    "INFLUENCER_POSTS_PER_DAY_MIN": "4",
+    "INFLUENCER_POSTS_PER_DAY_MAX": "7",
+    "INFLUENCER_REPLY_TARGETS": "",
+    "INFLUENCER_REPLIES_PER_TARGET": "2",
+    "INFLUENCER_VIDEO_TOPICS": "AI||tech||startup||business||productivity",
+    "OPENAI_API_KEY": "<set-your-openai-api-key>",
+    "OPENAI_MODEL": "gpt-4o-mini",
+
+    # Video generation (shared)
     "VIDEO_PROVIDER": "replicate",
     "VIDEO_MODEL": "pika-labs/pika-1.0",
     "VIDEO_DURATION_SECONDS": "8",
@@ -65,6 +81,8 @@ ENV_DEFAULTS: Dict[str, str] = {
     "REPL_IMAGE_MODEL": "",
     "REPL_IMAGE_VERSION": "",
     "REPL_IMAGE_INPUT": "",
+
+    # Auth
     "X_USERNAME": "<set-your-x-username>",
     "X_PASSWORD": "<set-your-x-password>",
 }
