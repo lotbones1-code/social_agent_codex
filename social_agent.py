@@ -273,7 +273,18 @@ class VideoService:
             logger.warning("Video client unavailable. Skipping generation.")
             return
         try:
-            _ = topic, tweet_text
+            if self.provider == "replicate":
+                prompt = f"Create a video about {topic}. Context: {tweet_text[:200]}"
+                logger.info("Generating video with prompt: %s", prompt[:100])
+
+                duration = int(os.getenv("VIDEO_DURATION_SECONDS", "8"))
+                inputs = {"prompt": prompt}
+
+                if self.model:
+                    output = self._client.run(self.model, input=inputs)
+                    logger.info("Video generation output: %s", output)
+                else:
+                    logger.warning("No VIDEO_MODEL configured. Skipping generation.")
         except Exception as exc:  # noqa: BLE001
             logger.warning("Video generation failed: %s", exc)
 

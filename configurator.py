@@ -26,10 +26,12 @@ DEFAULT_REPLY_TEMPLATES: List[str] = [
 
 
 DEFAULT_DM_TEMPLATES: List[str] = [
-    "Hey {name}! Loved how you framed {focus}. I’ve got a behind-the-scenes walkthrough with screenshots that might give you a head start—mind if I share the link? {ref_link}",
+    # NOTE: DM automation is configured but NOT YET IMPLEMENTED in social_agent.py
+    # The maybe_send_dm() function currently only logs that the feature is unavailable
+    "Hey {name}! Loved how you framed {focus}. I've got a behind-the-scenes walkthrough with screenshots that might give you a head start—mind if I share the link? {ref_link}",
     "Appreciate how deep you went on {focus}. I documented my own playbook after a bunch of trial and error. If you want it, here you go: {ref_link}",
-    "You sound serious about mastering {focus}. This is the exact toolkit I’m using with clients right now—thought you’d enjoy an early look: {ref_link}",
-    "Couldn’t help but notice your questions around {focus}. I recorded a mini breakdown for the team yesterday; happy to let you peek: {ref_link}",
+    "You sound serious about mastering {focus}. This is the exact toolkit I'm using with clients right now—thought you'd enjoy an early look: {ref_link}",
+    "Couldn't help but notice your questions around {focus}. I recorded a mini breakdown for the team yesterday; happy to let you peek: {ref_link}",
     "Your energy around {focus} is infectious. Sharing the resource that finally clicked for me, just in case it sparks something for you too: {ref_link}",
 ]
 
@@ -43,7 +45,7 @@ ENV_DEFAULTS: Dict[str, str] = {
     "DM_TEMPLATES": TEMPLATE_DELIMITER.join(DEFAULT_DM_TEMPLATES),
     "RELEVANT_KEYWORDS": "AI||automation||growth||launch||community||creator economy",
     "SPAM_KEYWORDS": "giveaway||airdrop||pump||casino||xxx||nsfw",
-    "ENABLE_DMS": "true",
+    "ENABLE_DMS": "false",
     "MIN_TWEET_LENGTH": "60",
     "MIN_KEYWORD_MATCHES": "1",
     "MAX_REPLIES_PER_TOPIC": "3",
@@ -54,15 +56,11 @@ ENV_DEFAULTS: Dict[str, str] = {
     "ACTION_DELAY_MIN_SECONDS": "60",
     "ACTION_DELAY_MAX_SECONDS": "600",
     "MESSAGE_REGISTRY_PATH": "logs/messaged_users.json",
-    "IMAGE_PROVIDER": "openai",
-    "IMAGE_MODEL": "dall-e-3",
-    "IMAGE_SIZE": "1024x1024",
     "VIDEO_PROVIDER": "replicate",
     "VIDEO_MODEL": "pika-labs/pika-1.0",
     "VIDEO_DURATION_SECONDS": "8",
     "TRENDING_HASHTAG_URL": "",
     "HASHTAG_REFRESH_MINUTES": "45",
-    "OPENAI_API_KEY": "<set-your-openai-api-key>",
     "REPLICATE_API_TOKEN": "<set-your-replicate-api-token>",
     "REPL_IMAGE_MODEL": "",
     "REPL_IMAGE_VERSION": "",
