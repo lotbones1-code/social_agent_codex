@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
-from typing import Dict, Iterable, List
+from typing import Dict, Iterable, List, Sequence
 
 from dotenv import dotenv_values
 
@@ -129,9 +130,39 @@ def _escape_value(value: str) -> str:
 def parse_delimited_list(raw: str) -> List[str]:
     if not raw:
         return []
-    parts: Iterable[str]
-    if TEMPLATE_DELIMITER in raw:
-        parts = raw.split(TEMPLATE_DELIMITER)
-    else:
-        parts = raw.splitlines()
-    return [part.strip() for part in parts if part.strip()]
+    normalized = raw.replace(TEMPLATE_DELIMITER, "\n")
+    items: List[str] = []
+    for line in normalized.splitlines():
+        for piece in line.split(","):
+            item = piece.strip()
+            if item:
+                items.append(item)
+    return items
+
+
+def main(args: Sequence[str] | None = None) -> Path:
+    """CLI entrypoint to ensure a .env file exists.
+
+    Args:
+        args: Optional argument list. If provided, the first element should be
+            the project root directory where the .env file should live. If not
+            provided, the current working directory is used.
+
+    Returns:
+        The path to the ensured .env file.
+    """
+
+    argv = list(args) if args is not None else sys.argv[1:]
+    root = Path(argv[0]) if argv else Path.cwd()
+    if not root.exists():
+        raise FileNotFoundError(f"Root path does not exist: {root}")
+    if not root.is_dir():
+        raise NotADirectoryError(f"Root path must be a directory: {root}")
+
+    env_path = ensure_env_file(root)
+    print(f"Environment file ensured at {env_path}")
+    return env_path
+
+
+if __name__ == "__main__":
+    main()

@@ -1,39 +1,38 @@
 # Social Agent Codex
 
-This repository hosts the automation agent for posting via Playwright and Chrome.
+A clean, self-contained influencer bot that uses Playwright to keep an authenticated X session, scrape short videos, download them, generate captions, and repost with light growth actions (likes and follows).
 
-## Requirements
-- Python **3.11.***
-- Playwright **1.49.0** (installed via the provided Make target)
+## Project layout
+- `social_agent.py` — **main entry point**; orchestrates scraping, downloading, captioning, posting, and growth actions.
+- `agent/` — modular helpers
+  - `config.py` — loads environment-driven settings
+  - `browser.py` — manages persistent Playwright session and login checks
+  - `scraper.py` — discovers MP4 links from configured sources
+  - `downloader.py` — fetches media to `downloads/`
+  - `captions.py` — builds captions from templates and hashtags
+  - `poster.py` — posts updates and performs likes/follows
+  - `scheduler.py` — simple delay-based task runner
+- `env.sample` — starter configuration copied to `.env`
 
-## Setup & usage
+## Setup
 1. Install dependencies and browsers:
    ```bash
    make deps
    ```
-2. (Optional) Stop any lingering Chrome/Chromium sessions that point at your Playwright profile:
+2. Copy the sample environment and adjust values:
    ```bash
-   make kill
+   cp env.sample .env
    ```
-3. Export your X credentials before launching the agent **or** place them in a `.env` file in the project root:
+3. Start the bot (first run will prompt you to log in within the Playwright window, and the session will be persisted under `.auth/x_profile`):
    ```bash
-   export X_USERNAME="your_handle"
-   export X_PASSWORD="your_password"
-   export X_ALT_ID="email_or_phone_optional"  # optional; falls back to X_EMAIL then X_USERNAME
-   ```
-   `X_ALT_ID` is used when X asks for an additional identity prompt. If it is unset, the helper will fall back to `X_EMAIL` and finally `X_USERNAME`. When using a `.env` file, be sure to set `X_USERNAME` and `X_PASSWORD`; the automation will raise a helpful error if either is missing.
-4. Validate the login flow independently (headful) with:
-   ```bash
-   make x-login-test
-   ```
-5. Start the agent only when you are ready to post:
-   ```bash
-   RUN=1 make start
-   ```
-   You can also launch directly with the script:
-   ```bash
-   RUN=1 bash ./run.sh
+   python social_agent.py
    ```
 
-## Sanity check
-Set `SOCIAL_AGENT_MOCK_LOGIN=1` to run the bot in a mocked mode that exercises the startup flow without a real browser session. This prints the "Logged in & ready" banner once the initialization succeeds and is useful when credentials are unavailable.
+## Configuration highlights
+- `TOPICS` and `VIDEO_SOURCES` control what is scraped and reposted.
+- `HEADLESS=false` keeps the browser visible for manual login; leave `true` after a session is stored.
+- `LIKE_LIMIT`, `FOLLOW_LIMIT`, and `MEDIA_ATTACH_RATE` tune engagement and media attachment behavior.
+
+## Notes
+- No tweepy or external schedulers are used; everything runs through Playwright and the standard library.
+- Downloads are cached under `downloads/` to avoid re-fetching the same clip.
