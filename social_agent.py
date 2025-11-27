@@ -12,6 +12,7 @@ from bot.browser import BrowserManager
 from bot.captioner import CaptionGenerator, VideoContext
 from bot.config import AgentConfig, load_config
 from bot.downloader import VideoDownloader
+from bot.auto_reply import AutoReplyEngine
 from bot.growth import GrowthActions
 from bot.poster import VideoPoster
 from bot.scheduler import Scheduler
@@ -99,6 +100,9 @@ def run_bot() -> None:
             downloader = VideoDownloader(config.download_dir, logger)
             captioner = CaptionGenerator(config.caption_template)
             growth = GrowthActions(poster, logger)
+            auto_reply = AutoReplyEngine(
+                session.page, logger, config.auto_reply_template
+            )
 
             try:
                 for topic in config.search_topics:
@@ -115,6 +119,9 @@ def run_bot() -> None:
                     )
             finally:
                 session.close()
+            auto_reply.reply_to_latest(
+                max_replies=config.auto_replies_per_cycle
+            )
         logger.info("Cycle complete. Waiting %ss before the next run.", config.loop_delay_seconds)
 
     scheduler.run_forever(cycle)

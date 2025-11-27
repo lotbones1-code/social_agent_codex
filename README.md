@@ -7,6 +7,26 @@ This repository hosts the automation agent for posting via Playwright and Chrome
 - Playwright **1.49.0** (installed via the provided Make target)
 
 ## Setup & usage
+For an end-to-end automated setup (clone → virtualenv → dependencies → browser download → launch), run **one command**:
+
+```bash
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/social-agent-codex/social_agent_codex/main/scripts/one_command_bootstrap.sh)"
+```
+
+The installer will:
+- Create `~/social_agent_codex` (override via `SOCIAL_AGENT_HOME`).
+- Set up a virtual environment, install Python dependencies, and download Playwright Chromium.
+- Create a persistent launcher at `~/.local/bin/run-bot` and start the bot headfully using a reusable session profile.
+- Re-run anytime to refresh the checkout without merge conflicts.
+
+Once installed you can simply run:
+
+```bash
+run-bot
+```
+
+---
+
 1. Install dependencies and browsers:
    ```bash
    make deps

@@ -21,6 +21,8 @@ class AgentConfig:
     max_videos_per_topic: int = 2
     caption_template: str = "{summary}\n🚀 Sourced via {author} — #ai #automation"
     growth_actions_per_cycle: int = 3
+    auto_replies_per_cycle: int = 2
+    auto_reply_template: str = "Thanks for the mention, {author}! 🚀"
     action_delay_min: int = 6
     action_delay_max: int = 16
     loop_delay_seconds: int = 300
@@ -66,9 +68,16 @@ def load_config() -> AgentConfig:
     if template:
         cfg.caption_template = template
 
+    reply_template = os.getenv("AUTO_REPLY_TEMPLATE")
+    if reply_template:
+        cfg.auto_reply_template = reply_template
+
     cfg.max_videos_per_topic = int(os.getenv("MAX_VIDEOS_PER_TOPIC", cfg.max_videos_per_topic))
     cfg.growth_actions_per_cycle = int(
         os.getenv("GROWTH_ACTIONS_PER_CYCLE", cfg.growth_actions_per_cycle)
+    )
+    cfg.auto_replies_per_cycle = int(
+        os.getenv("AUTO_REPLIES_PER_CYCLE", cfg.auto_replies_per_cycle)
     )
     cfg.action_delay_min = int(os.getenv("ACTION_DELAY_MIN", cfg.action_delay_min))
     cfg.action_delay_max = int(os.getenv("ACTION_DELAY_MAX", cfg.action_delay_max))
