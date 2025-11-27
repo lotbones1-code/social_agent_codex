@@ -14,7 +14,7 @@ class AgentConfig:
 
     headless: bool = True
     debug: bool = False
-    auth_state: Path = Path("auth/state.json")
+    auth_state: Path = Path("auth.json")
     user_data_dir: Path = Path.home() / ".social_agent/browser"
     download_dir: Path = Path("downloads")
     search_topics: List[str] = field(default_factory=lambda: ["automation", "ai agents"])
@@ -48,7 +48,7 @@ def load_config() -> AgentConfig:
     cfg.headless = _parse_bool(os.getenv("HEADLESS"), cfg.headless)
     cfg.debug = _parse_bool(os.getenv("DEBUG"), cfg.debug)
 
-    auth_path = os.getenv("AUTH_STATE")
+    auth_path = os.getenv("AUTH_FILE") or os.getenv("AUTH_STATE")
     if auth_path:
         cfg.auth_state = Path(auth_path).expanduser()
 
