@@ -7,7 +7,7 @@ import time
 from dataclasses import dataclass
 from typing import Optional
 
-from playwright.sync_api import Page, PlaywrightError, TimeoutError as PlaywrightTimeout
+from playwright.sync_api import Page, Error as PlaywrightError, TimeoutError as PlaywrightTimeout
 
 
 @dataclass

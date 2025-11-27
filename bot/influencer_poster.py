@@ -6,7 +6,7 @@ import logging
 import time
 from pathlib import Path
 
-from playwright.sync_api import Page, PlaywrightError, TimeoutError as PlaywrightTimeout
+from playwright.sync_api import Page, Error as PlaywrightError, TimeoutError as PlaywrightTimeout
 
 
 class VideoPoster:

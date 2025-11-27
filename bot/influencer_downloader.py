@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Optional
 
 import requests
-from playwright.sync_api import Page, PlaywrightError
+from playwright.sync_api import Page, Error as PlaywrightError
 
 from bot.influencer_scraper import VideoCandidate
 
