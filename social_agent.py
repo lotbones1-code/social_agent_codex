@@ -757,45 +757,24 @@ def prepare_authenticated_session(
     page = context.new_page()
 
     if session_loaded:
-        # Retry logic for session restore
-        max_retries = 3
-        for retry in range(max_retries):
-            try:
-                logger.debug("Session restore attempt %d/%d", retry + 1, max_retries)
-                page.goto("https://x.com/home", wait_until="domcontentloaded", timeout=45000)
-                time.sleep(2)
-
-                # Reload to activate cookies
+        try:
+            page.goto("https://x.com/home", wait_until="domcontentloaded", timeout=60000)
+            time.sleep(2)
+            page.reload(wait_until="domcontentloaded", timeout=60000)
+            time.sleep(1)
+        except PlaywrightTimeout:
+            logger.warning("Timeout while verifying restored session; prompting login.")
+        except (PlaywrightError, TargetClosedError) as exc:
+            logger.warning("Error while verifying restored session: %s", exc)
+        else:
+            if is_logged_in(page):
+                logger.info("[INFO] Session restored successfully")
                 try:
-                    page.reload(wait_until="domcontentloaded", timeout=30000)
-                    time.sleep(1)
-                except PlaywrightTimeout:
-                    logger.debug("Reload timeout, continuing anyway")
-
-            except PlaywrightTimeout:
-                if retry < max_retries - 1:
-                    logger.warning("Timeout on attempt %d, retrying...", retry + 1)
-                    time.sleep(3)
-                    continue
-                logger.warning("Timeout while verifying restored session after retries")
-            except (PlaywrightError, TargetClosedError) as exc:
-                if retry < max_retries - 1:
-                    logger.warning("Error on attempt %d: %s, retrying...", retry + 1, exc)
-                    time.sleep(3)
-                    continue
-                logger.warning("Error while verifying restored session: %s", exc)
-            else:
-                if is_logged_in(page):
-                    logger.info("[INFO] Session restored successfully")
-                    try:
-                        context.storage_state(path=storage_file)
-                    except PlaywrightError as exc:
-                        logger.debug("Unable to refresh storage state: %s", exc)
-                    return browser, context, page
-
-            break  # Exit retry loop
-
-        logger.warning("Saved session present but user is logged out; manual login required.")
+                    context.storage_state(path=storage_file)
+                except PlaywrightError as exc:
+                    logger.debug("Unable to refresh storage state: %s", exc)
+                return browser, context, page
+            logger.warning("Saved session present but user is logged out; manual login required.")
 
     try:
         page.goto("https://x.com/login", wait_until="domcontentloaded", timeout=60000)
