@@ -30,51 +30,64 @@ class VideoPoster:
 
     def _attach_video(self, video_path: Path) -> bool:
         """Attach video reliably across all 2025 X upload variants."""
-        try:
-            self.logger.info("Waiting for upload zone…")
-            # Ensure the upload zone renders
-            self.page.wait_for_selector("input[type='file']", timeout=20000)
-            
-            # Try new 2025 input selector first
-            candidates = [
-                "input[type='file'][accept*='video']",
-                "input[data-testid='fileInput']",
-                "//input[@type='file']",
-            ]
-            
-            upload_input = None
-            for selector in candidates:
-                try:
-                    el = self.page.locator(selector).first
-                    el.wait_for(state="attached", timeout=5000)
-                    upload_input = el
-                    break
-                except:
-                    continue
-
-            if upload_input is None:
-                self.logger.warning("Could not find any working file input.")
-                return False
-            
-            self.logger.info("Setting video file…")
-            upload_input.set_input_files(str(video_path))
-
-            # Wait for upload progress to finish
-            self.logger.info("Waiting for upload to finish…")
+        for attempt in range(1, 4):
             try:
-                # Progressbar appears FIRST then disappears
-                self.page.wait_for_selector("div[role='progressbar']", timeout=15000)
-                self.page.wait_for_selector("div[role='progressbar']", state="detached", timeout=45000)
-            except:
-                pass  # X sometimes doesn’t show progressbar at all
+                if attempt > 1:
+                    self.logger.info("Retrying upload attempt %d/3…", attempt)
+                self.logger.info("Waiting for upload zone…")
+                # Ensure the upload zone renders
+                self.page.wait_for_selector("input[type='file']", timeout=20000)
 
-            # Confirm media preview attached
-            self.page.wait_for_selector("div[data-testid='media-preview']", timeout=30000)
-            return True
+                # Try new 2025 input selector first
+                candidates = [
+                    "input[type='file'][accept*='video']",
+                    "input[data-testid='fileInput']",
+                    "//input[@type='file']",
+                ]
 
-        except PlaywrightError as exc:
-            self.logger.warning(f"Upload failed: {exc}")
-            return False
+                upload_input = None
+                for selector in candidates:
+                    try:
+                        el = self.page.locator(selector).first
+                        el.wait_for(state="attached", timeout=5000)
+                        upload_input = el
+                        break
+                    except:
+                        continue
+
+                if upload_input is None:
+                    self.logger.warning("Could not find any working file input.")
+                    return False
+
+                self.logger.info("Setting video file…")
+                upload_input.set_input_files(str(video_path))
+
+                # Wait for upload progress to finish
+                self.logger.info("Waiting for upload to finish…")
+                try:
+                    # Progressbar appears FIRST then disappears
+                    self.page.wait_for_selector("div[role='progressbar']", timeout=15000)
+                    self.page.wait_for_selector(
+                        "div[role='progressbar']", state="detached", timeout=120000
+                    )
+                except:
+                    pass  # X sometimes doesn’t show progressbar at all
+
+                # Confirm media preview attached
+                self.page.wait_for_selector(
+                    "div[data-testid='media-preview']", timeout=120000
+                )
+
+                self.page.wait_for_selector(
+                    "button[data-testid='tweetButtonInline']:not([disabled])",
+                    timeout=120000,
+                )
+                self.logger.info("[INFO] Upload detected as complete")
+                return True
+
+            except PlaywrightError as exc:
+                self.logger.warning("Upload attempt %d failed: %s", attempt, exc)
+        return False
 
     def _submit(self) -> bool:
         selectors = [
