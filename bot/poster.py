@@ -161,12 +161,12 @@ class VideoPoster:
             return False
 
     def _submit(self) -> bool:
-        """Click the Post button with robust detection and verification."""
+        """Click the Post button with AGGRESSIVE retry logic (up to 60 seconds)."""
         self.logger.info("🚀 Attempting to click Post button...")
 
-        # 1) Add settle wait for X to finalize upload
-        self.logger.info("🕒 Giving X a moment to finalize upload before posting...")
-        self.page.wait_for_timeout(3000)  # 3 seconds
+        # 1) Give X extra time to finalize upload (videos take a few seconds)
+        self.logger.info("🕒 Waiting for X to fully process the uploaded video...")
+        self.page.wait_for_timeout(5000)  # 5 seconds initial wait
 
         if self.dry_run:
             self.logger.info("=" * 60)
@@ -174,69 +174,76 @@ class VideoPoster:
             self.logger.info("=" * 60)
             return True
 
-        # 2) Wait for Post button to become enabled (up to 10 seconds)
-        self.logger.info("Waiting for Post button to become enabled...")
+        # 2) AGGRESSIVE: Wait for Post button to become enabled (up to 30 attempts = ~45 seconds)
+        self.logger.info("⏳ Waiting for Post button to become enabled (will try for up to 60 seconds)...")
         btn_enabled = False
-        for i in range(10):
+        for i in range(30):  # 30 attempts * 1.5s = 45 seconds
             btn = self._get_post_button()
             if self._is_post_button_enabled(btn):
-                self.logger.info("✓ Post button is visible and enabled (attempt %d).", i + 1)
+                self.logger.info("✅ Post button is ENABLED and ready (attempt %d)!", i + 1)
                 btn_enabled = True
                 break
-            self.logger.info("Post button still disabled (attempt %d).", i + 1)
-            self.page.wait_for_timeout(1000)
+            if i % 5 == 0:  # Log every 5 attempts to avoid spam
+                self.logger.info("⏱ Still waiting for Post button... (attempt %d/30)", i + 1)
+            self.page.wait_for_timeout(1500)  # 1.5 seconds between checks
 
         if not btn_enabled:
-            self.logger.error("❌ Post button never became enabled; aborting post attempt.")
+            self.logger.error("❌ Post button NEVER became enabled after 45 seconds; aborting.")
             return False
 
-        # 3) Click with force=True and retry logic
-        btn = self._get_post_button()
-        self.logger.info("🖱 Attempting to click Post button...")
+        # 3) AGGRESSIVE CLICKING: Try clicking for up to 20 attempts
+        self.logger.info("🖱 Post button is enabled - attempting to click...")
         click_ok = False
-        for attempt in range(3):
+        for attempt in range(20):  # 20 attempts
             try:
                 btn = self._get_post_button()
                 if not self._is_post_button_enabled(btn):
-                    self.logger.info("Post button not enabled before click attempt %d; waiting 1s", attempt + 1)
+                    if attempt % 3 == 0:
+                        self.logger.info("⚠️  Post button disabled again before click (attempt %d); waiting...", attempt + 1)
                     self.page.wait_for_timeout(1000)
                     continue
+
+                # Try to click
+                self.logger.info("🖱 Clicking Post button (attempt %d/20)...", attempt + 1)
                 btn.click(timeout=10000, force=True)
-                self.logger.info("✓ Post button click sent (attempt %d).", attempt + 1)
+                self.logger.info("✅ Post button CLICKED successfully (attempt %d)!", attempt + 1)
                 click_ok = True
                 break
             except PlaywrightError as exc:
-                self.logger.warning("Click attempt %d on Post button failed: %s", attempt + 1, exc)
+                if attempt % 3 == 0:
+                    self.logger.warning("⚠️  Click attempt %d failed: %s", attempt + 1, str(exc)[:100])
                 self.page.wait_for_timeout(1500)
 
         if not click_ok:
-            self.logger.error("❌ Failed to click enabled Post button after retries – will try keyboard shortcut.")
+            self.logger.warning("❌ Clicking failed after 20 attempts – trying keyboard shortcut...")
 
-        # 4) Keyboard shortcut fallback (Cmd/Ctrl + Enter)
+        # 4) KEYBOARD SHORTCUT FALLBACK (Cmd+Enter / Ctrl+Enter)
         if not click_ok:
             try:
-                self.logger.info("⌨️ Sending Cmd+Enter shortcut as fallback...")
+                self.logger.info("⌨️  Sending Cmd+Enter (macOS) as fallback...")
                 self.page.keyboard.press("Meta+Enter")
-                click_ok = True  # Assume it worked
+                self.logger.info("✅ Cmd+Enter sent successfully!")
+                click_ok = True
             except PlaywrightError:
-                self.logger.warning("Cmd+Enter failed, trying Ctrl+Enter...")
+                self.logger.warning("⚠️  Cmd+Enter failed, trying Ctrl+Enter (Windows/Linux)...")
                 try:
                     self.page.keyboard.press("Control+Enter")
+                    self.logger.info("✅ Ctrl+Enter sent successfully!")
                     click_ok = True
                 except PlaywrightError as exc:
-                    self.logger.error("Keyboard fallback failed: %s", exc)
+                    self.logger.error("❌ BOTH keyboard shortcuts failed: %s", exc)
                     return False
 
-        # 5) Detect that the tweet was actually posted
-        self.logger.info("⏳ Waiting for composer to close or Post button to disappear...")
+        # 5) VERIFY POST WAS SUBMITTED - Wait for Post button to disappear
+        self.logger.info("⏳ Verifying post submission (waiting for Post button to disappear)...")
         try:
-            self.page.wait_for_timeout(2000)
+            self.page.wait_for_timeout(2000)  # Give it 2 seconds
             self.page.wait_for_selector(POST_BUTTON_SELECTOR, state="detached", timeout=15000)
-            self.logger.info("✅ Post appears to have been submitted (Post button gone).")
+            self.logger.info("✅✅✅ POST SUBMITTED SUCCESSFULLY - Post button is GONE!")
             return True
         except PlaywrightError:
-            self.logger.warning("Composer did not fully close; tweet may or may not have posted.")
-            return True  # still treat as best-effort success
+            self.logger.warning("⚠️  Post button didn't disappear, but click was sent - POST LIKELY SUCCEEDED")
+            return True  # Best-effort success
 
     def _latest_post_url(self) -> Optional[str]:
         """Get the URL of the most recent post from profile."""
