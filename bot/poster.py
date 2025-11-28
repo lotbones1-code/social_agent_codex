@@ -36,18 +36,17 @@ class VideoPoster:
             return False
 
     def _attach_video(self, video_path: Path) -> bool:
-        """Attach video reliably across all 2025 X upload variants."""
+        """Attach video reliably - wait for composer indicators."""
         for attempt in range(1, 4):
             try:
                 if attempt > 1:
                     self.logger.info("Retrying upload attempt %d/3…", attempt)
-                    time.sleep(2)  # Brief pause between retries
+                    time.sleep(2)
 
                 self.logger.info("📤 Uploading video: %s (%.2f MB)", video_path.name, video_path.stat().st_size / (1024*1024))
 
-                # Step 5: Wait for file input and upload video
-                self.logger.info("Step 5: Waiting for file input element...")
-                # Priority order for file input selectors
+                # Find file input and upload
+                self.logger.info("Waiting for file input element...")
                 candidates = [
                     "input[type='file'][accept*='video']",
                     "input[type='file']",
@@ -73,37 +72,54 @@ class VideoPoster:
                 self.logger.info("Uploading video file...")
                 upload_input.set_input_files(str(video_path))
 
-                # Wait for upload to finish - use simple, reliable checks
-                # Don't wait for Playwright/X internal events (unreliable)
-                self.logger.info("⏳ Waiting for upload indicators...")
+                # IMPROVED: Wait for upload completion indicators (max 25s)
+                self.logger.info("⏳ Waiting for upload completion indicators...")
                 upload_finished = False
-                timeout_seconds = 15
+                timeout_seconds = 25
                 start_time = time.time()
+                last_progress_check = 0
 
                 while time.time() - start_time < timeout_seconds:
                     try:
-                        # Check 1: Video player thumbnail appeared?
-                        if self.page.locator("div[data-testid='videoPlayer']").is_visible(timeout=1000):
-                            self.logger.info("✓ Video thumbnail detected")
+                        # Check 1: Video player in composer appeared?
+                        if self.page.locator("div[data-testid='videoPlayer']").is_visible(timeout=500):
+                            self.logger.info("✓ Video player detected in composer")
                             upload_finished = True
                             break
                     except:
                         pass
 
                     try:
-                        # Check 2: Progress bar gone?
-                        if not self.page.locator("div[role='progressbar']").is_visible(timeout=1000):
-                            self.logger.info("✓ Progress bar disappeared")
+                        # Check 2: Remove media button appeared?
+                        if self.page.locator("div[aria-label='Remove']").is_visible(timeout=500):
+                            self.logger.info("✓ Remove media button detected")
                             upload_finished = True
                             break
                     except:
                         pass
 
-                    time.sleep(0.5)
+                    try:
+                        # Check 3: No progress bar for 500ms?
+                        if not self.page.locator("div[role='progressbar']").is_visible(timeout=100):
+                            # Confirm it stays gone for 500ms
+                            current_time = time.time()
+                            if last_progress_check == 0:
+                                last_progress_check = current_time
+                            elif current_time - last_progress_check >= 0.5:
+                                self.logger.info("✓ Progress bar disappeared (no activity for 500ms)")
+                                upload_finished = True
+                                break
+                        else:
+                            # Reset if progress bar reappears
+                            last_progress_check = 0
+                    except:
+                        pass
 
-                # If timeout or conditions met, consider upload complete
+                    time.sleep(0.3)
+
+                # If timeout reached, consider it complete anyway
                 if not upload_finished:
-                    self.logger.info("✓ Upload timeout reached (15s) - proceeding")
+                    self.logger.info("✓ Upload timeout reached (25s) - proceeding")
 
                 self.logger.info("✅ Upload complete - ready to post")
                 return True
@@ -122,15 +138,16 @@ class VideoPoster:
         """Click the Post button to submit."""
         self.logger.info("🚀 Clicking Post button...")
         try:
-            # Wait for Post button to be enabled and visible
+            # FIXED: Use the actual clickable span inside tweetButtonInline
+            self.logger.debug("Waiting for Post button span...")
             self.page.wait_for_selector(
-                "button[data-testid='tweetButtonInline']:not([disabled])",
+                "div[data-testid='tweetButtonInline'] span",
                 timeout=10000,
                 state="visible"
             )
 
-            # Click the Post button
-            post_button = self.page.locator("button[data-testid='tweetButtonInline']").first
+            # Click the span (actual clickable element)
+            post_button = self.page.locator("div[data-testid='tweetButtonInline'] span").first
             post_button.click()
             self.logger.info("✅ Post button clicked")
             time.sleep(3)
