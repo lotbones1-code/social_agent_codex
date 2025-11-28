@@ -18,7 +18,7 @@ from bot.config_loader import load_config
 from bot.engagement import EngagementModule
 from bot.post_tracker import PostTracker
 from bot.poster import VideoPoster
-from bot.premium_downloader import PremiumDownloader
+from bot.hybrid_downloader import HybridDownloader
 from bot.viral_scraper import ViralScraper, VideoCandidate
 
 
@@ -75,7 +75,7 @@ def run_influencer_cycle(logger: logging.Logger) -> None:
             scraper = ViralScraper(page, logger)
             poster = VideoPoster(page, logger)
             engagement = EngagementModule(page, logger)
-            downloader = PremiumDownloader(
+            downloader = HybridDownloader(
                 page,
                 Path(config.download.dir),
                 logger
