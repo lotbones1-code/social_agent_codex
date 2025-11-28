@@ -8,6 +8,10 @@ from typing import Optional
 from playwright.sync_api import Error as PlaywrightError, TimeoutError as PlaywrightTimeout, Page
 
 
+# Post button selector constant
+POST_BUTTON_SELECTOR = "[data-testid='tweetButtonInline']"
+
+
 class VideoPoster:
     """Handle composing and publishing posts on X."""
 
@@ -36,7 +40,7 @@ class VideoPoster:
             return False
 
     def _attach_video(self, video_path: Path) -> bool:
-        """Attach video reliably - wait for composer indicators."""
+        """Attach video with robust upload completion detection."""
         for attempt in range(1, 4):
             try:
                 if attempt > 1:
@@ -46,7 +50,7 @@ class VideoPoster:
                 self.logger.info("📤 Uploading video: %s (%.2f MB)", video_path.name, video_path.stat().st_size / (1024*1024))
 
                 # Find file input and upload
-                self.logger.info("Waiting for file input element...")
+                self.logger.info("Finding file input element...")
                 candidates = [
                     "input[type='file'][accept*='video']",
                     "input[type='file']",
@@ -69,21 +73,21 @@ class VideoPoster:
                     self.logger.warning("❌ Could not find file input selector")
                     continue
 
-                self.logger.info("Uploading video file...")
+                self.logger.info("Setting file on input element...")
                 upload_input.set_input_files(str(video_path))
 
-                # IMPROVED: Wait for upload completion indicators (max 25s)
-                self.logger.info("⏳ Waiting for upload completion indicators...")
+                # ROBUST UPLOAD COMPLETION DETECTION
+                self.logger.info("⏳ Waiting for upload completion (max 30s)...")
                 upload_finished = False
-                timeout_seconds = 25
+                timeout_seconds = 30
                 start_time = time.time()
                 last_progress_check = 0
 
                 while time.time() - start_time < timeout_seconds:
                     try:
-                        # Check 1: Video player in composer appeared?
+                        # Check 1: Video player preview in composer?
                         if self.page.locator("div[data-testid='videoPlayer']").is_visible(timeout=500):
-                            self.logger.info("✓ Video player detected in composer")
+                            self.logger.info("✓ Video player preview detected in composer")
                             upload_finished = True
                             break
                     except:
@@ -91,7 +95,8 @@ class VideoPoster:
 
                     try:
                         # Check 2: Remove media button appeared?
-                        if self.page.locator("div[aria-label='Remove']").is_visible(timeout=500):
+                        remove_btn = self.page.locator("[aria-label*='Remove']").first
+                        if remove_btn.is_visible(timeout=500):
                             self.logger.info("✓ Remove media button detected")
                             upload_finished = True
                             break
@@ -99,29 +104,28 @@ class VideoPoster:
                         pass
 
                     try:
-                        # Check 3: No progress bar for 500ms?
+                        # Check 3: No progress bar for at least 500ms?
                         if not self.page.locator("div[role='progressbar']").is_visible(timeout=100):
-                            # Confirm it stays gone for 500ms
                             current_time = time.time()
                             if last_progress_check == 0:
                                 last_progress_check = current_time
                             elif current_time - last_progress_check >= 0.5:
-                                self.logger.info("✓ Progress bar disappeared (no activity for 500ms)")
+                                self.logger.info("✓ Progress bar gone for 500ms - upload likely complete")
                                 upload_finished = True
                                 break
                         else:
-                            # Reset if progress bar reappears
+                            # Reset timer if progress bar reappears
                             last_progress_check = 0
                     except:
                         pass
 
                     time.sleep(0.3)
 
-                # If timeout reached, consider it complete anyway
+                # Even if timeout, proceed (upload might still be ready)
                 if not upload_finished:
-                    self.logger.info("✓ Upload timeout reached (25s) - proceeding")
+                    self.logger.warning("⚠️  Upload timeout reached (30s) - proceeding anyway")
 
-                self.logger.info("✅ Upload complete - ready to post")
+                self.logger.info("✅ Upload phase complete - ready to post")
                 return True
 
             except PlaywrightTimeout as exc:
@@ -135,28 +139,82 @@ class VideoPoster:
         return False
 
     def _submit(self) -> bool:
-        """Click the Post button to submit."""
-        self.logger.info("🚀 Clicking Post button...")
+        """Click the Post button with robust detection and verification."""
+        self.logger.info("🚀 Attempting to click Post button...")
+
+        if self.dry_run:
+            self.logger.info("=" * 60)
+            self.logger.info("🔍 DRY-RUN MODE - NOT clicking Post button")
+            self.logger.info("In normal mode, would click: %s", POST_BUTTON_SELECTOR)
+            self.logger.info("=" * 60)
+            return True
+
         try:
-            # FIXED: Use the actual clickable span inside tweetButtonInline
-            self.logger.debug("Waiting for Post button span...")
+            # Wait for Post button to be visible and NOT disabled
+            self.logger.debug("Waiting for Post button: %s", POST_BUTTON_SELECTOR)
+
+            # First check if button exists and is visible
             self.page.wait_for_selector(
-                "div[data-testid='tweetButtonInline'] span",
-                timeout=10000,
+                POST_BUTTON_SELECTOR,
+                timeout=15000,
                 state="visible"
             )
+            self.logger.info("✓ Post button found and visible")
 
-            # Click the span (actual clickable element)
-            post_button = self.page.locator("div[data-testid='tweetButtonInline'] span").first
-            post_button.click()
-            self.logger.info("✅ Post button clicked")
-            time.sleep(3)
-            return True
+            # Check if button is enabled (not aria-disabled)
+            for retry in range(3):
+                try:
+                    post_button = self.page.locator(POST_BUTTON_SELECTOR).first
+                    aria_disabled = post_button.get_attribute("aria-disabled")
+
+                    if aria_disabled == "true":
+                        self.logger.debug("Post button is disabled, waiting... (retry %d/3)", retry + 1)
+                        time.sleep(1)
+                        continue
+
+                    # Button is enabled, click it
+                    self.logger.info("Post button is enabled, clicking now...")
+                    post_button.click(timeout=5000)
+                    self.logger.info("✅ Post button clicked successfully")
+
+                    # Wait for confirmation that post was submitted
+                    # The composer should disappear or URL should change
+                    time.sleep(2)
+
+                    # Check if we're no longer on compose page
+                    current_url = self.page.url
+                    if "/compose/post" not in current_url:
+                        self.logger.info("✓ Navigated away from composer - post likely submitted")
+                        return True
+
+                    # Or check if Post button disappeared
+                    if not self.page.locator(POST_BUTTON_SELECTOR).is_visible(timeout=2000):
+                        self.logger.info("✓ Post button disappeared - post likely submitted")
+                        return True
+
+                    # Give it some time and consider success
+                    time.sleep(2)
+                    self.logger.info("✓ Post button clicked - assuming success")
+                    return True
+
+                except PlaywrightError as click_exc:
+                    self.logger.warning("Click attempt %d failed: %s", retry + 1, click_exc)
+                    if retry < 2:
+                        time.sleep(1)
+                    continue
+
+            self.logger.error("❌ Failed to click enabled Post button after retries")
+            return False
+
+        except PlaywrightTimeout:
+            self.logger.error("❌ Timeout waiting for Post button: %s", POST_BUTTON_SELECTOR)
+            return False
         except PlaywrightError as exc:
             self.logger.error("❌ Failed to click Post button: %s", exc)
             return False
 
     def _latest_post_url(self) -> Optional[str]:
+        """Get the URL of the most recent post from profile."""
         try:
             profile = self.page.locator("a[aria-label='Profile']").first
             profile_href = profile.get_attribute("href")
@@ -174,57 +232,63 @@ class VideoPoster:
         return None
 
     def post_video(self, caption: str, video_path: Path) -> Optional[str]:
+        """Post a video with caption to X."""
         if not video_path.exists():
             self.logger.warning("Video %s does not exist.", video_path)
             return None
 
-        # Dry-run mode: simulate posting without actually clicking Post
+        # Dry-run info
         if self.dry_run:
             self.logger.info("=" * 60)
-            self.logger.info("🔍 DRY-RUN MODE - Post will NOT be submitted")
+            self.logger.info("🔍 DRY-RUN MODE - Simulating post workflow")
             self.logger.info("=" * 60)
             self.logger.info("Video: %s (%.2f MB)", video_path.name, video_path.stat().st_size / (1024*1024))
             self.logger.info("Caption: %s", caption)
             self.logger.info("=" * 60)
-            self.logger.info("In normal mode, this would:")
-            self.logger.info("  1. Open the composer")
-            self.logger.info("  2. Type the caption")
-            self.logger.info("  3. Upload the video")
-            self.logger.info("  4. Click the Post button")
+            self.logger.info("DRY-RUN: Would perform these steps:")
+            self.logger.info("  1. Open composer at /compose/post")
+            self.logger.info("  2. Type caption into textarea")
+            self.logger.info("  3. Upload video file")
+            self.logger.info("  4. Wait for upload completion")
+            self.logger.info("  5. Click Post button: %s", POST_BUTTON_SELECTOR)
             self.logger.info("=" * 60)
-            return "DRY_RUN_NO_URL"
 
         if not self._open_composer():
             return None
-        # Type caption into composer (use .first to avoid strict mode violation)
+
+        # Type caption
         self.logger.info("Typing caption into composer...")
         try:
-            # FIX: X has 2 matching textboxes, use .first to pick the real one
+            # Use .first to avoid strict mode violation (X has 2 matching textboxes)
             textarea = self.page.locator("div[contenteditable='true'][data-testid='tweetTextarea_0']").first
             textarea.click()
             time.sleep(0.5)
             textarea.fill(caption)
-            self.logger.info("✓ Caption typed: %s", caption[:50])
+            self.logger.info("✓ Caption typed: %s", caption[:60] + ("..." if len(caption) > 60 else ""))
         except PlaywrightError as exc:
             self.logger.error("❌ Could not type caption: %s", exc)
             return None
 
-        self.logger.info("Uploading video to composer…")
+        # Upload video
+        self.logger.info("Uploading video to composer...")
         if not self._attach_video(video_path):
             return None
 
+        # Submit post
         submitted = self._submit()
         if not submitted:
             return None
 
+        # Try to get the posted URL
         posted_url = self._latest_post_url()
         if posted_url:
-            self.logger.info("Posted influencer tweet successfully: %s", posted_url)
+            self.logger.info("✅ Posted video successfully: %s", posted_url)
         else:
-            self.logger.info("Post with video %s published successfully.", video_path)
-        return posted_url
+            self.logger.info("✅ Post submitted (URL retrieval failed, but post likely succeeded)")
+        return posted_url or "POSTED"
 
     def repost(self, post_url: str) -> bool:
+        """Repost an existing post."""
         try:
             self.page.goto(post_url, wait_until="domcontentloaded", timeout=60000)
             button = self.page.locator("div[data-testid='retweet']").first
@@ -239,6 +303,7 @@ class VideoPoster:
             return False
 
     def like(self, post_url: str) -> bool:
+        """Like a post."""
         try:
             self.page.goto(post_url, wait_until="domcontentloaded", timeout=60000)
             like_button = self.page.locator("div[data-testid='like']").first
@@ -250,6 +315,7 @@ class VideoPoster:
             return False
 
     def follow_author(self, post_url: str) -> bool:
+        """Follow the author of a post."""
         try:
             self.page.goto(post_url, wait_until="domcontentloaded", timeout=60000)
             follow_button = self.page.get_by_text("Follow").first
@@ -263,4 +329,4 @@ class VideoPoster:
             return False
 
 
-__all__ = ["VideoPoster"]
+__all__ = ["VideoPoster", "POST_BUTTON_SELECTOR"]

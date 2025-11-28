@@ -5,7 +5,7 @@ import time
 from dataclasses import dataclass
 from typing import List, Optional
 
-from playwright.sync_api import Error as PlaywrightError, Page
+from playwright.sync_api import Error as PlaywrightError, Page, Locator
 
 
 @dataclass
@@ -16,6 +16,64 @@ class ScrapedPost:
     video_url: Optional[str]
 
 
+def is_valid_video_post(tweet_locator: Locator, logger: logging.Logger) -> tuple[bool, str]:
+    """
+    Check if tweet contains a real video (not GIF).
+    Returns (is_valid, reason).
+    """
+    try:
+        # Check 1: Must have video player
+        if tweet_locator.locator("div[data-testid='videoPlayer']").count() == 0:
+            return False, "no videoPlayer found"
+
+        # Check 2: Reject GIFs explicitly
+        # GIFs often have specific badges or labels
+        if tweet_locator.locator("[aria-label*='GIF']").count() > 0:
+            return False, "marked as GIF"
+
+        # Also check for GIF badges in the media section
+        if tweet_locator.locator("div[data-testid='card.layoutLarge.media'] [aria-label*='GIF']").count() > 0:
+            return False, "GIF badge in media"
+
+        # Check 3: Look for video duration indicator (real videos have timestamps)
+        # Duration badges are usually in format like "0:15" or "1:23"
+        time_labels = tweet_locator.locator("[aria-label*=':']").all()
+        has_duration = False
+        for label in time_labels:
+            try:
+                aria_label = label.get_attribute("aria-label") or ""
+                # Check if it looks like a timestamp (e.g., "0:23", "1:15")
+                if ":" in aria_label and any(char.isdigit() for char in aria_label):
+                    # Extract just the time part (e.g., "0:23")
+                    parts = aria_label.split()
+                    for part in parts:
+                        if ":" in part and all(c.isdigit() or c == ":" for c in part):
+                            # Parse duration
+                            try:
+                                time_parts = part.split(":")
+                                if len(time_parts) == 2:
+                                    minutes, seconds = int(time_parts[0]), int(time_parts[1])
+                                    total_seconds = minutes * 60 + seconds
+                                    # Prefer videos longer than 3 seconds (GIFs are usually very short)
+                                    if total_seconds > 3:
+                                        has_duration = True
+                                        break
+                            except:
+                                pass
+            except:
+                continue
+
+        if has_duration:
+            return True, "has video duration > 3s"
+
+        # Check 4: If we have videoPlayer but no clear duration,
+        # accept it but with lower priority (might still be a video)
+        return True, "has videoPlayer (no duration found, assuming video)"
+
+    except PlaywrightError:
+        return False, "error checking elements"
+
+
 class VideoScraper:
     """Navigate X search results and surface posts that contain playable videos."""
 
@@ -24,6 +82,7 @@ class VideoScraper:
         self.logger = logger
 
     def _scroll(self, *, steps: int = 5) -> None:
+        """Scroll page to load more content."""
         for _ in range(steps):
             try:
                 self.page.mouse.wheel(0, 2000)
@@ -32,6 +91,7 @@ class VideoScraper:
             time.sleep(1.5)
 
     def search_topic(self, topic: str) -> List[ScrapedPost]:
+        """Search for video posts about a topic."""
         query = topic.replace(" ", "%20")
         url = f"https://x.com/search?q={query}&f=live"
         self.logger.info("Searching for videos about '%s'", topic)
@@ -44,6 +104,8 @@ class VideoScraper:
         self._scroll(steps=6)
 
         posts: List[ScrapedPost] = []
+        rejected_count = 0
+
         try:
             tweets = self.page.locator("article[data-testid='tweet']").all()
         except PlaywrightError as exc:
@@ -52,24 +114,40 @@ class VideoScraper:
 
         for tweet in tweets:
             try:
+                # First check: must have video or videoPlayer
                 if tweet.locator("video").count() == 0 and tweet.locator("div[data-testid='videoPlayer']").count() == 0:
                     continue
+
+                # VALIDATION: Check if this is a real video (not GIF)
+                is_valid, reason = is_valid_video_post(tweet, self.logger)
+                if not is_valid:
+                    rejected_count += 1
+                    self.logger.debug("Rejected candidate - %s", reason)
+                    continue
+
+                # Valid video - extract post data
+                self.logger.debug("✓ Accepted candidate - %s", reason)
+
                 text = tweet.locator("div[data-testid='tweetText']").inner_text(timeout=3000)
                 link = tweet.locator("a[href*='/status/']").first
                 href = link.get_attribute("href") or ""
                 author_link = tweet.locator("div[data-testid='User-Name'] a").first
                 author = author_link.inner_text(timeout=3000)
+
+                # Extract video source
                 video_src = None
                 if tweet.locator("video source").count() > 0:
                     try:
                         video_src = tweet.locator("video source").first.get_attribute("src")
                     except PlaywrightError:
                         video_src = None
+
                 if not video_src and tweet.locator("video").count() > 0:
                     try:
                         video_src = tweet.locator("video").first.get_attribute("src")
                     except PlaywrightError:
                         video_src = None
+
                 posts.append(
                     ScrapedPost(
                         url=f"https://x.com{href}" if href.startswith("/") else href,
@@ -78,11 +156,18 @@ class VideoScraper:
                         video_url=video_src,
                     )
                 )
+
             except PlaywrightError:
                 continue
+
+            # Stop after finding 10 valid videos
             if len(posts) >= 10:
                 break
-        self.logger.info("Found %d candidate video posts for topic '%s'", len(posts), topic)
+
+        self.logger.info(
+            "Found %d valid video posts for topic '%s' (rejected %d GIF/invalid posts)",
+            len(posts), topic, rejected_count
+        )
         return posts
 
 
