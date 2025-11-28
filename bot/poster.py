@@ -16,27 +16,26 @@ class VideoPoster:
         self.logger = logger
 
     def _open_composer(self) -> bool:
-        selectors = [
-            "a[aria-label='Post']",
-            "div[data-testid='SideNav_NewTweet_Button']",
-            "a[href='/compose/post']",
-        ]
-        for selector in selectors:
-            try:
-                button = self.page.locator(selector)
-                if button.is_visible(timeout=3000):
-                    button.click()
-                    return True
-            except PlaywrightError:
-                continue
-        self.logger.warning("Could not locate the composer button.")
-        return False
+        try:
+            self.logger.info("Opening composer page…")
+            self.page.goto("https://x.com/compose/post", wait_until="networkidle", timeout=60000)
+            self.page.wait_for_selector(
+                "div[data-testid='tweetTextarea_0'] div[contenteditable='true']",
+                timeout=15000,
+            )
+            return True
+        except PlaywrightError as exc:
+            self.logger.warning("Could not open composer: %s", exc)
+            return False
 
     def _attach_video(self, video_path: Path) -> bool:
         try:
-            upload_input = self.page.locator("input[data-testid='fileInput']").first
+            upload_input = self.page.locator("input[type='file'][accept*='video']").first
+            upload_input.wait_for(state="attached", timeout=10000)
             upload_input.set_input_files(str(video_path))
-            self.page.wait_for_selector("div[data-testid='media-preview']", timeout=45000)
+            # Wait for upload progress to disappear (or not show up) within 45 seconds.
+            self.page.wait_for_selector("div[role='progressbar']", state="detached", timeout=45000)
+            self.page.wait_for_selector("div[data-testid='media-preview']", timeout=15000)
             return True
         except PlaywrightTimeout:
             self.logger.warning("Video upload timed out for %s", video_path)
@@ -47,7 +46,9 @@ class VideoPoster:
 
     def _submit(self) -> bool:
         try:
-            self.page.locator("div[data-testid='tweetButtonInline']").click()
+            post_button = self.page.locator("div[data-testid='tweetButton']").first
+            post_button.wait_for(state="visible", timeout=15000)
+            post_button.click()
             time.sleep(4)
             return True
         except PlaywrightError as exc:
@@ -77,27 +78,14 @@ class VideoPoster:
             return None
         if not self._open_composer():
             return None
-        composer_selectors = [
-            "div[data-testid='tweetTextarea_0'] div[contenteditable='true']",
-            "div[contenteditable='true'][data-testid='tweetTextarea_0']",
-            "div[contenteditable='true']",
-        ]
         self.logger.info("Typing caption into composer…")
-        composer = None
-        last_error: Optional[Exception] = None
-        for selector in composer_selectors:
-            try:
-                candidate = self.page.locator(selector).first
-                candidate.wait_for(state="visible", timeout=15000)
-                candidate.click()
-                candidate.fill(caption)
-                composer = candidate
-                break
-            except PlaywrightError as exc:
-                last_error = exc
-                continue
-        if not composer:
-            self.logger.warning("Could not type caption: %s", last_error)
+        try:
+            composer = self.page.locator("div[data-testid='tweetTextarea_0'] div[contenteditable='true']").first
+            composer.wait_for(state="visible", timeout=15000)
+            composer.click()
+            composer.fill(caption)
+        except PlaywrightError as exc:
+            self.logger.warning("Could not type caption: %s", exc)
             return None
         self.logger.info("Caption typed successfully.")
 
