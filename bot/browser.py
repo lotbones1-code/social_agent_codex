@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import logging
 import time
-from pathlib import Path
 from typing import Optional
 
 from playwright.sync_api import (
@@ -92,72 +91,67 @@ class BrowserManager:
         self.logger.error("Timed out waiting for login. Please retry.")
         return False
 
-    def start(self) -> Optional[BrowserSession]:
-        chromium = self.playwright.chromium
+    def _launch_persistent_context(self, chromium) -> Optional[BrowserContext]:
+        self.config.user_data_dir.mkdir(parents=True, exist_ok=True)
+        launch_kwargs = {
+            "user_data_dir": str(self.config.user_data_dir),
+            "headless": self.config.headless,
+            "args": ["--disable-dev-shm-usage", "--disable-extensions"],
+            "viewport": {"width": 1280, "height": 900},
+        }
+
+        storage_state = None
+        if self.config.auth_state.exists():
+            storage_state = str(self.config.auth_state)
+            self.logger.info("Restoring login session from %s", storage_state)
+
         try:
-            browser = chromium.connect_over_cdp("http://localhost:9222")
+            return chromium.launch_persistent_context(
+                **launch_kwargs, storage_state=storage_state
+            )
         except PlaywrightError as exc:
-            self.logger.error("Unable to connect to Chrome over CDP: %s", exc)
+            self.logger.error("Unable to launch persistent context: %s", exc)
             return None
 
-        auth_path = self.config.auth_state
-        has_auth_state = auth_path.exists()
+    def _ensure_logged_in(self, page: Page, context: BrowserContext) -> bool:
+        if self._is_logged_in(page):
+            return True
 
         try:
-            context: BrowserContext = browser.contexts[0]
-        except IndexError:
-            self.logger.error("No browser contexts available from the connected Chrome instance.")
+            page.goto("https://x.com/login", wait_until="networkidle", timeout=60000)
+        except PlaywrightError:
+            self.logger.warning("Could not navigate to login page for re-authentication.")
+
+        if not self._prompt_manual_login(page):
+            return False
+
+        try:
+            context.storage_state(path=str(self.config.auth_state))
+        except PlaywrightError as exc:
+            self.logger.warning("Failed to persist storage state: %s", exc)
+        return True
+
+    def start(self) -> Optional[BrowserSession]:
+        chromium = self.playwright.chromium
+        context = self._launch_persistent_context(chromium)
+        if context is None:
+            return None
+
+        page: Page = context.new_page()
+        try:
+            page.goto("https://x.com/home", wait_until="domcontentloaded", timeout=60000)
+        except PlaywrightError:
+            self.logger.debug("Initial home navigation failed; continuing to login check.")
+
+        if not self._ensure_logged_in(page, context):
             try:
-                browser.close()
+                context.close()
             except PlaywrightError:
                 pass
             return None
 
-        page: Page = context.new_page()
-
-        if has_auth_state:
-            self.logger.info("Restoring login session from %s", auth_path)
-            try:
-                page.goto("https://x.com/home", wait_until="networkidle", timeout=60000)
-                time.sleep(2)
-                page.reload(wait_until="networkidle", timeout=60000)
-                time.sleep(1)
-            except PlaywrightError as exc:
-                self.logger.warning("Home load after state restore failed: %s", exc)
-        else:
-            try:
-                page.goto("https://x.com/login", wait_until="networkidle", timeout=60000)
-            except PlaywrightError:
-                self.logger.info("Login page load failed; waiting for manual input regardless.")
-            if not self._prompt_manual_login(page):
-                try:
-                    context.close()
-                except PlaywrightError:
-                    pass
-                try:
-                    browser.close()
-                except PlaywrightError:
-                    pass
-                return None
-
-        if not self._is_logged_in(page):
-            try:
-                page.goto("https://x.com/login", wait_until="networkidle", timeout=60000)
-            except PlaywrightError:
-                self.logger.warning("Could not navigate to login page for re-authentication.")
-            if not self._prompt_manual_login(page):
-                try:
-                    context.close()
-                except PlaywrightError:
-                    pass
-                try:
-                    browser.close()
-                except PlaywrightError:
-                    pass
-                return None
-
-        self.logger.info("Authenticated X session ready.")
-        return BrowserSession(browser, context, page, self.config, self.logger)
+        self.logger.info("Authenticated X session ready (persistent profile: %s)", self.config.user_data_dir)
+        return BrowserSession(context.browser, context, page, self.config, self.logger)
 
 
 __all__ = ["BrowserManager", "BrowserSession"]

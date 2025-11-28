@@ -7,8 +7,8 @@ cd "$(dirname "$0")"
 if [[ -d "venv" ]]; then source venv/bin/activate; fi
 
 # persistent profile for this repo
-export PW_PROFILE_DIR="$PWD/.pwprofile_live"
-mkdir -p "$PW_PROFILE_DIR" logs
+export USER_DATA_DIR="$PWD/.pwprofile"
+mkdir -p "$USER_DATA_DIR" logs
 
 # hard-close anything that could hold the profile
 pkill -f 'social_agent.py' || true
@@ -18,7 +18,7 @@ pkill -9 -f 'Chromium' || true
 pkill -9 -f 'chrome(--type)?' || true
 pkill -9 -f 'crashpad' || true
 pkill -9 -f 'playwright' || true
-rm -rf "$PW_PROFILE_DIR/Singlet*" 2>/dev/null || true
+rm -rf "$USER_DATA_DIR/Singlet*" 2>/dev/null || true
 rm -rf "$HOME/Library/Application Support/Chromium/Singleton*" 2>/dev/null || true
 rm -rf "$HOME/.config/chromium/Singleton*" 2>/dev/null || true
 

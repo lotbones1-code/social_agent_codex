@@ -95,6 +95,7 @@ class CaptionGenerator:
     def _sanitize_caption(caption: str) -> str:
         """Remove any @mentions and normalize whitespace."""
         caption = strip_mentions_and_credits(caption)
+        caption = dedupe_hashtags(caption)
         normalized = re.sub(r"\s+", " ", caption).strip()
         return normalized
 
@@ -113,3 +114,20 @@ def strip_mentions_and_credits(text: str) -> str:
     text = re.sub(r"\.+$", "", text)
     # Clean whitespace
     return " ".join(text.split())
+
+
+def dedupe_hashtags(text: str, *, max_hashtags: int = 4) -> str:
+    seen = set()
+    pieces = []
+    for token in text.split():
+        if token.startswith("#"):
+            normalized = token.rstrip(".,!")
+            if normalized.lower() in seen:
+                continue
+            seen.add(normalized.lower())
+            if len(seen) > max_hashtags:
+                continue
+            pieces.append(normalized)
+        else:
+            pieces.append(token)
+    return " ".join(pieces)

@@ -16,24 +16,30 @@ class AgentConfig:
     debug: bool = False
     strict_mode: bool = True
     auth_state: Path = Path("auth.json")
-    user_data_dir: Path = Path.home() / ".social_agent/browser"
+    user_data_dir: Path = Path(".pwprofile")
     download_dir: Path = Path("downloads")
-    search_topics: List[str] = field(default_factory=lambda: ["automation", "ai agents"])
+    search_topics: List[str] = field(
+        default_factory=lambda: ["ai", "automation", "viral tech"]
+    )
     max_videos_per_topic: int = 2
     max_posts_per_cycle: int = 2
-    caption_template: str = "{summary}\n🚀 Sourced via {author} — #ai #automation"
+    caption_template: str = "{summary}\n#AI #Automation"
     growth_actions_per_cycle: int = 3
-    auto_replies_per_cycle: int = 2
-    auto_reply_template: str = "Thanks for the mention, {author}! 🚀"
+    auto_replies_per_cycle: int = 0
+    auto_reply_template: str = ""
     trending_enabled: bool = True
     trending_max_topics: int = 6
     trending_refresh_minutes: int = 45
+    require_trending: bool = False
     openai_api_key: str | None = None
     gpt_caption_model: str = "gpt-4o-mini"
     download_user_agent: str | None = None
     action_delay_min: int = 6
     action_delay_max: int = 16
     loop_delay_seconds: int = 300
+    min_viral_score: float = 0.25
+    upload_retry_attempts: int = 3
+    post_retry_attempts: int = 3
 
     def ensure_paths(self) -> None:
         self.auth_state.parent.mkdir(parents=True, exist_ok=True)
@@ -96,12 +102,20 @@ def load_config() -> AgentConfig:
     cfg.trending_refresh_minutes = int(
         os.getenv("TRENDING_REFRESH_MINUTES", cfg.trending_refresh_minutes)
     )
+    cfg.require_trending = _parse_bool(
+        os.getenv("REQUIRE_TRENDING"), cfg.require_trending
+    )
     cfg.openai_api_key = os.getenv("OPENAI_API_KEY") or None
     cfg.gpt_caption_model = os.getenv("GPT_CAPTION_MODEL", cfg.gpt_caption_model)
     cfg.download_user_agent = os.getenv("DOWNLOAD_USER_AGENT") or None
     cfg.action_delay_min = int(os.getenv("ACTION_DELAY_MIN", cfg.action_delay_min))
     cfg.action_delay_max = int(os.getenv("ACTION_DELAY_MAX", cfg.action_delay_max))
     cfg.loop_delay_seconds = int(os.getenv("LOOP_DELAY_SECONDS", cfg.loop_delay_seconds))
+    cfg.min_viral_score = float(os.getenv("MIN_VIRAL_SCORE", cfg.min_viral_score))
+    cfg.upload_retry_attempts = int(
+        os.getenv("UPLOAD_RETRY_ATTEMPTS", cfg.upload_retry_attempts)
+    )
+    cfg.post_retry_attempts = int(os.getenv("POST_RETRY_ATTEMPTS", cfg.post_retry_attempts))
 
     cfg.ensure_paths()
     return cfg

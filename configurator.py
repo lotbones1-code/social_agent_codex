@@ -12,36 +12,26 @@ TEMPLATE_DELIMITER = "||"
 
 
 DEFAULT_REPLY_TEMPLATES: List[str] = [
-    "Been riffing with other builders about {topic}, and this {focus} breakdown keeps delivering wins. Passing along the resource that shortcuts the work: {ref_link}",
-    "Every time {topic} comes up in my circles, I point people to this {focus} playbook. Saved me weeks of spinning wheels—see for yourself: {ref_link}",
-    "Your perspective on {topic} reminded me of the field notes we compiled on {focus}. I bundled everything up here if you want the cheat sheet: {ref_link}",
-    "I’m deep in {topic} experiments too, and the biggest unlock so far lives in this {focus} guide. Happy to share the exact link: {ref_link}",
-    "When clients ask how we tackle {topic}, I send them this {focus} walkthrough. It’s the clearest map we’ve found: {ref_link}",
-    "Loved the way you framed {topic}. Here’s the {focus} resource that helped our team ship faster last sprint: {ref_link}",
-    "I just helped a founder navigate {topic} yesterday using this {focus} toolkit. Figured you might vibe with it too: {ref_link}",
-    "Noticed you’re dialed into {topic}; this {focus} blueprint is what moved the needle for us last quarter. Dive in here: {ref_link}",
-    "My mastermind chat won’t stop talking about {topic}, and this {focus} case study is the reason why. Passing it along: {ref_link}",
-    "Whenever I audit a {topic} workflow, I start with the plays outlined in this {focus} memo. Here’s the link in case it helps: {ref_link}",
+    "Love this breakdown on {topic}! Always hunting for fresh automation wins.",
+    "This perspective on {focus} is 🔥 — saving it for the next build sprint.",
+    "Big nod to this thread about {topic}. Sharing it with my team tonight.",
+    "Appreciate the clarity on {focus}. Exactly the kind of insight that ships features.",
 ]
 
 
 DEFAULT_DM_TEMPLATES: List[str] = [
-    "Hey {name}! Loved how you framed {focus}. I’ve got a behind-the-scenes walkthrough with screenshots that might give you a head start—mind if I share the link? {ref_link}",
-    "Appreciate how deep you went on {focus}. I documented my own playbook after a bunch of trial and error. If you want it, here you go: {ref_link}",
-    "You sound serious about mastering {focus}. This is the exact toolkit I’m using with clients right now—thought you’d enjoy an early look: {ref_link}",
-    "Couldn’t help but notice your questions around {focus}. I recorded a mini breakdown for the team yesterday; happy to let you peek: {ref_link}",
-    "Your energy around {focus} is infectious. Sharing the resource that finally clicked for me, just in case it sparks something for you too: {ref_link}",
+    "Hey {name}! Your notes on {focus} were super helpful. Always down to trade playbooks.",
+    "Loved the depth you brought to {focus}. If you ever want to swap automations, I’m around.",
+    "Appreciate how you framed {focus}. Let me know if you want to riff on it further.",
+    "Your take on {focus} made my bookmarks. Happy to compare builds anytime.",
 ]
 
 
 ENV_DEFAULTS: Dict[str, str] = {
-    "SEARCH_TOPICS": "AI automation||growth hacking||product launches",
-    "USERNAME": "changeme@example.com",
-    "PASSWORD": "super-secret-password",
-    "REFERRAL_LINK": "https://example.com/my-referral",
+    "SEARCH_TOPICS": "AI automation||viral clips||creator tools",
     "REPLY_TEMPLATES": TEMPLATE_DELIMITER.join(DEFAULT_REPLY_TEMPLATES),
     "DM_TEMPLATES": TEMPLATE_DELIMITER.join(DEFAULT_DM_TEMPLATES),
-    "RELEVANT_KEYWORDS": "AI||automation||growth||launch||community||creator economy",
+    "RELEVANT_KEYWORDS": "AI||automation||growth||launch||creator economy",
     "SPAM_KEYWORDS": "giveaway||airdrop||pump||casino||xxx||nsfw",
     "ENABLE_DMS": "true",
     "MIN_TWEET_LENGTH": "60",
@@ -67,8 +57,6 @@ ENV_DEFAULTS: Dict[str, str] = {
     "REPL_IMAGE_MODEL": "",
     "REPL_IMAGE_VERSION": "",
     "REPL_IMAGE_INPUT": "",
-    "X_USERNAME": "<set-your-x-username>",
-    "X_PASSWORD": "<set-your-x-password>",
 }
 
 
