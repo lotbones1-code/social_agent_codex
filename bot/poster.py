@@ -77,13 +77,29 @@ class VideoPoster:
             return None
         if not self._open_composer():
             return None
-        try:
-            composer = self.page.locator("div[data-testid^='tweetTextarea_']").first
-            composer.click()
-            composer.fill(caption)
-        except PlaywrightError as exc:
-            self.logger.warning("Could not type caption: %s", exc)
+        composer_selectors = [
+            "div[data-testid='tweetTextarea_0'] div[contenteditable='true']",
+            "div[contenteditable='true'][data-testid='tweetTextarea_0']",
+            "div[contenteditable='true']",
+        ]
+        self.logger.info("Typing caption into composer…")
+        composer = None
+        last_error: Optional[Exception] = None
+        for selector in composer_selectors:
+            try:
+                candidate = self.page.locator(selector).first
+                candidate.wait_for(state="visible", timeout=15000)
+                candidate.click()
+                candidate.fill(caption)
+                composer = candidate
+                break
+            except PlaywrightError as exc:
+                last_error = exc
+                continue
+        if not composer:
+            self.logger.warning("Could not type caption: %s", last_error)
             return None
+        self.logger.info("Caption typed successfully.")
 
         self.logger.info("Uploading video to composer…")
         if not self._attach_video(video_path):
