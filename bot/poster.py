@@ -77,15 +77,31 @@ class VideoPoster:
             return False
 
     def _submit(self) -> bool:
-        try:
-            post_button = self.page.locator("div[data-testid='tweetButton']").first
-            post_button.wait_for(state="visible", timeout=15000)
-            post_button.click()
-            time.sleep(4)
-            return True
-        except PlaywrightError as exc:
-            self.logger.warning("Failed to submit the post: %s", exc)
-            return False
+        selectors = [
+            "button[data-testid='tweetButtonInline']",
+            "div[data-testid='tweetButtonInline']",
+            "button[data-testid='tweetButton']",
+            "div[data-testid='tweetButton']",
+        ]
+        for selector in selectors:
+            try:
+                post_button = self.page.locator(selector).first
+                post_button.wait_for(state="visible", timeout=15000)
+                try:
+                    post_button.wait_for(state="enabled", timeout=5000)
+                except PlaywrightError:
+                    pass
+                if hasattr(post_button, "is_disabled") and post_button.is_disabled():
+                    continue
+                post_button.click()
+                self.logger.info("Successfully clicked tweet post button.")
+                time.sleep(4)
+                return True
+            except PlaywrightError as exc:
+                self.logger.debug("Post button selector %s not clickable: %s", selector, exc)
+                continue
+        self.logger.warning("Failed to submit the post: no tweet button matched.")
+        return False
 
     def _latest_post_url(self) -> Optional[str]:
         try:
