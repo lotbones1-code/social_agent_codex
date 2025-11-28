@@ -18,7 +18,7 @@ class VideoPoster:
     def _open_composer(self) -> bool:
         try:
             self.logger.info("Opening composer page…")
-            self.page.goto("https://x.com/compose/post", wait_until="networkidle", timeout=60000)
+            self.page.goto("https://x.com/compose/post", wait_until="networkidle")
             self.page.wait_for_selector(
                 "div[data-testid='tweetTextarea_0'] div[contenteditable='true']",
                 timeout=15000,
@@ -29,19 +29,51 @@ class VideoPoster:
             return False
 
     def _attach_video(self, video_path: Path) -> bool:
+        """Attach video reliably across all 2025 X upload variants."""
         try:
-            upload_input = self.page.locator("input[type='file'][accept*='video']").first
-            upload_input.wait_for(state="attached", timeout=10000)
+            self.logger.info("Waiting for upload zone…")
+            # Ensure the upload zone renders
+            self.page.wait_for_selector("input[type='file']", timeout=20000)
+            
+            # Try new 2025 input selector first
+            candidates = [
+                "input[type='file'][accept*='video']",
+                "input[data-testid='fileInput']",
+                "//input[@type='file']",
+            ]
+            
+            upload_input = None
+            for selector in candidates:
+                try:
+                    el = self.page.locator(selector).first
+                    el.wait_for(state="attached", timeout=5000)
+                    upload_input = el
+                    break
+                except:
+                    continue
+
+            if upload_input is None:
+                self.logger.warning("Could not find any working file input.")
+                return False
+            
+            self.logger.info("Setting video file…")
             upload_input.set_input_files(str(video_path))
-            # Wait for upload progress to disappear (or not show up) within 45 seconds.
-            self.page.wait_for_selector("div[role='progressbar']", state="detached", timeout=45000)
-            self.page.wait_for_selector("div[data-testid='media-preview']", timeout=15000)
+
+            # Wait for upload progress to finish
+            self.logger.info("Waiting for upload to finish…")
+            try:
+                # Progressbar appears FIRST then disappears
+                self.page.wait_for_selector("div[role='progressbar']", timeout=15000)
+                self.page.wait_for_selector("div[role='progressbar']", state="detached", timeout=45000)
+            except:
+                pass  # X sometimes doesn’t show progressbar at all
+
+            # Confirm media preview attached
+            self.page.wait_for_selector("div[data-testid='media-preview']", timeout=30000)
             return True
-        except PlaywrightTimeout:
-            self.logger.warning("Video upload timed out for %s", video_path)
-            return False
+
         except PlaywrightError as exc:
-            self.logger.warning("Failed to attach video %s: %s", video_path, exc)
+            self.logger.warning(f"Upload failed: {exc}")
             return False
 
     def _submit(self) -> bool:
