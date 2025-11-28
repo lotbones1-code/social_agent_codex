@@ -80,26 +80,28 @@ class VideoPoster:
         selectors = [
             "button[data-testid='tweetButtonInline']",
             "div[data-testid='tweetButtonInline']",
-            "button[data-testid='tweetButton']",
-            "div[data-testid='tweetButton']",
+            "button[role='button'][data-testid='tweetButtonInline']",
+            "div[role='button'][data-testid='tweetButtonInline']",
         ]
-        for selector in selectors:
+
+        for sel in selectors:
             try:
-                post_button = self.page.locator(selector).first
-                post_button.wait_for(state="visible", timeout=15000)
-                try:
-                    post_button.wait_for(state="enabled", timeout=5000)
-                except PlaywrightError:
-                    pass
-                if hasattr(post_button, "is_disabled") and post_button.is_disabled():
-                    continue
-                post_button.click()
-                self.logger.info("Successfully clicked tweet post button.")
-                time.sleep(4)
-                return True
-            except PlaywrightError as exc:
-                self.logger.debug("Post button selector %s not clickable: %s", selector, exc)
+                btn = self.page.wait_for_selector(sel, timeout=8000)
+                if btn:
+                    btn.scroll_into_view_if_needed()
+                    self.page.wait_for_timeout(200)
+                    try:
+                        btn.click(force=True)
+                        self.logger.info("✔ Successfully clicked Post button via: " + sel)
+                        return True
+                    except:
+                        # Try JS click fallback
+                        self.page.evaluate("(el) => el.click()", btn)
+                        self.logger.info("✔ JS clicked Post button via: " + sel)
+                        return True
+            except:
                 continue
+
         self.logger.warning("Failed to submit the post: no tweet button matched.")
         return False
 
