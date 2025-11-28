@@ -66,7 +66,7 @@ if [ ! -f ".env" ]; then
 OPENAI_API_KEY=sk-your-openai-api-key-here
 HEADLESS=false
 DRY_RUN=true
-SEARCH_TOPICS=ai,automation,technology
+SEARCH_TOPICS=NFL,NBA,funny,viral,trending
 EOF
     fi
     echo ""
@@ -86,8 +86,10 @@ echo "=========================================="
 echo ""
 echo "Next steps:"
 echo "1. (Optional) Edit .env and add your OPENAI_API_KEY"
-echo "2. Start Chrome: ./start_chrome.sh"
-echo "3. Run the bot: ./start_bot.sh"
+echo "2. Run the bot: ./start_bot.sh"
 echo ""
-echo "Note: First run defaults to DRY_RUN=true (safe mode)"
+echo "Notes:"
+echo "• First run defaults to DRY_RUN=true (safe mode)"
+echo "• Chrome will launch automatically when you start the bot"
+echo "• You'll be prompted to log in to X on first run"
 echo ""
