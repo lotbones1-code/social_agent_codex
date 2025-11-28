@@ -20,7 +20,7 @@ class HybridDownloader:
         self.download_dir.mkdir(parents=True, exist_ok=True)
 
     def _try_premium_download(self, tweet_url: str, target_path: Path) -> bool:
-        """Try to download using Premium+ button."""
+        """Try to download using Premium+ button (click settings → Download video)."""
         try:
             self.logger.info("Trying Premium+ download button...")
 
@@ -34,36 +34,62 @@ class HybridDownloader:
                 self.logger.debug("No video player found")
                 return False
 
-            # Hover over video
+            # Hover over video to show controls
             video_player.hover()
             time.sleep(1)
 
-            # Try multiple download button selectors
-            download_selectors = [
-                "div[aria-label='Download']",
-                "button[aria-label='Download']",
-                "[data-testid='videoDownloadButton']",
-                "div[role='button']:has-text('Download')",
+            # Click the video settings menu (three dots icon)
+            settings_selectors = [
+                "div[data-testid='videoPlayer'] button[aria-label='More']",
+                "div[data-testid='videoPlayer'] div[aria-label='More']",
+                "button[aria-haspopup='menu']",
             ]
 
-            download_button = None
-            for selector in download_selectors:
+            settings_button = None
+            for selector in settings_selectors:
                 try:
                     btn = self.page.locator(selector).first
-                    if btn.is_visible(timeout=1000):
-                        download_button = btn
-                        self.logger.info(f"Found download button: {selector}")
+                    if btn.is_visible(timeout=2000):
+                        settings_button = btn
+                        self.logger.info(f"Found settings menu button")
                         break
                 except PlaywrightError:
                     continue
 
-            if not download_button:
-                self.logger.debug("Premium+ download button not found")
+            if not settings_button:
+                self.logger.debug("Video settings menu not found")
                 return False
 
-            # Click and download
+            # Click settings to open menu
+            settings_button.click()
+            time.sleep(1)
+
+            # Click "Download video" from the menu
+            download_menu_selectors = [
+                "div[role='menuitem']:has-text('Download video')",
+                "a[role='menuitem']:has-text('Download video')",
+                "[data-testid='downloadVideo']",
+                "div[role='menuitem'] span:has-text('Download')",
+            ]
+
+            download_menu_item = None
+            for selector in download_menu_selectors:
+                try:
+                    item = self.page.locator(selector).first
+                    if item.is_visible(timeout=2000):
+                        download_menu_item = item
+                        self.logger.info(f"Found 'Download video' menu item")
+                        break
+                except PlaywrightError:
+                    continue
+
+            if not download_menu_item:
+                self.logger.debug("'Download video' menu item not found - Premium+ may not be enabled")
+                return False
+
+            # Click download and wait for file
             with self.page.expect_download(timeout=30000) as download_info:
-                download_button.click()
+                download_menu_item.click()
 
             download: Download = download_info.value
             download.save_as(target_path)
@@ -79,15 +105,18 @@ class HybridDownloader:
             return False
 
     def _try_ytdlp_download(self, tweet_url: str, target_path: Path) -> bool:
-        """Try to download using yt-dlp."""
+        """Try to download using yt-dlp (highest quality)."""
         try:
-            self.logger.info("Trying yt-dlp download...")
+            self.logger.info("Trying yt-dlp download (highest quality)...")
 
             cmd = [
                 "yt-dlp",
                 "--no-playlist",
                 "--no-warnings",
-                "-f", "best[ext=mp4]/best",
+                # Download highest quality video+audio, merge if needed
+                "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+                # Merge into mp4
+                "--merge-output-format", "mp4",
                 "-o", str(target_path),
                 tweet_url
             ]
@@ -100,7 +129,7 @@ class HybridDownloader:
             )
 
             if result.returncode == 0 and target_path.exists():
-                self.logger.info(f"✅ yt-dlp download successful: {target_path}")
+                self.logger.info(f"✅ yt-dlp download successful (highest quality): {target_path}")
                 return True
             else:
                 self.logger.debug(f"yt-dlp failed: {result.stderr}")
