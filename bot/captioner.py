@@ -117,25 +117,29 @@ def strip_mentions_and_credits(text: str) -> str:
 
     # Remove common source attribution patterns (case-insensitive)
     patterns = [
-        r"\bvia\s+[^\n#]+",           # "via SomeAccount" or "via @user"
+        r"📹\s*via\s+[^\n#]+",        # "📹 via ..."
+        r"\bvia\s+[^\n#]+",           # "via SomeAccount"
+        r"\bsourced\s+via\s+[^\n#]+", # "Sourced via ..."
         r"\bcredit\s+to\s+[^\n#]+",   # "credit to SomeAccount"
         r"\bcredits?\s*:\s*[^\n#]+",  # "credit:" or "credits:"
         r"\bsource\s*:\s*[^\n#]+",    # "source: something"
-        r"\bfrom\s+@?\w+",             # "from @user" or "from Account"
-        r"\bby\s+@?\w+",               # "by @user" or "by Account"
-        r"\bh/?t\s+@?\w+",             # "h/t @user" (hat tip)
-        r"\bshoutout\s+to\s+[^\n#]+", # "shoutout to @user"
-        r"\bfollow\s+@?\w+",           # "follow @user"
+        r"\bfrom\s+@?\w+",            # "from @user"
+        r"\bby\s+@?\w+",              # "by @user"
+        r"\bh/?t\s+@?\w+",            # "h/t @user"
+        r"\bshoutout\s+to\s+[^\n#]+", # "shoutout to"
+        r"\bfollow\s+@?\w+",          # "follow @user"
+        r"—\s*[^\n#]+$",              # "— anything at end"
     ]
 
     for pattern in patterns:
         text = re.sub(pattern, "", text, flags=re.IGNORECASE)
 
-    # Remove orphaned punctuation left behind
-    text = re.sub(r"\s*[,;:]\s*$", "", text)  # Trailing commas/semicolons
-    text = re.sub(r"^\s*[,;:]\s*", "", text)  # Leading commas/semicolons
-    text = re.sub(r"\.{2,}", ".", text)        # Multiple dots
-    text = re.sub(r"\s*-\s*$", "", text)       # Trailing dashes
+    # Remove orphaned punctuation
+    text = re.sub(r"\s*[,;:]\s*$", "", text)
+    text = re.sub(r"^\s*[,;:]\s*", "", text)
+    text = re.sub(r"\.{2,}", ".", text)
+    text = re.sub(r"\s*-\s*$", "", text)
+    text = re.sub(r"\s*—\s*$", "", text)
 
     # Clean excessive whitespace
     text = " ".join(text.split())

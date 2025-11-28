@@ -113,47 +113,47 @@ class VideoPoster:
 
         selectors = [
             "button[data-testid='tweetButtonInline']",
-            "div[data-testid='tweetButtonInline']",
-            "button[role='button'][data-testid='tweetButtonInline']",
-            "div[role='button'][data-testid='tweetButtonInline']",
+            "div[data-testid='tweetButton'] button",
+            "[data-testid='tweetButtonInline']",
         ]
 
         for idx, sel in enumerate(selectors, 1):
             try:
                 self.logger.debug("Trying selector %d/%d: %s", idx, len(selectors), sel)
-                btn = self.page.wait_for_selector(sel, timeout=8000)
+                btn = self.page.wait_for_selector(sel, timeout=10000, state="visible")
                 if btn:
-                    # Ensure button is visible and enabled
-                    if btn.is_disabled():
-                        self.logger.debug("Button is disabled, skipping")
+                    # Wait for button to be enabled
+                    try:
+                        self.page.wait_for_selector(f"{sel}:not([disabled])", timeout=5000)
+                    except PlaywrightTimeout:
+                        self.logger.debug("Button still disabled, skipping")
                         continue
 
                     btn.scroll_into_view_if_needed()
-                    self.page.wait_for_timeout(300)
+                    self.page.wait_for_timeout(500)
 
-                    # Try normal click first
+                    # Try click
                     try:
-                        btn.click(timeout=3000)
-                        self.logger.info("✅ Successfully clicked Post button via selector: %s", sel)
-                        time.sleep(2)  # Brief wait for post to process
+                        btn.click(timeout=5000)
+                        self.logger.info("✅ Clicked Post button via: %s", sel)
+                        # Wait for navigation or success indicator
+                        try:
+                            self.page.wait_for_url("**/home", timeout=10000)
+                        except PlaywrightTimeout:
+                            pass
+                        time.sleep(3)
                         return True
                     except PlaywrightError:
-                        # Try force click
-                        try:
-                            btn.click(force=True, timeout=3000)
-                            self.logger.info("✅ Successfully force-clicked Post button via selector: %s", sel)
-                            time.sleep(2)
-                            return True
-                        except PlaywrightError:
-                            # Try JS click fallback
-                            self.page.evaluate("(el) => el.click()", btn)
-                            self.logger.info("✅ Successfully JS-clicked Post button via selector: %s", sel)
-                            time.sleep(2)
-                            return True
-            except PlaywrightError:
+                        # Try JS click
+                        self.page.evaluate("(el) => el.click()", btn)
+                        self.logger.info("✅ JS-clicked Post button via: %s", sel)
+                        time.sleep(3)
+                        return True
+            except PlaywrightError as e:
+                self.logger.debug("Selector %s failed: %s", sel, e)
                 continue
 
-        self.logger.error("❌ Failed to submit the post: no tweet button matched after trying all strategies")
+        self.logger.error("❌ Failed to click Post button")
         return False
 
     def _latest_post_url(self) -> Optional[str]:
