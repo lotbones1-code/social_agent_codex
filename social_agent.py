@@ -17,6 +17,7 @@ from bot.growth import GrowthActions
 from bot.poster import VideoPoster
 from bot.scheduler import Scheduler
 from bot.scraper import ScrapedPost, VideoScraper
+from bot.trending import TrendingTopics
 
 
 def _shorten(text: str, *, max_len: int = 140) -> str:
@@ -97,15 +98,36 @@ def run_bot() -> None:
                 return
             poster = VideoPoster(session.page, logger)
             scraper = VideoScraper(session.page, logger)
-            downloader = VideoDownloader(config.download_dir, logger)
-            captioner = CaptionGenerator(config.caption_template)
+            downloader = VideoDownloader(
+                config.download_dir,
+                logger,
+                user_agent=config.download_user_agent,
+            )
+            try:
+                downloader.set_cookies(session.context.cookies())
+            except Exception:
+                logger.debug("Could not inject cookies into downloader; continuing without Premium headers")
+            captioner = CaptionGenerator(
+                config.caption_template,
+                openai_api_key=config.openai_api_key,
+                model=config.gpt_caption_model,
+            )
             growth = GrowthActions(poster, logger)
             auto_reply = AutoReplyEngine(
                 session.page, logger, config.auto_reply_template
             )
+            trending = TrendingTopics(
+                session.page,
+                logger,
+                refresh_minutes=config.trending_refresh_minutes,
+                max_topics=config.trending_max_topics,
+            )
 
             try:
-                for topic in config.search_topics:
+                topics = list(dict.fromkeys(config.search_topics))
+                if config.trending_enabled:
+                    topics.extend([t for t in trending.fetch() if t not in topics])
+                for topic in topics:
                     handle_topic(
                         topic,
                         scraper,
