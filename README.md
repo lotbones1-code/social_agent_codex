@@ -55,6 +55,12 @@ run-bot
    RUN=1 bash ./run.sh
    ```
 
+### Premium+/trending boosts
+
+- Set `TRENDING_ENABLED=1` to scrape the X Trending tab (available to Premium+ accounts) and automatically fold the hottest topics into each cycle. Tune with `TRENDING_MAX_TOPICS` and `TRENDING_REFRESH_MINUTES`.
+- Provide your `OPENAI_API_KEY` (and optionally `GPT_CAPTION_MODEL`, defaults to `gpt-4o-mini`) to have captions crafted by ChatGPT with hashtag-rich copy.
+- If downloads ever fail because of user-agent filtering, set `DOWNLOAD_USER_AGENT` to the same UA your Premium+ browser uses; cookies from the authenticated Playwright session are injected automatically to unlock high-quality video streams.
+
 ## Login flow
 
 **First run (saves your session):**

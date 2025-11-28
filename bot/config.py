@@ -23,6 +23,12 @@ class AgentConfig:
     growth_actions_per_cycle: int = 3
     auto_replies_per_cycle: int = 2
     auto_reply_template: str = "Thanks for the mention, {author}! 🚀"
+    trending_enabled: bool = True
+    trending_max_topics: int = 6
+    trending_refresh_minutes: int = 45
+    openai_api_key: str | None = None
+    gpt_caption_model: str = "gpt-4o-mini"
+    download_user_agent: str | None = None
     action_delay_min: int = 6
     action_delay_max: int = 16
     loop_delay_seconds: int = 300
@@ -79,6 +85,16 @@ def load_config() -> AgentConfig:
     cfg.auto_replies_per_cycle = int(
         os.getenv("AUTO_REPLIES_PER_CYCLE", cfg.auto_replies_per_cycle)
     )
+    cfg.trending_enabled = _parse_bool(os.getenv("TRENDING_ENABLED"), cfg.trending_enabled)
+    cfg.trending_max_topics = int(
+        os.getenv("TRENDING_MAX_TOPICS", cfg.trending_max_topics)
+    )
+    cfg.trending_refresh_minutes = int(
+        os.getenv("TRENDING_REFRESH_MINUTES", cfg.trending_refresh_minutes)
+    )
+    cfg.openai_api_key = os.getenv("OPENAI_API_KEY") or None
+    cfg.gpt_caption_model = os.getenv("GPT_CAPTION_MODEL", cfg.gpt_caption_model)
+    cfg.download_user_agent = os.getenv("DOWNLOAD_USER_AGENT") or None
     cfg.action_delay_min = int(os.getenv("ACTION_DELAY_MIN", cfg.action_delay_min))
     cfg.action_delay_max = int(os.getenv("ACTION_DELAY_MAX", cfg.action_delay_max))
     cfg.loop_delay_seconds = int(os.getenv("LOOP_DELAY_SECONDS", cfg.loop_delay_seconds))
