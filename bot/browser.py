@@ -106,9 +106,7 @@ class BrowserManager:
             self.logger.info("Restoring login session from %s", storage_state)
 
         try:
-            return chromium.launch_persistent_context(
-                **launch_kwargs, storage_state=storage_state
-            )
+            return chromium.launch_persistent_context(**launch_kwargs)
         except PlaywrightError as exc:
             self.logger.error("Unable to launch persistent context: %s", exc)
             return None
