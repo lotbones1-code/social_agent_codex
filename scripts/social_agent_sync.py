@@ -206,13 +206,13 @@ def run_social_agent() -> None:  # pragma: no cover - relies on external browser
     try:
         with sync_playwright() as playwright:
             first_run = not AUTH_STATE_PATH.exists()
-            headless = not first_run
 
-            browser = playwright.chromium.launch(headless=headless, args=["--start-maximized"])
-            if first_run:
-                context = browser.new_context()
-            else:
-                context = browser.new_context(storage_state=str(AUTH_STATE_PATH))
+            browser = playwright.chromium.connect_over_cdp("http://localhost:9222")
+            try:
+                context = browser.contexts[0]
+            except IndexError:
+                logging.error("No browser contexts available from the connected Chrome instance.")
+                return
             page = context.new_page()
 
             if first_run:
