@@ -126,6 +126,11 @@ def handle_topic(
 
 
 def run_bot() -> None:
+    # Pre-flight checks
+    print("=" * 70)
+    print("🤖 X Influencer Bot")
+    print("=" * 70)
+
     config = load_config()
 
     logging.basicConfig(
@@ -133,6 +138,20 @@ def run_bot() -> None:
         format="[%(asctime)s] [%(levelname)s] %(message)s",
     )
     logger = logging.getLogger("social_agent")
+
+    # Check for OpenAI API key
+    if not config.openai_api_key or config.openai_api_key == "sk-your-openai-api-key-here":
+        logger.warning("⚠️  OpenAI API key not configured - using simple caption templates")
+        logger.warning("   To enable AI captions, add OPENAI_API_KEY to your .env file")
+    else:
+        logger.info("✓ OpenAI API key configured - AI captions enabled")
+
+    if config.dry_run:
+        logger.warning("🔍 DRY-RUN MODE - Posts will NOT be submitted to X")
+
+    logger.info("✓ Configuration loaded successfully")
+    print("=" * 70)
+    print("")
 
     scheduler = Scheduler(config)
 
