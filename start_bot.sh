@@ -1,8 +1,6 @@
 #!/bin/bash
 # Start the X Influencer Bot with pre-flight checks
 
-set -e
-
 echo "=========================================="
 echo "🤖 X Influencer Bot - Starting"
 echo "=========================================="
@@ -25,26 +23,43 @@ if [ ! -f ".env" ]; then
     echo ""
 fi
 
-# Check if Chrome is running on port 9222
+# Check if Chrome is running on port 9222 (simplified check)
 echo "🔍 Checking if Chrome is running on port 9222..."
-if ! lsof -i:9222 >/dev/null 2>&1 && ! netstat -an 2>/dev/null | grep -q ":9222.*LISTEN"; then
-    echo "❌ Chrome is not running with remote debugging!"
+CHECK_CHROME=false
+if command -v lsof &> /dev/null; then
+    lsof -i:9222 >/dev/null 2>&1 && CHECK_CHROME=true
+elif command -v netstat &> /dev/null; then
+    netstat -an 2>/dev/null | grep -q ":9222.*LISTEN" && CHECK_CHROME=true
+elif command -v ss &> /dev/null; then
+    ss -ln 2>/dev/null | grep -q ":9222" && CHECK_CHROME=true
+else
+    # If no port checking tool, try to connect
+    (echo > /dev/tcp/localhost/9222) >/dev/null 2>&1 && CHECK_CHROME=true
+fi
+
+if [ "$CHECK_CHROME" = false ]; then
+    echo "⚠️  Warning: Could not detect Chrome on port 9222"
+    echo "   If Chrome is not running, the bot will fail to connect."
     echo ""
-    echo "Please start Chrome first:"
+    echo "Start Chrome with:"
     echo "   ./start_chrome.sh"
     echo ""
-    echo "Or manually:"
+    echo "Or manually (Mac/Linux):"
     echo "   google-chrome --remote-debugging-port=9222 --user-data-dir=\$HOME/.real_x_profile"
     echo ""
-    exit 1
+    read -p "Continue anyway? (y/N): " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        exit 1
+    fi
+else
+    echo "✓ Chrome appears to be running on port 9222"
 fi
-echo "✓ Chrome is running on port 9222"
 
 # Check for OPENAI_API_KEY
 if grep -q "sk-your-openai-api-key-here" .env 2>/dev/null; then
     echo "⚠️  OpenAI API key not set in .env"
-    echo "   The bot will use simple caption templates instead of AI-generated captions."
-    echo "   To enable AI captions, edit .env and add your OpenAI API key."
+    echo "   The bot will use simple caption templates."
     echo ""
 fi
 
