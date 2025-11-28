@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import random
+import re
 from dataclasses import dataclass
 from typing import Optional
 
@@ -59,7 +60,9 @@ class CaptionGenerator:
             "Write a concise, hype caption (260 chars max) for a video. Include 2-3 hashtags "
             "that match the topic and hook viewers. Keep it punchy and avoid emojis unless they add impact. "
             "Do NOT tag, credit, or mention any accounts or usernames in the caption. "
-            "DO NOT mention or tag any accounts. DO NOT include 'via', '@', credits, or source references.\n\n"
+            "DO NOT mention or tag any accounts. DO NOT include 'via', '@', credits, or source references. "
+            "DO NOT mention or tag any accounts. DO NOT include source names, credits, or anything like 'via', '@', or 'credit to'. "
+            "ONLY output the caption + hashtags.\n\n"
             f"Topic: {context.topic}\n"
             f"Video summary: {context.summary}\n"
             f"Original author: {context.author}\n"
@@ -91,7 +94,7 @@ class CaptionGenerator:
     @staticmethod
     def _sanitize_caption(caption: str) -> str:
         """Remove any @mentions and normalize whitespace."""
-        caption = strip_mentions(caption)
+        caption = strip_mentions_and_credits(caption)
         normalized = re.sub(r"\s+", " ", caption).strip()
         return normalized
 
@@ -99,15 +102,14 @@ class CaptionGenerator:
 __all__ = ["CaptionGenerator", "VideoContext"]
 
 
-import re
-
-
-def strip_mentions(text: str) -> str:
-    # Remove all @handles (AI sometimes adds them)
+def strip_mentions_and_credits(text: str) -> str:
+    # Remove @handles
     text = re.sub(r"@\w+", "", text)
-    # Remove 'via <name>' patterns
-    text = re.sub(r"via\s+\w+", "", text, flags=re.IGNORECASE)
-    # Remove 'credit to <name>' patterns
-    text = re.sub(r"credit\s+to\s+\w+", "", text, flags=re.IGNORECASE)
-    # Normalize whitespace
+    # Remove 'via <words>'
+    text = re.sub(r"via [A-Za-z0-9_ ]+", "", text, flags=re.IGNORECASE)
+    # Remove 'credit to <words>'
+    text = re.sub(r"credit to [A-Za-z0-9_ ]+", "", text, flags=re.IGNORECASE)
+    # Remove trailing dots after removal
+    text = re.sub(r"\.+$", "", text)
+    # Clean whitespace
     return " ".join(text.split())
