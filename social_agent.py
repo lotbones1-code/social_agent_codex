@@ -56,8 +56,10 @@ def handle_topic(
         slug = _slug_from_url(post.url)
         # Try direct video URL first, fall back to tweet URL
         download_url = post.video_url if post.video_url else post.url
+        logger.info("Attempting to download from: %s", download_url)
         downloaded = downloader.download(download_url, filename_hint=slug)
         if not downloaded:
+            logger.warning("Download failed for %s, skipping this video", post.url)
             continue
         context = VideoContext(
             author=post.author,
