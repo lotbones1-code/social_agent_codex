@@ -35,11 +35,30 @@ class VideoPoster:
                 self.logger.info("✓ Clicked Post button")
                 time.sleep(1)
 
-                # Step 3: Wait for composer to appear
+                # Step 3: Wait for composer to appear with robust OR-selectors
                 self.logger.info("Step 3/3: Waiting for composer to appear...")
-                composer_selector = "div[data-testid='tweetTextarea_0'] div[contenteditable='true']"
-                self.page.wait_for_selector(composer_selector, timeout=15000, state="visible")
-                self.logger.info("✓ Composer appeared successfully")
+                composer_selectors = [
+                    "div[contenteditable='true'][data-testid='tweetTextarea_0']",
+                    "div[contenteditable='true'][data-testid='tweetTextarea_1']",
+                    "div[data-testid='tweetTextarea_0'] div[contenteditable='true']",
+                    "div[data-testid='tweetTextarea_1'] div[contenteditable='true']",
+                    "div[role='textbox']",
+                ]
+
+                composer_found = False
+                for selector in composer_selectors:
+                    try:
+                        self.logger.debug("Trying composer selector: %s", selector)
+                        self.page.wait_for_selector(selector, timeout=5000, state="visible")
+                        self.logger.info("✓ Composer appeared: %s", selector)
+                        composer_found = True
+                        break
+                    except PlaywrightError:
+                        continue
+
+                if not composer_found:
+                    raise PlaywrightError("No composer selector matched")
+
                 return True
 
             except PlaywrightError as exc:
@@ -209,15 +228,16 @@ class VideoPoster:
 
         if not self._open_composer():
             return None
-        # Step 4: Type caption into composer
+        # Step 4: Type caption into composer with robust OR-selectors
         self.logger.info("Step 4: Typing caption into composer...")
         try:
-            # Composer detection with fallback selectors
+            # Robust composer detection with fallback selectors
             composer_selectors = [
+                "div[contenteditable='true'][data-testid='tweetTextarea_0']",
+                "div[contenteditable='true'][data-testid='tweetTextarea_1']",
                 "div[data-testid='tweetTextarea_0'] div[contenteditable='true']",
-                "div[data-testid='tweetTextarea_0']",
+                "div[data-testid='tweetTextarea_1'] div[contenteditable='true']",
                 "div[role='textbox']",
-                "textarea",
             ]
 
             composer_box = None
@@ -226,9 +246,9 @@ class VideoPoster:
                     self.logger.debug("Trying composer selector: %s", sel)
                     self.page.wait_for_selector(sel, timeout=5000, state="visible")
                     composer_box = self.page.locator(sel)
-                    self.logger.info("✓ Found composer: %s", sel)
+                    self.logger.info("✓ Found composer for typing: %s", sel)
                     break
-                except:
+                except PlaywrightError:
                     continue
 
             if not composer_box:
