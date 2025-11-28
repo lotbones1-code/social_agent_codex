@@ -18,7 +18,7 @@ influencer:
 
   # Caption generation
   language: "english"
-  caption_style: "hype_short"  # Options: hype_short, storytelling, educational
+  caption_style: "hype_short"  # Options: hype_short, storytelling, educational, meme, curiosity
 
   # Engagement options
   reply_to_big_accounts: false  # Start with false for safety
