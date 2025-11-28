@@ -15,22 +15,27 @@ class VideoPoster:
         self.page = page
         self.logger = logger
 
-    def _open_composer(self) -> bool:
-        selectors = [
-            "a[aria-label='Post']",
-            "div[data-testid='SideNav_NewTweet_Button']",
-            "a[href='/compose/post']",
-        ]
-        for selector in selectors:
-            try:
-                button = self.page.locator(selector)
-                if button.is_visible(timeout=3000):
-                    button.click()
-                    return True
-            except PlaywrightError:
-                continue
-        self.logger.warning("Could not locate the composer button.")
-        return False
+    def _open_composer(self) -> Optional[Page]:
+        """
+        Open composer in a new tab (more reliable than clicking button).
+        Returns the new page with composer, or None if failed.
+        """
+        try:
+            self.logger.info("Opening composer in new tab...")
+            context = self.page.context
+            composer_page = context.new_page()
+            composer_page.goto("https://x.com/compose/post", wait_until="domcontentloaded", timeout=60000)
+
+            # Wait for the textarea to be ready
+            composer_page.wait_for_selector(
+                "div[data-testid='tweetTextarea_0'] div[contenteditable='true']",
+                timeout=20000
+            )
+            self.logger.info("Composer page ready")
+            return composer_page
+        except Exception as exc:
+            self.logger.warning(f"Could not open composer: {exc}")
+            return None
 
     def _attach_video(self, video_path: Path) -> bool:
         try:
@@ -60,34 +65,61 @@ class VideoPoster:
             return False
 
     def post_video(self, caption: str, video_path: Path) -> bool:
+        """Post a video with caption to X."""
         if not video_path.exists():
             self.logger.warning("Video %s does not exist.", video_path)
             return False
-        if not self._open_composer():
-            return False
 
-        # Wait for composer to open
-        time.sleep(2)
+        # Open composer in new tab
+        composer_page = self._open_composer()
+        if not composer_page:
+            return False
 
         try:
-            # Find the actual editable div (contenteditable)
-            composer = self.page.locator("div[contenteditable='true'][data-testid='tweetTextarea_0']").first
+            # Type caption
+            self.logger.info("Typing caption...")
+            composer = composer_page.locator("div[data-testid='tweetTextarea_0'] div[contenteditable='true']").first
             composer.click()
             time.sleep(0.5)
-            # Use keyboard to type since it's contenteditable
             composer.type(caption, delay=50)
             time.sleep(0.5)
-        except PlaywrightError as exc:
-            self.logger.warning("Could not type caption: %s", exc)
-            return False
+            self.logger.info("Caption typed successfully")
 
-        if not self._attach_video(video_path):
-            return False
+            # Upload video
+            self.logger.info("Uploading video: %s", video_path)
+            upload_input = composer_page.locator("input[data-testid='fileInput']").first
+            upload_input.set_input_files(str(video_path))
 
-        submitted = self._submit()
-        if submitted:
-            self.logger.info("Post with video %s published successfully.", video_path)
-        return submitted
+            # Wait for upload with progress tracking
+            time.sleep(3)
+            try:
+                composer_page.wait_for_selector("div[data-testid='media-preview']", timeout=90000)
+                self.logger.info("Video uploaded successfully")
+                time.sleep(2)  # Let it process
+            except PlaywrightTimeout:
+                self.logger.warning("Video upload timed out")
+                composer_page.close()
+                return False
+
+            # Submit the post
+            self.logger.info("Submitting post...")
+            post_button = composer_page.locator("div[data-testid='tweetButton']").first
+            post_button.click()
+            time.sleep(5)  # Wait for post to go through
+
+            self.logger.info("Post with video %s published successfully!", video_path)
+
+            # Close composer tab
+            composer_page.close()
+            return True
+
+        except Exception as exc:
+            self.logger.warning("Failed to post video: %s", exc)
+            try:
+                composer_page.close()
+            except:
+                pass
+            return False
 
     def repost(self, post_url: str) -> bool:
         try:

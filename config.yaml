@@ -1,0 +1,57 @@
+# Influencer Bot Configuration
+
+influencer:
+  enabled: true
+  daily_post_min: 4
+  daily_post_max: 7
+  cycles_per_day: 10
+
+  # Topics to search for viral content
+  topics:
+    - sports
+    - fails
+    - funny
+    - wtf
+    - breaking news
+    - celebrity
+    - amazing
+
+  # Caption generation
+  language: "english"
+  caption_style: "hype_short"  # Options: hype_short, storytelling, educational
+
+  # Engagement options
+  reply_to_big_accounts: false  # Start with false for safety
+  retweet_after_post: true
+  like_source_tweets: true
+
+  # Big accounts to potentially engage with (when reply_to_big_accounts is true)
+  big_accounts:
+    - elonmusk
+    - mrbeast
+    - andrewtate
+
+# Browser settings
+browser:
+  use_cdp: true  # Connect to real Chrome via CDP
+  cdp_url: "http://localhost:9222"
+  headless: false
+
+# Download settings
+download:
+  dir: "downloads"
+  cleanup_after_post: false  # Keep videos for now
+
+# Safety & rate limiting
+safety:
+  action_delay_min: 3
+  action_delay_max: 8
+  cycle_delay_seconds: 600  # 10 minutes between cycles
+  max_daily_posts: 7
+  post_tracking_file: "logs/daily_posts.json"
+
+# OpenAI settings (API key from env)
+openai:
+  model: "gpt-4o-mini"
+  max_tokens: 100
+  temperature: 0.9
