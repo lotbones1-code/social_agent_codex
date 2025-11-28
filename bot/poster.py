@@ -54,27 +54,51 @@ class VideoPoster:
             self.logger.warning("Failed to submit the post: %s", exc)
             return False
 
-    def post_video(self, caption: str, video_path: Path) -> bool:
+    def _latest_post_url(self) -> Optional[str]:
+        try:
+            profile = self.page.locator("a[aria-label='Profile']").first
+            profile_href = profile.get_attribute("href")
+            if not profile_href:
+                return None
+            profile_url = profile_href if profile_href.startswith("http") else f"https://x.com{profile_href}"
+            self.page.goto(profile_url, wait_until="domcontentloaded", timeout=60000)
+            self.page.wait_for_timeout(2000)
+            status_link = self.page.locator("article[data-testid='tweet'] a[href*='/status/']").first
+            href = status_link.get_attribute("href")
+            if href:
+                return href if href.startswith("http") else f"https://x.com{href}"
+        except PlaywrightError:
+            return None
+        return None
+
+    def post_video(self, caption: str, video_path: Path) -> Optional[str]:
         if not video_path.exists():
             self.logger.warning("Video %s does not exist.", video_path)
-            return False
+            return None
         if not self._open_composer():
-            return False
+            return None
         try:
             composer = self.page.locator("div[data-testid^='tweetTextarea_']").first
             composer.click()
             composer.fill(caption)
         except PlaywrightError as exc:
             self.logger.warning("Could not type caption: %s", exc)
-            return False
+            return None
 
+        self.logger.info("Uploading video to composer…")
         if not self._attach_video(video_path):
-            return False
+            return None
 
         submitted = self._submit()
-        if submitted:
+        if not submitted:
+            return None
+
+        posted_url = self._latest_post_url()
+        if posted_url:
+            self.logger.info("Posted influencer tweet successfully: %s", posted_url)
+        else:
             self.logger.info("Post with video %s published successfully.", video_path)
-        return submitted
+        return posted_url
 
     def repost(self, post_url: str) -> bool:
         try:

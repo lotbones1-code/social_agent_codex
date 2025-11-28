@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import random
-from typing import List
+from typing import List, Optional
 
 from playwright.sync_api import sync_playwright
 
@@ -34,6 +34,37 @@ def _slug_from_url(url: str) -> str:
     return slug.replace("?", "-").replace("#", "-")
 
 
+def _repost_video(
+    post: ScrapedPost,
+    topic: str,
+    downloader: VideoDownloader,
+    poster: VideoPoster,
+    captioner: CaptionGenerator,
+    logger: logging.Logger,
+    scheduler: Scheduler,
+) -> Optional[str]:
+    slug = _slug_from_url(post.url)
+    video_path = downloader.download(
+        tweet_url=post.url, video_url=post.video_url, filename_hint=slug
+    )
+    if not video_path:
+        logger.warning("Skipping candidate because download failed: %s", post.url)
+        return None
+
+    context = VideoContext(
+        author=post.author,
+        summary=_shorten(post.text, max_len=200),
+        topic=topic,
+        url=post.url,
+    )
+    caption = captioner.generate(context)
+    logger.info("Generated caption: %s", caption)
+
+    posted_url = poster.post_video(caption, video_path)
+    scheduler.between_actions()
+    return posted_url
+
+
 def handle_topic(
     topic: str,
     scraper: VideoScraper,
@@ -44,37 +75,38 @@ def handle_topic(
     growth: GrowthActions,
     config: AgentConfig,
     logger: logging.Logger,
-) -> None:
+    posts_remaining: Optional[int],
+) -> int:
     posts = scraper.search_topic(topic)
     if not posts:
         logger.info("No video posts surfaced for '%s'", topic)
-        return
+        return 0
 
     repost_candidates: List[ScrapedPost] = []
+    posted_count = 0
     for post in posts:
         if len(repost_candidates) >= config.max_videos_per_topic:
             break
-        if not post.video_url:
-            continue
-        slug = _slug_from_url(post.url)
-        downloaded = downloader.download(post.video_url, filename_hint=slug)
-        if not downloaded:
-            continue
-        context = VideoContext(
-            author=post.author,
-            summary=_shorten(post.text, max_len=200),
-            topic=topic,
-            url=post.url,
+        if posts_remaining is not None and posted_count >= posts_remaining:
+            logger.info(
+                "Post limit reached for this cycle (%s); skipping remaining candidates for '%s'",
+                posts_remaining,
+                topic,
+            )
+            break
+
+        posted_url = _repost_video(
+            post, topic, downloader, poster, captioner, logger, scheduler
         )
-        caption = captioner.generate(context)
-        if poster.post_video(caption, downloaded):
+        if posted_url:
             repost_candidates.append(post)
-        scheduler.between_actions()
+            posted_count += 1
 
     if repost_candidates:
         growth.engage(repost_candidates, max_actions=config.growth_actions_per_cycle)
     else:
         logger.info("No successful reposts to engage with for '%s'", topic)
+    return posted_count
 
 
 def run_bot() -> None:
@@ -127,8 +159,23 @@ def run_bot() -> None:
                 topics = list(dict.fromkeys(config.search_topics))
                 if config.trending_enabled:
                     topics.extend([t for t in trending.fetch() if t not in topics])
+                total_posted = 0
+                per_cycle_cap = (
+                    config.max_posts_per_cycle if config.strict_mode else None
+                )
+
                 for topic in topics:
-                    handle_topic(
+                    remaining = None
+                    if per_cycle_cap is not None:
+                        remaining = max(per_cycle_cap - total_posted, 0)
+                        if remaining == 0:
+                            logger.info(
+                                "Per-cycle post cap of %d reached; skipping remaining topics.",
+                                per_cycle_cap,
+                            )
+                            break
+
+                    posted = handle_topic(
                         topic,
                         scraper,
                         downloader,
@@ -138,7 +185,9 @@ def run_bot() -> None:
                         growth,
                         config,
                         logger,
+                        remaining,
                     )
+                    total_posted += posted
             finally:
                 session.close()
             auto_reply.reply_to_latest(

@@ -72,6 +72,12 @@ run-bot
 - Provide your `OPENAI_API_KEY` (and optionally `GPT_CAPTION_MODEL`, defaults to `gpt-4o-mini`) to have captions crafted by ChatGPT with hashtag-rich copy.
 - If downloads ever fail because of user-agent filtering, set `DOWNLOAD_USER_AGENT` to the same UA your Premium+ browser uses; cookies from the authenticated Playwright session are injected automatically to unlock high-quality video streams.
 
+### Influencer repost flow
+
+- The influencer loop now runs a full **download → caption → upload → post** pipeline for each scraped video tweet. Every stage logs debug breadcrumbs (`Downloading video: …`, `Saved video to: …`, `Generated caption: …`, `Uploading video to composer…`, `Posted influencer tweet successfully: …`) so you can confirm progress in headless runs.
+- To keep cycles safe, strict mode enforces a cap of **`MAX_POSTS_PER_CYCLE` (default 2)** per full loop. Set `STRICT_MODE=0` to lift this guardrail for burn-in/testing runs.
+- Configure per-topic scraping with `MAX_VIDEOS_PER_TOPIC` and tweak caption quality with `OPENAI_API_KEY`/`GPT_CAPTION_MODEL`.
+
 ## Login flow
 
 **First run (saves your session):**
