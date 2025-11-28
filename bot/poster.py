@@ -111,50 +111,30 @@ class VideoPoster:
         """Try multiple strategies to click the Post button."""
         self.logger.info("🚀 Attempting to submit post...")
 
-        selectors = [
+        # FIX #2: Post button detection with fallback selectors
+        post_button_selectors = [
             "button[data-testid='tweetButtonInline']",
-            "div[data-testid='tweetButton'] button",
-            "[data-testid='tweetButtonInline']",
+            "button[data-testid='tweetButton']",
+            "div[data-testid='tweetButtonInline']",
+            "div[data-testid='tweetButton']",
         ]
 
-        for idx, sel in enumerate(selectors, 1):
+        post_button = None
+        for sel in post_button_selectors:
             try:
-                self.logger.debug("Trying selector %d/%d: %s", idx, len(selectors), sel)
-                btn = self.page.wait_for_selector(sel, timeout=10000, state="visible")
-                if btn:
-                    # Wait for button to be enabled
-                    try:
-                        self.page.wait_for_selector(f"{sel}:not([disabled])", timeout=5000)
-                    except PlaywrightTimeout:
-                        self.logger.debug("Button still disabled, skipping")
-                        continue
-
-                    btn.scroll_into_view_if_needed()
-                    self.page.wait_for_timeout(500)
-
-                    # Try click
-                    try:
-                        btn.click(timeout=5000)
-                        self.logger.info("✅ Clicked Post button via: %s", sel)
-                        # Wait for navigation or success indicator
-                        try:
-                            self.page.wait_for_url("**/home", timeout=10000)
-                        except PlaywrightTimeout:
-                            pass
-                        time.sleep(3)
-                        return True
-                    except PlaywrightError:
-                        # Try JS click
-                        self.page.evaluate("(el) => el.click()", btn)
-                        self.logger.info("✅ JS-clicked Post button via: %s", sel)
-                        time.sleep(3)
-                        return True
-            except PlaywrightError as e:
-                self.logger.debug("Selector %s failed: %s", sel, e)
+                self.page.wait_for_selector(sel, timeout=4000)
+                post_button = self.page.locator(sel)
+                break
+            except:
                 continue
 
-        self.logger.error("❌ Failed to click Post button")
-        return False
+        if not post_button:
+            raise Exception("Post button not found - tried all selectors")
+
+        post_button.click()
+        self.logger.info("✅ Clicked Post button")
+        time.sleep(3)
+        return True
 
     def _latest_post_url(self) -> Optional[str]:
         try:
@@ -198,10 +178,28 @@ class VideoPoster:
             return None
         self.logger.info("Typing caption into composer…")
         try:
-            composer = self.page.locator("div[data-testid='tweetTextarea_0'] div[contenteditable='true']").first
-            composer.wait_for(state="visible", timeout=15000)
-            composer.click()
-            composer.fill(caption)
+            # FIX #1: Composer detection with fallback selectors
+            composer_selectors = [
+                "div[data-testid='tweetTextarea_0']",
+                "div[role='textbox']",
+                "textarea",
+            ]
+
+            composer_box = None
+            for sel in composer_selectors:
+                try:
+                    self.page.wait_for_selector(sel, timeout=5000)
+                    composer_box = self.page.locator(sel)
+                    break
+                except:
+                    continue
+
+            if not composer_box:
+                raise Exception("Composer not found - tried all selectors")
+
+            composer_box.wait_for(state="visible", timeout=15000)
+            composer_box.click()
+            composer_box.fill(caption)
         except PlaywrightError as exc:
             self.logger.warning("Could not type caption: %s", exc)
             return None
