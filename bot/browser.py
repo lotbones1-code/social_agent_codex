@@ -129,6 +129,10 @@ class BrowserManager:
                 time.sleep(1)
             except PlaywrightError as exc:
                 self.logger.warning("Home load after state restore failed: %s", exc)
+                try:
+                    page.goto("https://x.com/home", wait_until="domcontentloaded", timeout=60000)
+                except PlaywrightError:
+                    self.logger.debug("Secondary home load still failing; continuing with session reuse")
         else:
             context = browser.new_context()
             page = context.new_page()

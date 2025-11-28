@@ -17,6 +17,12 @@ from bot.growth import GrowthActions
 from bot.poster import VideoPoster
 from bot.scheduler import Scheduler
 from bot.scraper import ScrapedPost, VideoScraper
+from bot.trending import TrendingTopics
+from bot.influencer_captioner import InfluencerCaptioner
+from bot.influencer_downloader import InfluencerDownloader
+from bot.influencer_replies import InfluencerReplyAgent
+from bot.influencer_runner import InfluencerRunner
+from bot.influencer_scraper import InfluencerScraper
 
 
 def _shorten(text: str, *, max_len: int = 140) -> str:
@@ -87,6 +93,72 @@ def run_bot() -> None:
 
     scheduler = Scheduler(config)
 
+    def influencer_cycle() -> None:
+        logger.info("Starting influencer cycle.")
+        with sync_playwright() as playwright:
+            manager = BrowserManager(playwright, config, logger)
+            session = manager.start()
+            if not session:
+                logger.error("Could not start authenticated session. Exiting cycle.")
+                return
+
+            poster = VideoPoster(session.page, logger)
+            scraper = InfluencerScraper(session.page, logger, debug=config.debug)
+            downloader = InfluencerDownloader(
+                config.influencer_inbox_dir,
+                config.influencer_posted_dir,
+                logger,
+                user_agent=config.download_user_agent,
+            )
+            try:
+                downloader.set_cookies(session.context.cookies())
+            except Exception:
+                logger.debug("Could not inject cookies into influencer downloader")
+            captioner = InfluencerCaptioner(
+                config.influencer_caption_template,
+                openai_api_key=config.openai_api_key,
+                model=config.gpt_caption_model,
+            )
+            reply_agent = InfluencerReplyAgent(
+                session.page,
+                logger,
+                captioner,
+                delay_min=config.influencer_reply_delay_min_seconds,
+                delay_max=config.influencer_reply_delay_max_seconds,
+            )
+            runner = InfluencerRunner(
+                scraper,
+                downloader,
+                poster,
+                captioner,
+                reply_agent,
+                config,
+                logger,
+            )
+
+            trending_topics: List[str] = []
+            if config.trending_enabled:
+                trending = TrendingTopics(
+                    session.page,
+                    logger,
+                    refresh_minutes=config.trending_refresh_minutes,
+                    max_topics=config.trending_max_topics,
+                )
+                trending_topics = [t for t in trending.fetch() if t]
+
+            topics = list(dict.fromkeys(config.search_topics + trending_topics))
+            if not topics:
+                topics = ["trending videos"]
+            try:
+                runner.run_posts(topics)
+                runner.run_replies()
+            finally:
+                session.close()
+        logger.info(
+            "Influencer cycle complete. Waiting %ss before the next run.",
+            config.loop_delay_seconds,
+        )
+
     def cycle() -> None:
         logger.info("Starting engagement cycle.")
         with sync_playwright() as playwright:
@@ -97,15 +169,36 @@ def run_bot() -> None:
                 return
             poster = VideoPoster(session.page, logger)
             scraper = VideoScraper(session.page, logger)
-            downloader = VideoDownloader(config.download_dir, logger)
-            captioner = CaptionGenerator(config.caption_template)
+            downloader = VideoDownloader(
+                config.download_dir,
+                logger,
+                user_agent=config.download_user_agent,
+            )
+            try:
+                downloader.set_cookies(session.context.cookies())
+            except Exception:
+                logger.debug("Could not inject cookies into downloader; continuing without Premium headers")
+            captioner = CaptionGenerator(
+                config.caption_template,
+                openai_api_key=config.openai_api_key,
+                model=config.gpt_caption_model,
+            )
             growth = GrowthActions(poster, logger)
             auto_reply = AutoReplyEngine(
                 session.page, logger, config.auto_reply_template
             )
+            trending = TrendingTopics(
+                session.page,
+                logger,
+                refresh_minutes=config.trending_refresh_minutes,
+                max_topics=config.trending_max_topics,
+            )
 
             try:
-                for topic in config.search_topics:
+                topics = list(dict.fromkeys(config.search_topics))
+                if config.trending_enabled:
+                    topics.extend([t for t in trending.fetch() if t not in topics])
+                for topic in topics:
                     handle_topic(
                         topic,
                         scraper,
@@ -124,7 +217,10 @@ def run_bot() -> None:
             )
         logger.info("Cycle complete. Waiting %ss before the next run.", config.loop_delay_seconds)
 
-    scheduler.run_forever(cycle)
+    if config.influencer_mode:
+        scheduler.run_forever(influencer_cycle)
+    else:
+        scheduler.run_forever(cycle)
 
 
 if __name__ == "__main__":

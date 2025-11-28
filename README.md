@@ -25,6 +25,24 @@ Once installed you can simply run:
 run-bot
 ```
 
+### Quick start if you already logged in manually (no coding needed)
+- Make sure your saved session is present (default `auth.json` in the repo). If you need to capture it again, run `HEADLESS=0 bash run_agent.sh` once and log in when the window opens; the file is written automatically.
+- To run with your saved login and see the browser, use:
+  ```bash
+  scripts/run_with_saved_login.sh
+  ```
+  This keeps the window visible (headful), reuses `auth.json`, and does **not** require you to export your username/password.
+
+### Influencer mode (faceless video posting)
+
+- Enable influencer mode by setting `INFLUENCER_MODE=1` in your environment or `.env`.
+- Default cadence: **4–7 posts/day** with random delays between **2–7 hours**. Adjust via:
+  - `INFLUENCER_POSTS_MIN` / `INFLUENCER_POSTS_MAX`
+  - `INFLUENCER_DELAY_MIN_SECONDS` / `INFLUENCER_DELAY_MAX_SECONDS`
+- To shorten delays for quick testing, set `STRICT_MODE=0` (delays drop to ~10–60s and post count to 2–3 per run).
+- Optional: target high-profile accounts with natural replies via `INFLUENCER_REPLY_TARGETS="elonmusk,naval"` and tune reply pacing with `INFLUENCER_REPLIES_PER_TARGET`, `INFLUENCER_REPLY_DELAY_MIN_SECONDS`, and `INFLUENCER_REPLY_DELAY_MAX_SECONDS`.
+- Videos download into `media/influencer_inbox/` and get moved to `media/influencer_posted/` after a successful tweet to avoid duplicates.
+
 ---
 
 1. Install dependencies and browsers:
@@ -55,6 +73,12 @@ run-bot
    RUN=1 bash ./run.sh
    ```
 
+### Premium+/trending boosts
+
+- Set `TRENDING_ENABLED=1` to scrape the X Trending tab (available to Premium+ accounts) and automatically fold the hottest topics into each cycle. Tune with `TRENDING_MAX_TOPICS` and `TRENDING_REFRESH_MINUTES`.
+- Provide your `OPENAI_API_KEY` (and optionally `GPT_CAPTION_MODEL`, defaults to `gpt-4o-mini`) to have captions crafted by ChatGPT with hashtag-rich copy.
+- If downloads ever fail because of user-agent filtering, set `DOWNLOAD_USER_AGENT` to the same UA your Premium+ browser uses; cookies from the authenticated Playwright session are injected automatically to unlock high-quality video streams.
+
 ## Login flow
 
 **First run (saves your session):**
@@ -62,10 +86,22 @@ run-bot
 - Run `HEADLESS=0 bash run_agent.sh`.
 - Log into X manually in the Playwright window. Once you land on the Home timeline, the agent writes your session to `auth.json` (or the path defined by `AUTH_FILE`).
 
+To validate influencer mode immediately after capturing the session, keep the browser visible and run:
+
+```bash
+INFLUENCER_MODE=1 HEADLESS=0 RUN=1 bash run_agent.sh
+```
+
 **Subsequent runs (reuse the saved session):**
 
 - Run `bash run_agent.sh` (or `HEADLESS=1 bash run_agent.sh` for a headless window).
 - The bot loads `auth.json` automatically, jumps straight to the Home feed, and skips the login prompt.
+
+For headless influencer posting after setup:
+
+```bash
+INFLUENCER_MODE=1 RUN=1 bash run_agent.sh
+```
 
 ## Sanity check
 Set `SOCIAL_AGENT_MOCK_LOGIN=1` to run the bot in a mocked mode that exercises the startup flow without a real browser session. This prints the "Logged in & ready" banner once the initialization succeeds and is useful when credentials are unavailable.
