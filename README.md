@@ -2,6 +2,9 @@
 
 This repository hosts the automation agent for posting via Playwright and Chrome.
 
+## Ready-to-use Claude prompt for repairing influencer mode
+If you want to hand the codebase to Claude with clear instructions for fixing influencer mode without breaking the existing promo/referral flow, use the prompt in [`docs/INFLUENCER_MODE_CLAUDE_PROMPT.md`](docs/INFLUENCER_MODE_CLAUDE_PROMPT.md). Copy-paste it directly into Claude to keep the requirements and constraints intact.
+
 ## Requirements
 - Python **3.11.***
 - Playwright **1.49.0** (installed via the provided Make target)
