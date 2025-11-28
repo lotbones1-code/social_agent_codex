@@ -17,60 +17,23 @@ class VideoPoster:
         self.dry_run = dry_run
 
     def _open_composer(self) -> bool:
-        """Open composer via UI interaction instead of direct URL."""
-        max_attempts = 3
-        for attempt in range(1, max_attempts + 1):
-            try:
-                # Step 1: Navigate to home page
-                self.logger.info("Step 1/3: Navigating to X home page...")
-                self.page.goto("https://x.com/home", wait_until="domcontentloaded", timeout=30000)
-                time.sleep(2)
-                self.logger.info("✓ Loaded home page")
+        """Open composer page directly."""
+        try:
+            self.logger.info("Opening composer page...")
+            self.page.goto("https://x.com/compose/post", wait_until="domcontentloaded", timeout=30000)
+            time.sleep(2)
 
-                # Step 2: Click the sidebar "Post" button
-                self.logger.info("Step 2/3: Clicking sidebar Post button...")
-                post_button_selector = "a[data-testid='SideNav_NewTweet_Button']"
-                self.page.wait_for_selector(post_button_selector, timeout=10000, state="visible")
-                self.page.locator(post_button_selector).click()
-                self.logger.info("✓ Clicked Post button")
-                time.sleep(1)
-
-                # Step 3: Wait for composer to appear with robust OR-selectors
-                self.logger.info("Step 3/3: Waiting for composer to appear...")
-                composer_selectors = [
-                    "div[contenteditable='true'][data-testid='tweetTextarea_0']",
-                    "div[contenteditable='true'][data-testid='tweetTextarea_1']",
-                    "div[data-testid='tweetTextarea_0'] div[contenteditable='true']",
-                    "div[data-testid='tweetTextarea_1'] div[contenteditable='true']",
-                    "div[role='textbox']",
-                ]
-
-                composer_found = False
-                for selector in composer_selectors:
-                    try:
-                        self.logger.debug("Trying composer selector: %s", selector)
-                        self.page.wait_for_selector(selector, timeout=5000, state="visible")
-                        self.logger.info("✓ Composer appeared: %s", selector)
-                        composer_found = True
-                        break
-                    except PlaywrightError:
-                        continue
-
-                if not composer_found:
-                    raise PlaywrightError("No composer selector matched")
-
-                return True
-
-            except PlaywrightError as exc:
-                self.logger.warning("Composer open attempt %d/%d failed: %s", attempt, max_attempts, exc)
-                if attempt < max_attempts:
-                    self.logger.info("Retrying in 2 seconds...")
-                    time.sleep(2)
-                else:
-                    self.logger.error("❌ Could not open composer after %d attempts", max_attempts)
-                    return False
-
-        return False
+            # Wait for composer textarea to appear (may match 2 elements - that's OK)
+            self.page.wait_for_selector(
+                "div[contenteditable='true'][data-testid='tweetTextarea_0']",
+                timeout=15000,
+                state="visible"
+            )
+            self.logger.info("✓ Composer page loaded")
+            return True
+        except PlaywrightError as exc:
+            self.logger.error("❌ Could not open composer: %s", exc)
+            return False
 
     def _attach_video(self, video_path: Path) -> bool:
         """Attach video reliably across all 2025 X upload variants."""
@@ -152,37 +115,21 @@ class VideoPoster:
         return False
 
     def _submit(self) -> bool:
-        """Try multiple strategies to click the Post button."""
-        self.logger.info("🚀 Step 6: Attempting to submit post...")
-
-        # Post button detection with fallback selectors (prioritize div variant)
-        post_button_selectors = [
-            "div[data-testid='tweetButtonInline']",
-            "button[data-testid='tweetButtonInline']",
-            "button[data-testid='tweetButton']",
-            "div[data-testid='tweetButton']",
-        ]
-
-        post_button = None
-        for sel in post_button_selectors:
-            try:
-                self.logger.debug("Trying post button selector: %s", sel)
-                self.page.wait_for_selector(sel, timeout=5000, state="visible")
-                post_button = self.page.locator(sel)
-                self.logger.info("✓ Found post button: %s", sel)
-                break
-            except PlaywrightError:
-                continue
-
-        if not post_button:
-            self.logger.error("❌ Post button not found - tried all selectors")
-            return False
-
+        """Click the Post button to submit."""
+        self.logger.info("🚀 Clicking Post button...")
         try:
+            # Wait for Post button to be enabled and visible
+            self.page.wait_for_selector(
+                "button[data-testid='tweetButtonInline']:not([disabled])",
+                timeout=10000,
+                state="visible"
+            )
+
+            # Click the Post button
+            post_button = self.page.locator("button[data-testid='tweetButtonInline']").first
             post_button.click()
-            self.logger.info("✅ Clicked Post button successfully")
+            self.logger.info("✅ Post button clicked")
             time.sleep(3)
-            self.logger.info("Step 7: Post submitted successfully")
             return True
         except PlaywrightError as exc:
             self.logger.error("❌ Failed to click Post button: %s", exc)
@@ -228,37 +175,15 @@ class VideoPoster:
 
         if not self._open_composer():
             return None
-        # Step 4: Type caption into composer with robust OR-selectors
-        self.logger.info("Step 4: Typing caption into composer...")
+        # Type caption into composer (use .first to avoid strict mode violation)
+        self.logger.info("Typing caption into composer...")
         try:
-            # Robust composer detection with fallback selectors
-            composer_selectors = [
-                "div[contenteditable='true'][data-testid='tweetTextarea_0']",
-                "div[contenteditable='true'][data-testid='tweetTextarea_1']",
-                "div[data-testid='tweetTextarea_0'] div[contenteditable='true']",
-                "div[data-testid='tweetTextarea_1'] div[contenteditable='true']",
-                "div[role='textbox']",
-            ]
-
-            composer_box = None
-            for sel in composer_selectors:
-                try:
-                    self.logger.debug("Trying composer selector: %s", sel)
-                    self.page.wait_for_selector(sel, timeout=5000, state="visible")
-                    composer_box = self.page.locator(sel)
-                    self.logger.info("✓ Found composer for typing: %s", sel)
-                    break
-                except PlaywrightError:
-                    continue
-
-            if not composer_box:
-                self.logger.error("❌ Composer not found - tried all selectors")
-                return None
-
-            composer_box.click()
+            # FIX: X has 2 matching textboxes, use .first to pick the real one
+            textarea = self.page.locator("div[contenteditable='true'][data-testid='tweetTextarea_0']").first
+            textarea.click()
             time.sleep(0.5)
-            composer_box.fill(caption)
-            self.logger.info("✓ Caption typed successfully")
+            textarea.fill(caption)
+            self.logger.info("✓ Caption typed: %s", caption[:50])
         except PlaywrightError as exc:
             self.logger.error("❌ Could not type caption: %s", exc)
             return None
