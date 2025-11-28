@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import random
+import re
 from dataclasses import dataclass
 from typing import Optional
 
@@ -44,8 +45,12 @@ class CaptionGenerator:
         if not decorated_summary:
             decorated_summary = f"Great take on {context.topic}!"
         suffix = random.choice(add_ons)
-        base = self.template.format(summary=decorated_summary, author=context.author or "@unknown")
-        return f"{base} {suffix}".strip()
+        template = self.template
+        if "{author}" in template:
+            template = template.replace("{author}", "").replace("via ", "").replace("by ", "")
+        base = template.format(summary=decorated_summary, author="").strip()
+        caption = f"{base} {suffix}".strip()
+        return self._sanitize_caption(caption)
 
     def _chatgpt_caption(self, context: VideoContext) -> Optional[str]:
         if not self.client:
@@ -53,7 +58,8 @@ class CaptionGenerator:
         prompt = (
             "You are an expert viral social copywriter for X (Premium+ enabled). "
             "Write a concise, hype caption (260 chars max) for a video. Include 2-3 hashtags "
-            "that match the topic and hook viewers. Keep it punchy and avoid emojis unless they add impact.\n\n"
+            "that match the topic and hook viewers. Keep it punchy and avoid emojis unless they add impact. "
+            "Do NOT tag, credit, or mention any accounts or usernames in the caption.\n\n"
             f"Topic: {context.topic}\n"
             f"Video summary: {context.summary}\n"
             f"Original author: {context.author}\n"
@@ -71,7 +77,7 @@ class CaptionGenerator:
                 caption = content.strip()
                 if len(caption) > 260:
                     caption = caption[:257] + "..."
-                return caption
+                return self._sanitize_caption(caption)
         except Exception as exc:
             self.logger.warning("ChatGPT caption failed, falling back: %s", exc)
         return None
@@ -81,6 +87,13 @@ class CaptionGenerator:
         if ai_caption:
             return ai_caption
         return self._fallback_caption(context)
+
+    @staticmethod
+    def _sanitize_caption(caption: str) -> str:
+        """Remove any @mentions and normalize whitespace."""
+        without_mentions = re.sub(r"@\w+", "", caption)
+        normalized = re.sub(r"\s+", " ", without_mentions).strip()
+        return normalized
 
 
 __all__ = ["CaptionGenerator", "VideoContext"]
