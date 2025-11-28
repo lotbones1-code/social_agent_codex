@@ -25,6 +25,14 @@ Once installed you can simply run:
 run-bot
 ```
 
+### Quick start if you already logged in manually (no coding needed)
+- Make sure your saved session is present (default `auth.json` in the repo). If you need to capture it again, run `HEADLESS=0 bash run_agent.sh` once and log in when the window opens; the file is written automatically.
+- To run with your saved login and see the browser, use:
+  ```bash
+  scripts/run_with_saved_login.sh
+  ```
+  This keeps the window visible (headful), reuses `auth.json`, and does **not** require you to export your username/password.
+
 ---
 
 1. Install dependencies and browsers:
