@@ -95,33 +95,28 @@ class BrowserManager:
     def start(self) -> Optional[BrowserSession]:
         chromium = self.playwright.chromium
         try:
-            browser = chromium.launch(
-                headless=self.config.headless,
-                args=[
-                    "--start-maximized",
-                    "--no-sandbox",
-                    "--disable-blink-features=AutomationControlled",
-                ],
-            )
+            browser = chromium.connect_over_cdp("http://localhost:9222")
         except PlaywrightError as exc:
-            self.logger.error("Unable to launch Chromium: %s", exc)
+            self.logger.error("Unable to connect to Chrome over CDP: %s", exc)
             return None
-
-        context: BrowserContext
-        page: Page
 
         auth_path = self.config.auth_state
         has_auth_state = auth_path.exists()
 
+        try:
+            context: BrowserContext = browser.contexts[0]
+        except IndexError:
+            self.logger.error("No browser contexts available from the connected Chrome instance.")
+            try:
+                browser.close()
+            except PlaywrightError:
+                pass
+            return None
+
+        page: Page = context.new_page()
+
         if has_auth_state:
             self.logger.info("Restoring login session from %s", auth_path)
-            try:
-                context = browser.new_context(storage_state=str(auth_path))
-            except PlaywrightError as exc:
-                self.logger.error("Could not load saved auth state: %s", exc)
-                browser.close()
-                return None
-            page = context.new_page()
             try:
                 page.goto("https://x.com/home", wait_until="networkidle", timeout=60000)
                 time.sleep(2)
@@ -130,8 +125,6 @@ class BrowserManager:
             except PlaywrightError as exc:
                 self.logger.warning("Home load after state restore failed: %s", exc)
         else:
-            context = browser.new_context()
-            page = context.new_page()
             try:
                 page.goto("https://x.com/login", wait_until="networkidle", timeout=60000)
             except PlaywrightError:

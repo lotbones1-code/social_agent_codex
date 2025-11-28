@@ -103,21 +103,11 @@ def sha(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 def launch_ctx(p):
-    ctx = p.chromium.launch_persistent_context(
-        user_data_dir=str(PROFILE_DIR),
-        channel="chrome",
-        headless=False,
-        viewport=None,
-        user_agent=USER_AGENT,
-        args=[
-            "--disable-blink-features=AutomationControlled",
-            "--no-sandbox",
-            "--disable-dev-shm-usage",
-            "--disable-features=IsolateOrigins,site-per-process",
-            "--no-first-run",
-            "--no-default-browser-check",
-        ],
-    )
+    browser = p.chromium.connect_over_cdp("http://localhost:9222")
+    contexts = browser.contexts
+    if not contexts:
+        raise RuntimeError("No browser contexts available from the connected Chrome instance.")
+    ctx = contexts[0]
     page = ctx.pages[0] if ctx.pages else ctx.new_page()
     page.add_init_script("Object.defineProperty(navigator, 'webdriver', { get: () => undefined });")
     page.add_init_script("window.chrome = window.chrome || {};")

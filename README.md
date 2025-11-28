@@ -16,6 +16,12 @@ For an end-to-end automated setup (clone → virtualenv → dependencies → bro
 bash -c "$(curl -fsSL https://raw.githubusercontent.com/social-agent-codex/social_agent_codex/main/scripts/one_command_bootstrap.sh)"
 ```
 
+Start Chrome manually before running bot:
+
+```
+google-chrome --remote-debugging-port=9222 --user-data-dir=$HOME/.real_x_profile
+```
+
 The installer will:
 - Create `~/social_agent_codex` (override via `SOCIAL_AGENT_HOME`).
 - Set up a virtual environment, install Python dependencies, and download Playwright Chromium.
