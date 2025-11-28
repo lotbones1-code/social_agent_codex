@@ -38,35 +38,62 @@ class AICaptioner:
             video_text: The original text from the video tweet
             author: The author's handle
             topic: The topic/category (sports, fails, funny, etc.)
-            style: Caption style (hype_short, storytelling, educational)
+            style: Caption style (hype_short, storytelling, educational, meme, curiosity)
 
         Returns:
             Generated caption string
         """
         prompts = {
             "hype_short": (
-                "You are a viral X (Twitter) influencer who knows how to make content go viral. "
-                "Write a short, catchy caption (max 200 characters) for this video. "
-                "Make it exciting, use emojis, and make people want to watch. "
-                "Do NOT use hashtags. Keep it natural and hype.\n\n"
+                "You are a viral X (Twitter) influencer who masters engagement psychology. "
+                "Write an ultra-catchy, scroll-stopping caption (max 180 characters) for this video. "
+                "Use powerful words, strategic emojis, and create FOMO. "
+                "Make people NEED to watch this. No hashtags, pure viral energy.\n\n"
                 f"Topic: {topic}\n"
-                f"Original text: {video_text}\n\n"
+                f"Original: {video_text[:300]}\n\n"
+                "Rules:\n"
+                "- Start with a hook (\"Wait for it...\", \"No way...\", \"This is insane\")\n"
+                "- Use 2-3 relevant emojis maximum\n"
+                "- Create curiosity gap\n"
+                "- Sound casual but exciting\n\n"
                 "Caption:"
             ),
             "storytelling": (
-                "You are a master storyteller on X (Twitter). "
-                "Write a compelling 1-2 sentence caption that tells a mini-story or sets up intrigue. "
-                "Use emojis where appropriate. No hashtags.\n\n"
+                "You are a master storyteller on X who knows how to hook readers instantly. "
+                "Write a compelling 2-3 sentence caption that creates intrigue and emotion. "
+                "Use narrative techniques: setup, tension, payoff tease. "
+                "Strategic emojis only. No hashtags.\n\n"
                 f"Topic: {topic}\n"
-                f"Original text: {video_text}\n\n"
+                f"Original: {video_text[:300]}\n\n"
+                "Make readers feel something. Create anticipation.\n\n"
                 "Caption:"
             ),
             "educational": (
-                "You are an educational content creator on X (Twitter). "
-                "Write an informative but engaging caption that adds context or a fun fact. "
-                "Keep it concise and use 1-2 emojis. No hashtags.\n\n"
+                "You are an educational content creator who makes learning addictive. "
+                "Write an informative caption that adds surprising context, a fun fact, or expert insight. "
+                "Make people smarter in 2 sentences. Use 1-2 brain/lightbulb emojis. No hashtags.\n\n"
                 f"Topic: {topic}\n"
-                f"Original text: {video_text}\n\n"
+                f"Original: {video_text[:300]}\n\n"
+                "Caption:"
+            ),
+            "meme": (
+                "You are a meme lord who speaks fluent internet culture. "
+                "Write a hilarious, relatable caption that makes this video even funnier. "
+                "Use meme language, reaction phrases, and perfect comedic timing. "
+                "2-3 emojis max. No hashtags.\n\n"
+                f"Topic: {topic}\n"
+                f"Original: {video_text[:300]}\n\n"
+                "Make them laugh out loud.\n\n"
+                "Caption:"
+            ),
+            "curiosity": (
+                "You are a curiosity engineer who makes people unable to scroll past. "
+                "Write a caption that creates an irresistible curiosity gap. "
+                "Tease the outcome without revealing it. Use pattern interrupts. "
+                "Examples: 'The ending...', 'Watch what happens next', 'Nobody expected this'\n"
+                "1-2 emojis. No hashtags.\n\n"
+                f"Topic: {topic}\n"
+                f"Original: {video_text[:300]}\n\n"
                 "Caption:"
             ),
         }
@@ -78,7 +105,15 @@ class AICaptioner:
             response = self.client.chat.completions.create(
                 model=self.model,
                 messages=[
-                    {"role": "system", "content": "You are a viral content creator."},
+                    {
+                        "role": "system",
+                        "content": (
+                            "You are an expert viral content creator who understands X/Twitter's algorithm. "
+                            "You know exactly how to write captions that maximize engagement: "
+                            "hooks, curiosity gaps, emotional triggers, and scroll-stopping power. "
+                            "Every word counts. Make them want to watch, like, and share."
+                        ),
+                    },
                     {"role": "user", "content": prompt},
                 ],
                 max_tokens=self.max_tokens,
@@ -86,6 +121,10 @@ class AICaptioner:
             )
 
             caption = response.choices[0].message.content.strip()
+
+            # Remove "Caption:" prefix if GPT added it
+            if caption.lower().startswith("caption:"):
+                caption = caption[8:].strip()
 
             # Add credit line
             credit = f"\n\n📹 via {author}"

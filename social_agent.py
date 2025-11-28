@@ -19,6 +19,7 @@ from bot.engagement import EngagementModule
 from bot.post_tracker import PostTracker
 from bot.poster import VideoPoster
 from bot.hybrid_downloader import HybridDownloader
+from bot.video_validator import VideoValidator
 from bot.viral_scraper import ViralScraper, VideoCandidate
 
 
@@ -80,6 +81,7 @@ def run_influencer_cycle(logger: logging.Logger) -> None:
                 Path(config.download.dir),
                 logger
             )
+            validator = VideoValidator(logger)
 
             # Only initialize AI captioner if we have API key
             captioner = None
@@ -113,6 +115,16 @@ def run_influencer_cycle(logger: logging.Logger) -> None:
             posted_count = 0
             posted_candidates: list[VideoCandidate] = []
 
+            # Performance tracking
+            metrics = {
+                "candidates_found": len(candidates),
+                "download_attempts": 0,
+                "downloads_successful": 0,
+                "validation_failures": 0,
+                "post_attempts": 0,
+                "posts_successful": 0,
+            }
+
             if not skip_posting:
                 logger.info("=" * 60)
                 logger.info("Attempting to post videos...")
@@ -140,10 +152,27 @@ def run_influencer_cycle(logger: logging.Logger) -> None:
                     # Download video
                     slug = _slug_from_url(candidate.url)
                     logger.info("Downloading video...")
+                    metrics["download_attempts"] += 1
                     video_path = downloader.download_from_tweet(candidate.url, slug)
 
                     if not video_path:
                         logger.warning("Download failed, skipping")
+                        continue
+
+                    metrics["downloads_successful"] += 1
+
+                    # Validate video quality
+                    logger.info("Validating video quality...")
+                    validation = validator.validate(video_path)
+
+                    if not validation["is_valid"]:
+                        logger.warning(f"Video validation failed: {validation.get('issues', [])}")
+                        metrics["validation_failures"] += 1
+                        # Cleanup invalid video
+                        try:
+                            video_path.unlink()
+                        except:
+                            pass
                         continue
 
                     # Generate caption
@@ -161,12 +190,28 @@ def run_influencer_cycle(logger: logging.Logger) -> None:
 
                     logger.info(f"Caption: {caption[:80]}...")
 
-                    # Post video
+                    # Post video with retry logic
                     logger.info("Posting video...")
-                    if poster.post_video(caption, video_path):
+                    post_success = False
+                    max_retries = 2
+                    metrics["post_attempts"] += 1
+
+                    for attempt in range(max_retries):
+                        if attempt > 0:
+                            logger.info(f"Retry attempt {attempt + 1}/{max_retries}...")
+                            time.sleep(random.uniform(3, 6))
+
+                        if poster.post_video(caption, video_path):
+                            post_success = True
+                            break
+                        else:
+                            logger.warning(f"Post attempt {attempt + 1} failed")
+
+                    if post_success:
                         posted_count += 1
                         posted_candidates.append(candidate)
                         tracker.record_post()
+                        metrics["posts_successful"] += 1
                         logger.info(f"✅ Posted successfully! ({posted_count} this cycle)")
 
                         # Optional: Retweet after posting
@@ -182,7 +227,7 @@ def run_influencer_cycle(logger: logging.Logger) -> None:
                             except:
                                 pass
                     else:
-                        logger.warning("Failed to post")
+                        logger.warning(f"Failed to post after {max_retries} attempts, skipping")
 
                     # Delay between posts
                     time.sleep(random.uniform(
@@ -205,6 +250,21 @@ def run_influencer_cycle(logger: logging.Logger) -> None:
 
             logger.info("=" * 60)
             logger.info(f"Cycle complete! Posted: {posted_count}")
+
+            # Performance summary
+            if metrics["download_attempts"] > 0:
+                download_success_rate = (metrics["downloads_successful"] / metrics["download_attempts"]) * 100
+                logger.info(f"📊 Download success rate: {download_success_rate:.1f}% ({metrics['downloads_successful']}/{metrics['download_attempts']})")
+
+            if metrics["downloads_successful"] > 0:
+                validation_success_rate = ((metrics["downloads_successful"] - metrics["validation_failures"]) / metrics["downloads_successful"]) * 100
+                logger.info(f"📊 Validation pass rate: {validation_success_rate:.1f}%")
+
+            if metrics["post_attempts"] > 0:
+                post_success_rate = (metrics["posts_successful"] / metrics["post_attempts"]) * 100
+                logger.info(f"📊 Post success rate: {post_success_rate:.1f}% ({metrics['posts_successful']}/{metrics['post_attempts']})")
+
+            logger.info(f"📊 Overall efficiency: {metrics['posts_successful']}/{metrics['candidates_found']} candidates converted to posts")
 
         finally:
             session.close()
