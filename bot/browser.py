@@ -94,11 +94,23 @@ class BrowserManager:
 
     def start(self) -> Optional[BrowserSession]:
         chromium = self.playwright.chromium
-        try:
-            browser = chromium.connect_over_cdp("http://localhost:9222")
-        except PlaywrightError as exc:
-            self.logger.error("Unable to connect to Chrome over CDP: %s", exc)
-            return None
+
+        # Try to connect to Chrome via CDP with retries
+        max_retries = 3
+        for attempt in range(1, max_retries + 1):
+            try:
+                self.logger.info("Connecting to Chrome via CDP (attempt %d/%d)...", attempt, max_retries)
+                browser = chromium.connect_over_cdp("http://localhost:9222")
+                self.logger.info("✔ Connected to Chrome successfully")
+                break
+            except PlaywrightError as exc:
+                if attempt < max_retries:
+                    self.logger.warning("CDP connection failed (attempt %d/%d): %s. Retrying in 2s...", attempt, max_retries, exc)
+                    time.sleep(2)
+                else:
+                    self.logger.error("Unable to connect to Chrome over CDP after %d attempts: %s", max_retries, exc)
+                    self.logger.error("Make sure Chrome is running with: google-chrome --remote-debugging-port=9222 --user-data-dir=$HOME/.real_x_profile")
+                    return None
 
         auth_path = self.config.auth_state
         has_auth_state = auth_path.exists()
@@ -118,17 +130,22 @@ class BrowserManager:
         if has_auth_state:
             self.logger.info("Restoring login session from %s", auth_path)
             try:
-                page.goto("https://x.com/home", wait_until="networkidle", timeout=60000)
+                self.logger.debug("Navigating to X home page...")
+                page.goto("https://x.com/home", wait_until="domcontentloaded", timeout=60000)
                 time.sleep(2)
-                page.reload(wait_until="networkidle", timeout=60000)
+                self.logger.debug("Reloading page to ensure session is active...")
+                page.reload(wait_until="domcontentloaded", timeout=60000)
                 time.sleep(1)
             except PlaywrightError as exc:
-                self.logger.warning("Home load after state restore failed: %s", exc)
+                self.logger.warning("Home load after state restore failed: %s. Will attempt login.", exc)
         else:
+            self.logger.info("No saved auth state found. Manual login required.")
             try:
-                page.goto("https://x.com/login", wait_until="networkidle", timeout=60000)
-            except PlaywrightError:
-                self.logger.info("Login page load failed; waiting for manual input regardless.")
+                self.logger.debug("Loading X login page...")
+                page.goto("https://x.com/login", wait_until="domcontentloaded", timeout=60000)
+                time.sleep(1)
+            except PlaywrightError as exc:
+                self.logger.warning("Login page load failed: %s. Waiting for manual input regardless.", exc)
             if not self._prompt_manual_login(page):
                 try:
                     context.close()
@@ -141,10 +158,13 @@ class BrowserManager:
                 return None
 
         if not self._is_logged_in(page):
+            self.logger.warning("Session validation failed. Attempting re-authentication...")
             try:
-                page.goto("https://x.com/login", wait_until="networkidle", timeout=60000)
-            except PlaywrightError:
-                self.logger.warning("Could not navigate to login page for re-authentication.")
+                self.logger.debug("Navigating to login page...")
+                page.goto("https://x.com/login", wait_until="domcontentloaded", timeout=60000)
+                time.sleep(1)
+            except PlaywrightError as exc:
+                self.logger.warning("Could not navigate to login page: %s", exc)
             if not self._prompt_manual_login(page):
                 try:
                     context.close()

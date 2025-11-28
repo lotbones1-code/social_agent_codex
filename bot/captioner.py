@@ -40,33 +40,38 @@ class CaptionGenerator:
                 self.logger.warning("Could not initialize ChatGPT client: %s", exc)
 
     def _fallback_caption(self, context: VideoContext) -> str:
-        add_ons = ["", "🔥", "🚀", "🤖", "✨"]
+        """Generate a simple fallback caption when AI generation fails or is not available."""
+        add_ons = ["", "🔥", "🚀", "✨"]
         decorated_summary = context.summary.strip()
         if not decorated_summary:
-            decorated_summary = f"Great take on {context.topic}!"
+            decorated_summary = f"Check out this {context.topic} content!"
+
         suffix = random.choice(add_ons)
         template = self.template
-        if "{author}" in template:
-            template = template.replace("{author}", "").replace("via ", "").replace("by ", "")
-        base = template.format(summary=decorated_summary, author="").strip()
+
+        # Ensure no {author} references leak through
+        template = template.replace("{author}", "").replace("via ", "").replace("by ", "")
+
+        # Format with just the summary
+        base = template.format(summary=decorated_summary).strip()
         caption = f"{base} {suffix}".strip()
+
         return self._sanitize_caption(caption)
 
     def _chatgpt_caption(self, context: VideoContext) -> Optional[str]:
         if not self.client:
             return None
         prompt = (
-            "You are an expert viral social copywriter for X (Premium+ enabled). "
-            "Write a concise, hype caption (260 chars max) for a video. Include 2-3 hashtags "
-            "that match the topic and hook viewers. Keep it punchy and avoid emojis unless they add impact. "
-            "Do NOT tag, credit, or mention any accounts or usernames in the caption. "
-            "DO NOT mention or tag any accounts. DO NOT include 'via', '@', credits, or source references. "
-            "DO NOT mention or tag any accounts. DO NOT include source names, credits, or anything like 'via', '@', or 'credit to'. "
-            "ONLY output the caption + hashtags.\n\n"
+            "You are an expert viral social copywriter for X (formerly Twitter). "
+            "Write a concise, engaging caption (max 260 chars) for a video post. Include 2-3 relevant hashtags. "
+            "Keep it punchy, authentic, and scroll-stopping. Use emojis sparingly and only when they add value.\n\n"
+            "CRITICAL RULES:\n"
+            "- DO NOT tag, mention, or credit ANY accounts (@handles)\n"
+            "- DO NOT include 'via', 'from', 'by', 'credit', 'source', 'h/t', or similar attributions\n"
+            "- DO NOT reference the original author or creator in any way\n"
+            "- ONLY output the caption text + hashtags (nothing else)\n\n"
             f"Topic: {context.topic}\n"
             f"Video summary: {context.summary}\n"
-            f"Original author: {context.author}\n"
-            f"Source URL: {context.url}\n"
         )
         try:  # pragma: no cover - remote call
             response = self.client.chat.completions.create(
@@ -103,13 +108,36 @@ __all__ = ["CaptionGenerator", "VideoContext"]
 
 
 def strip_mentions_and_credits(text: str) -> str:
-    # Remove @handles
+    """
+    Aggressively remove all source attributions, mentions, and credits from caption text.
+    Preserves hashtags (e.g., #NFL, #Ravens) but removes all @handles and source references.
+    """
+    # Remove @handles (but preserve hashtags)
     text = re.sub(r"@\w+", "", text)
-    # Remove 'via <words>'
-    text = re.sub(r"via [A-Za-z0-9_ ]+", "", text, flags=re.IGNORECASE)
-    # Remove 'credit to <words>'
-    text = re.sub(r"credit to [A-Za-z0-9_ ]+", "", text, flags=re.IGNORECASE)
-    # Remove trailing dots after removal
-    text = re.sub(r"\.+$", "", text)
-    # Clean whitespace
-    return " ".join(text.split())
+
+    # Remove common source attribution patterns (case-insensitive)
+    patterns = [
+        r"\bvia\s+[^\n#]+",           # "via SomeAccount" or "via @user"
+        r"\bcredit\s+to\s+[^\n#]+",   # "credit to SomeAccount"
+        r"\bcredits?\s*:\s*[^\n#]+",  # "credit:" or "credits:"
+        r"\bsource\s*:\s*[^\n#]+",    # "source: something"
+        r"\bfrom\s+@?\w+",             # "from @user" or "from Account"
+        r"\bby\s+@?\w+",               # "by @user" or "by Account"
+        r"\bh/?t\s+@?\w+",             # "h/t @user" (hat tip)
+        r"\bshoutout\s+to\s+[^\n#]+", # "shoutout to @user"
+        r"\bfollow\s+@?\w+",           # "follow @user"
+    ]
+
+    for pattern in patterns:
+        text = re.sub(pattern, "", text, flags=re.IGNORECASE)
+
+    # Remove orphaned punctuation left behind
+    text = re.sub(r"\s*[,;:]\s*$", "", text)  # Trailing commas/semicolons
+    text = re.sub(r"^\s*[,;:]\s*", "", text)  # Leading commas/semicolons
+    text = re.sub(r"\.{2,}", ".", text)        # Multiple dots
+    text = re.sub(r"\s*-\s*$", "", text)       # Trailing dashes
+
+    # Clean excessive whitespace
+    text = " ".join(text.split())
+
+    return text.strip()

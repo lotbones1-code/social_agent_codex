@@ -12,16 +12,20 @@ from dotenv import load_dotenv
 class AgentConfig:
     """Runtime configuration for the influencer bot."""
 
-    headless: bool = True
+    headless: bool = False
     debug: bool = False
     strict_mode: bool = True
+    dry_run: bool = False
     auth_state: Path = Path("auth.json")
     user_data_dir: Path = Path.home() / ".social_agent/browser"
     download_dir: Path = Path("downloads")
+    post_log: Path = Path("post_history.json")
     search_topics: List[str] = field(default_factory=lambda: ["automation", "ai agents"])
     max_videos_per_topic: int = 2
     max_posts_per_cycle: int = 2
-    caption_template: str = "{summary}\n🚀 Sourced via {author} — #ai #automation"
+    max_posts_per_24h: int = 10
+    duplicate_check_hours: int = 72
+    caption_template: str = "{summary}"
     growth_actions_per_cycle: int = 3
     auto_replies_per_cycle: int = 2
     auto_reply_template: str = "Thanks for the mention, {author}! 🚀"
@@ -39,6 +43,7 @@ class AgentConfig:
         self.auth_state.parent.mkdir(parents=True, exist_ok=True)
         self.download_dir.mkdir(parents=True, exist_ok=True)
         self.user_data_dir.mkdir(parents=True, exist_ok=True)
+        self.post_log.parent.mkdir(parents=True, exist_ok=True)
 
 
 def _parse_bool(value: str | None, default: bool) -> bool:
@@ -56,6 +61,7 @@ def load_config() -> AgentConfig:
     cfg.headless = _parse_bool(os.getenv("HEADLESS"), cfg.headless)
     cfg.debug = _parse_bool(os.getenv("DEBUG"), cfg.debug)
     cfg.strict_mode = _parse_bool(os.getenv("STRICT_MODE"), cfg.strict_mode)
+    cfg.dry_run = _parse_bool(os.getenv("DRY_RUN"), cfg.dry_run)
 
     auth_path = os.getenv("AUTH_FILE") or os.getenv("AUTH_STATE")
     if auth_path:
@@ -68,6 +74,10 @@ def load_config() -> AgentConfig:
     download_dir = os.getenv("DOWNLOAD_DIR")
     if download_dir:
         cfg.download_dir = Path(download_dir).expanduser()
+
+    post_log = os.getenv("POST_LOG")
+    if post_log:
+        cfg.post_log = Path(post_log).expanduser()
 
     topics = os.getenv("SEARCH_TOPICS")
     if topics:
@@ -83,6 +93,8 @@ def load_config() -> AgentConfig:
 
     cfg.max_videos_per_topic = int(os.getenv("MAX_VIDEOS_PER_TOPIC", cfg.max_videos_per_topic))
     cfg.max_posts_per_cycle = int(os.getenv("MAX_POSTS_PER_CYCLE", cfg.max_posts_per_cycle))
+    cfg.max_posts_per_24h = int(os.getenv("MAX_POSTS_PER_24H", cfg.max_posts_per_24h))
+    cfg.duplicate_check_hours = int(os.getenv("DUPLICATE_CHECK_HOURS", cfg.duplicate_check_hours))
     cfg.growth_actions_per_cycle = int(
         os.getenv("GROWTH_ACTIONS_PER_CYCLE", cfg.growth_actions_per_cycle)
     )

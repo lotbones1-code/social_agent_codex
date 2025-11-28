@@ -2,6 +2,35 @@
 
 This repository hosts the automation agent for posting via Playwright and Chrome.
 
+## 🚀 X Influencer Bot - Quick Start
+
+**NEW:** The influencer bot has been completely overhauled and is now production-ready!
+
+📖 **[Read the Complete Setup Guide →](INFLUENCER_BOT_GUIDE.md)**
+
+### Quick Start (3 Steps)
+
+1. **Install dependencies:**
+   ```bash
+   python3 -m venv .venv && source .venv/bin/activate
+   pip install -r requirements.txt
+   ```
+
+2. **Start Chrome with remote debugging:**
+   ```bash
+   google-chrome --remote-debugging-port=9222 --user-data-dir=$HOME/.real_x_profile
+   ```
+
+3. **Run the bot:**
+   ```bash
+   cp .env.example .env  # Configure your settings
+   python social_agent.py
+   ```
+
+**Working Branch:** `claude/final-influencer-bot-v1`
+
+---
+
 ## Ready-to-use Claude prompt for repairing influencer mode
 If you want to hand the codebase to Claude with clear instructions for fixing influencer mode without breaking the existing promo/referral flow, use the prompt in [`docs/INFLUENCER_MODE_CLAUDE_PROMPT.md`](docs/INFLUENCER_MODE_CLAUDE_PROMPT.md). Copy-paste it directly into Claude to keep the requirements and constraints intact.
 

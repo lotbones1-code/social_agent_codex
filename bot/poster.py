@@ -11,9 +11,10 @@ from playwright.sync_api import Error as PlaywrightError, TimeoutError as Playwr
 class VideoPoster:
     """Handle composing and publishing posts on X."""
 
-    def __init__(self, page: Page, logger: logging.Logger):
+    def __init__(self, page: Page, logger: logging.Logger, dry_run: bool = False):
         self.page = page
         self.logger = logger
+        self.dry_run = dry_run
 
     def _open_composer(self) -> bool:
         try:
@@ -34,7 +35,10 @@ class VideoPoster:
             try:
                 if attempt > 1:
                     self.logger.info("Retrying upload attempt %d/3…", attempt)
-                self.logger.info("Waiting for upload zone…")
+                    time.sleep(2)  # Brief pause between retries
+
+                self.logger.info("📤 Uploading video: %s (%.2f MB)", video_path.name, video_path.stat().st_size / (1024*1024))
+                self.logger.debug("Waiting for upload zone to render...")
                 # Ensure the upload zone renders
                 self.page.wait_for_selector("input[type='file']", timeout=20000)
 
@@ -56,40 +60,57 @@ class VideoPoster:
                         continue
 
                 if upload_input is None:
-                    self.logger.warning("Could not find any working file input.")
-                    return False
+                    self.logger.warning("Could not find any working file input selector.")
+                    continue
 
-                self.logger.info("Setting video file…")
+                self.logger.debug("Setting video file on input element...")
                 upload_input.set_input_files(str(video_path))
 
                 # Wait for upload progress to finish
-                self.logger.info("Waiting for upload to finish…")
+                self.logger.info("⏳ Waiting for upload to complete (max 120s)...")
                 try:
                     # Progressbar appears FIRST then disappears
                     self.page.wait_for_selector("div[role='progressbar']", timeout=15000)
+                    self.logger.debug("Progress bar detected, waiting for upload to finish...")
                     self.page.wait_for_selector(
                         "div[role='progressbar']", state="detached", timeout=120000
                     )
-                except:
-                    pass  # X sometimes doesn’t show progressbar at all
+                    self.logger.debug("Progress bar disappeared (upload complete)")
+                except PlaywrightTimeout:
+                    self.logger.debug("No progress bar appeared, checking for media preview...")
+                except PlaywrightError:
+                    pass  # X sometimes doesn't show progressbar at all
 
                 # Confirm media preview attached
+                self.logger.debug("Waiting for media preview to appear...")
                 self.page.wait_for_selector(
                     "div[data-testid='media-preview']", timeout=120000
                 )
+                self.logger.debug("✔ Media preview detected")
 
+                # Wait for Post button to be enabled
+                self.logger.debug("Waiting for Post button to be enabled...")
                 self.page.wait_for_selector(
                     "button[data-testid='tweetButtonInline']:not([disabled])",
                     timeout=120000,
                 )
-                self.logger.info("[INFO] Upload detected as complete")
+                self.logger.info("✅ Upload complete - Post button is enabled")
                 return True
 
+            except PlaywrightTimeout as exc:
+                self.logger.warning("Upload attempt %d timed out: %s", attempt, exc)
+                if attempt == 3:
+                    self.logger.error("❌ Video upload failed after 3 attempts")
             except PlaywrightError as exc:
                 self.logger.warning("Upload attempt %d failed: %s", attempt, exc)
+                if attempt == 3:
+                    self.logger.error("❌ Video upload failed after 3 attempts")
         return False
 
     def _submit(self) -> bool:
+        """Try multiple strategies to click the Post button."""
+        self.logger.info("🚀 Attempting to submit post...")
+
         selectors = [
             "button[data-testid='tweetButtonInline']",
             "div[data-testid='tweetButtonInline']",
@@ -97,25 +118,42 @@ class VideoPoster:
             "div[role='button'][data-testid='tweetButtonInline']",
         ]
 
-        for sel in selectors:
+        for idx, sel in enumerate(selectors, 1):
             try:
+                self.logger.debug("Trying selector %d/%d: %s", idx, len(selectors), sel)
                 btn = self.page.wait_for_selector(sel, timeout=8000)
                 if btn:
+                    # Ensure button is visible and enabled
+                    if btn.is_disabled():
+                        self.logger.debug("Button is disabled, skipping")
+                        continue
+
                     btn.scroll_into_view_if_needed()
-                    self.page.wait_for_timeout(200)
+                    self.page.wait_for_timeout(300)
+
+                    # Try normal click first
                     try:
-                        btn.click(force=True)
-                        self.logger.info("✔ Successfully clicked Post button via: " + sel)
+                        btn.click(timeout=3000)
+                        self.logger.info("✅ Successfully clicked Post button via selector: %s", sel)
+                        time.sleep(2)  # Brief wait for post to process
                         return True
-                    except:
-                        # Try JS click fallback
-                        self.page.evaluate("(el) => el.click()", btn)
-                        self.logger.info("✔ JS clicked Post button via: " + sel)
-                        return True
-            except:
+                    except PlaywrightError:
+                        # Try force click
+                        try:
+                            btn.click(force=True, timeout=3000)
+                            self.logger.info("✅ Successfully force-clicked Post button via selector: %s", sel)
+                            time.sleep(2)
+                            return True
+                        except PlaywrightError:
+                            # Try JS click fallback
+                            self.page.evaluate("(el) => el.click()", btn)
+                            self.logger.info("✅ Successfully JS-clicked Post button via selector: %s", sel)
+                            time.sleep(2)
+                            return True
+            except PlaywrightError:
                 continue
 
-        self.logger.warning("Failed to submit the post: no tweet button matched.")
+        self.logger.error("❌ Failed to submit the post: no tweet button matched after trying all strategies")
         return False
 
     def _latest_post_url(self) -> Optional[str]:
@@ -139,6 +177,23 @@ class VideoPoster:
         if not video_path.exists():
             self.logger.warning("Video %s does not exist.", video_path)
             return None
+
+        # Dry-run mode: simulate posting without actually clicking Post
+        if self.dry_run:
+            self.logger.info("=" * 60)
+            self.logger.info("🔍 DRY-RUN MODE - Post will NOT be submitted")
+            self.logger.info("=" * 60)
+            self.logger.info("Video: %s (%.2f MB)", video_path.name, video_path.stat().st_size / (1024*1024))
+            self.logger.info("Caption: %s", caption)
+            self.logger.info("=" * 60)
+            self.logger.info("In normal mode, this would:")
+            self.logger.info("  1. Open the composer")
+            self.logger.info("  2. Type the caption")
+            self.logger.info("  3. Upload the video")
+            self.logger.info("  4. Click the Post button")
+            self.logger.info("=" * 60)
+            return "DRY_RUN_NO_URL"
+
         if not self._open_composer():
             return None
         self.logger.info("Typing caption into composer…")
