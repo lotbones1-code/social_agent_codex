@@ -1,9 +1,9 @@
 # Social Agent Codex
 
-This repository hosts the automation agent for posting via Playwright and Chrome.
+This repository hosts the influencer automation agent for scraping, downloading, captioning, and posting viral X videos with a persistent Playwright session.
 
 ## Ready-to-use Claude prompt for repairing influencer mode
-If you want to hand the codebase to Claude with clear instructions for fixing influencer mode without breaking the existing promo/referral flow, use the prompt in [`docs/INFLUENCER_MODE_CLAUDE_PROMPT.md`](docs/INFLUENCER_MODE_CLAUDE_PROMPT.md). Copy-paste it directly into Claude to keep the requirements and constraints intact.
+If you want to hand the codebase to Claude with clear instructions for fixing influencer mode, use the prompt in [`docs/INFLUENCER_MODE_CLAUDE_PROMPT.md`](docs/INFLUENCER_MODE_CLAUDE_PROMPT.md). Copy-paste it directly into Claude to keep the requirements and constraints intact.
 
 ## Requirements
 - Python **3.11.***
@@ -34,13 +34,10 @@ Once installed you can simply run:
 run-bot
 ```
 
-### Quick start if you already logged in manually (no coding needed)
-- Make sure your saved session is present (default `auth.json` in the repo). If you need to capture it again, run `HEADLESS=0 bash run_agent.sh` once and log in when the window opens; the file is written automatically.
-- To run with your saved login and see the browser, use:
-  ```bash
-  scripts/run_with_saved_login.sh
-  ```
-  This keeps the window visible (headful), reuses `auth.json`, and does **not** require you to export your username/password.
+### Quick start (persistent login, no credentials needed)
+- Launch once in headful mode to capture your session: `HEADLESS=0 bash run_agent.sh`.
+- Log in manually when the Playwright window opens. The session is persisted to `auth.json` and a reusable profile under `.pwprofile`.
+- Subsequent runs reuse that saved login automatically: `bash run_agent.sh` (headful) or `HEADLESS=1 bash run_agent.sh` (headless).
 
 ---
 
@@ -52,18 +49,7 @@ run-bot
    ```bash
    make kill
    ```
-3. Export your X credentials before launching the agent **or** place them in a `.env` file in the project root:
-   ```bash
-   export X_USERNAME="your_handle"
-   export X_PASSWORD="your_password"
-   export X_ALT_ID="email_or_phone_optional"  # optional; falls back to X_EMAIL then X_USERNAME
-   ```
-   `X_ALT_ID` is used when X asks for an additional identity prompt. If it is unset, the helper will fall back to `X_EMAIL` and finally `X_USERNAME`. When using a `.env` file, be sure to set `X_USERNAME` and `X_PASSWORD`; the automation will raise a helpful error if either is missing.
-4. Validate the login flow independently (headful) with:
-   ```bash
-   make x-login-test
-   ```
-5. Start the agent only when you are ready to post:
+3. Start the agent only when you are ready to post:
    ```bash
    RUN=1 make start
    ```

@@ -12,12 +12,13 @@ from bot.browser import BrowserManager
 from bot.captioner import CaptionGenerator, VideoContext
 from bot.config import AgentConfig, load_config
 from bot.downloader import VideoDownloader
-from bot.auto_reply import AutoReplyEngine
 from bot.growth import GrowthActions
 from bot.poster import VideoPoster
 from bot.scheduler import Scheduler
 from bot.scraper import ScrapedPost, VideoScraper
 from bot.trending import TrendingTopics
+from bot.trend_analyzer import TrendAnalyzer
+from bot.viral_scorer import ScoredPost, ViralScorer
 
 
 def _shorten(text: str, *, max_len: int = 140) -> str:
@@ -35,7 +36,7 @@ def _slug_from_url(url: str) -> str:
 
 
 def _repost_video(
-    post: ScrapedPost,
+    candidate: ScoredPost,
     topic: str,
     downloader: VideoDownloader,
     poster: VideoPoster,
@@ -43,6 +44,8 @@ def _repost_video(
     logger: logging.Logger,
     scheduler: Scheduler,
 ) -> Optional[str]:
+    post = candidate.post
+    logger.info("[stage:download] Fetching video for %s (score=%.2f)", post.url, candidate.score)
     slug = _slug_from_url(post.url)
     video_path = downloader.download(
         tweet_url=post.url, video_url=post.video_url, filename_hint=slug
@@ -58,8 +61,9 @@ def _repost_video(
         url=post.url,
     )
     caption = captioner.generate(context)
-    logger.info("Generated caption: %s", caption)
+    logger.info("[stage:caption] Generated caption: %s", caption)
 
+    logger.info("[stage:upload] Opening composer for %s", slug)
     posted_url = poster.post_video(caption, video_path)
     scheduler.between_actions()
     return posted_url
@@ -68,6 +72,7 @@ def _repost_video(
 def handle_topic(
     topic: str,
     scraper: VideoScraper,
+    scorer: ViralScorer,
     downloader: VideoDownloader,
     poster: VideoPoster,
     captioner: CaptionGenerator,
@@ -77,14 +82,20 @@ def handle_topic(
     logger: logging.Logger,
     posts_remaining: Optional[int],
 ) -> int:
+    logger.info("[stage:scrape] Searching for trending videos on '%s'", topic)
     posts = scraper.search_topic(topic)
     if not posts:
         logger.info("No video posts surfaced for '%s'", topic)
         return 0
 
+    scored_posts = scorer.rank(posts)
+    if not scored_posts:
+        logger.info("No candidates met the viral score threshold for '%s'", topic)
+        return 0
+
     repost_candidates: List[ScrapedPost] = []
     posted_count = 0
-    for post in posts:
+    for candidate in scored_posts:
         if len(repost_candidates) >= config.max_videos_per_topic:
             break
         if posts_remaining is not None and posted_count >= posts_remaining:
@@ -96,10 +107,10 @@ def handle_topic(
             break
 
         posted_url = _repost_video(
-            post, topic, downloader, poster, captioner, logger, scheduler
+            candidate, topic, downloader, poster, captioner, logger, scheduler
         )
         if posted_url:
-            repost_candidates.append(post)
+            repost_candidates.append(candidate.post)
             posted_count += 1
 
     if repost_candidates:
@@ -128,8 +139,14 @@ def run_bot() -> None:
             if not session:
                 logger.error("Could not start authenticated session. Exiting cycle.")
                 return
-            poster = VideoPoster(session.page, logger)
+            poster = VideoPoster(
+                session.page,
+                logger,
+                upload_retries=config.upload_retry_attempts,
+                post_retries=config.post_retry_attempts,
+            )
             scraper = VideoScraper(session.page, logger)
+            scorer = ViralScorer(logger, min_score=config.min_viral_score)
             downloader = VideoDownloader(
                 config.download_dir,
                 logger,
@@ -145,20 +162,28 @@ def run_bot() -> None:
                 model=config.gpt_caption_model,
             )
             growth = GrowthActions(poster, logger)
-            auto_reply = AutoReplyEngine(
-                session.page, logger, config.auto_reply_template
-            )
             trending = TrendingTopics(
                 session.page,
                 logger,
                 refresh_minutes=config.trending_refresh_minutes,
                 max_topics=config.trending_max_topics,
             )
+            trend_analyzer = TrendAnalyzer(
+                logger,
+                require_trending=config.require_trending,
+                max_topics=config.trending_max_topics,
+            )
 
             try:
-                topics = list(dict.fromkeys(config.search_topics))
+                configured_topics = list(dict.fromkeys(config.search_topics))
+                trending_topics: List[str] = []
                 if config.trending_enabled:
-                    topics.extend([t for t in trending.fetch() if t not in topics])
+                    logger.info("[stage:trending] Fetching trending topics…")
+                    trending_topics = trending.fetch()
+                topics = trend_analyzer.build_topics(configured_topics, trending_topics)
+                if not topics:
+                    logger.info("No topics available; ending cycle early.")
+                    return
                 total_posted = 0
                 per_cycle_cap = (
                     config.max_posts_per_cycle if config.strict_mode else None
@@ -178,6 +203,7 @@ def run_bot() -> None:
                     posted = handle_topic(
                         topic,
                         scraper,
+                        scorer,
                         downloader,
                         poster,
                         captioner,
@@ -190,9 +216,6 @@ def run_bot() -> None:
                     total_posted += posted
             finally:
                 session.close()
-            auto_reply.reply_to_latest(
-                max_replies=config.auto_replies_per_cycle
-            )
         logger.info("Cycle complete. Waiting %ss before the next run.", config.loop_delay_seconds)
 
     scheduler.run_forever(cycle)

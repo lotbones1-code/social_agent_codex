@@ -11,9 +11,18 @@ from playwright.sync_api import Error as PlaywrightError, TimeoutError as Playwr
 class VideoPoster:
     """Handle composing and publishing posts on X."""
 
-    def __init__(self, page: Page, logger: logging.Logger):
+    def __init__(
+        self,
+        page: Page,
+        logger: logging.Logger,
+        *,
+        upload_retries: int = 3,
+        post_retries: int = 3,
+    ):
         self.page = page
         self.logger = logger
+        self.upload_retries = max(1, upload_retries)
+        self.post_retries = max(1, post_retries)
 
     def _open_composer(self) -> bool:
         try:
@@ -30,10 +39,12 @@ class VideoPoster:
 
     def _attach_video(self, video_path: Path) -> bool:
         """Attach video reliably across all 2025 X upload variants."""
-        for attempt in range(1, 4):
+        for attempt in range(1, self.upload_retries + 1):
             try:
                 if attempt > 1:
-                    self.logger.info("Retrying upload attempt %d/3…", attempt)
+                    self.logger.info(
+                        "Retrying upload attempt %d/%d…", attempt, self.upload_retries
+                    )
                 self.logger.info("Waiting for upload zone…")
                 # Ensure the upload zone renders
                 self.page.wait_for_selector("input[type='file']", timeout=20000)
@@ -97,23 +108,36 @@ class VideoPoster:
             "div[role='button'][data-testid='tweetButtonInline']",
         ]
 
-        for sel in selectors:
-            try:
-                btn = self.page.wait_for_selector(sel, timeout=8000)
-                if btn:
-                    btn.scroll_into_view_if_needed()
-                    self.page.wait_for_timeout(200)
-                    try:
-                        btn.click(force=True)
-                        self.logger.info("✔ Successfully clicked Post button via: " + sel)
-                        return True
-                    except:
-                        # Try JS click fallback
-                        self.page.evaluate("(el) => el.click()", btn)
-                        self.logger.info("✔ JS clicked Post button via: " + sel)
-                        return True
-            except:
-                continue
+        for attempt in range(1, self.post_retries + 1):
+            for sel in selectors:
+                try:
+                    btn = self.page.wait_for_selector(sel, timeout=8000)
+                    if btn:
+                        btn.scroll_into_view_if_needed()
+                        self.page.wait_for_timeout(200)
+                        try:
+                            btn.click(force=True)
+                            self.logger.info(
+                                "✔ Successfully clicked Post button via %s (attempt %d/%d)",
+                                sel,
+                                attempt,
+                                self.post_retries,
+                            )
+                            return True
+                        except:
+                            # Try JS click fallback
+                            self.page.evaluate("(el) => el.click()", btn)
+                            self.logger.info(
+                                "✔ JS clicked Post button via %s (attempt %d/%d)",
+                                sel,
+                                attempt,
+                                self.post_retries,
+                            )
+                            return True
+                except:
+                    continue
+            if attempt < self.post_retries:
+                self.page.wait_for_timeout(500)
 
         self.logger.warning("Failed to submit the post: no tweet button matched.")
         return False
