@@ -126,11 +126,33 @@ class BrowserManager:
             self.logger.info("Launching Chrome with persistent context...")
             context = chromium.launch_persistent_context(
                 user_data_dir=str(self.profile_path),
-                headless=False,
                 executable_path=chrome_path,
-                args=["--window-size=1280,900", "--no-sandbox"],
-                viewport={"width": 1280, "height": 900},
+                headless=False,
+                args=[
+                    "--window-size=1280,900",
+                    "--disable-blink-features=AutomationControlled",
+                    "--disable-infobars",
+                    "--disable-web-security",
+                    "--disable-features=IsolateOrigins,site-per-process",
+                    "--disable-gpu-process-crash-limit",
+                    "--disable-gpu-watchdog",
+                    "--enable-features=NetworkService,NetworkServiceInProcess",
+                    "--enable-gpu-rasterization",
+                    "--enable-accelerated-2d-canvas",
+                    "--enable-webgl",
+                    "--use-angle=metal",
+                    "--ignore-certificate-errors",
+                    "--no-sandbox",
+                    "--no-first-run",
+                    "--no-default-browser-check",
+                    "--password-store=basic",
+                    "--disable-renderer-backgrounding",
+                    "--hide-scrollbars",
+                    "--mute-audio",
+                ],
                 locale="en-US",
+                viewport={"width": 1280, "height": 900},
+                user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 13_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
             )
             self.logger.info("✔ Chrome launched successfully")
         except PlaywrightError as exc:
@@ -142,9 +164,33 @@ class BrowserManager:
                 self.profile_path.mkdir(parents=True, exist_ok=True)
                 context = chromium.launch_persistent_context(
                     user_data_dir=str(self.profile_path),
-                    headless=False,
                     executable_path=chrome_path,
-                    args=["--window-size=1280,900", "--no-sandbox"],
+                    headless=False,
+                    args=[
+                        "--window-size=1280,900",
+                        "--disable-blink-features=AutomationControlled",
+                        "--disable-infobars",
+                        "--disable-web-security",
+                        "--disable-features=IsolateOrigins,site-per-process",
+                        "--disable-gpu-process-crash-limit",
+                        "--disable-gpu-watchdog",
+                        "--enable-features=NetworkService,NetworkServiceInProcess",
+                        "--enable-gpu-rasterization",
+                        "--enable-accelerated-2d-canvas",
+                        "--enable-webgl",
+                        "--use-angle=metal",
+                        "--ignore-certificate-errors",
+                        "--no-sandbox",
+                        "--no-first-run",
+                        "--no-default-browser-check",
+                        "--password-store=basic",
+                        "--disable-renderer-backgrounding",
+                        "--hide-scrollbars",
+                        "--mute-audio",
+                    ],
+                    locale="en-US",
+                    viewport={"width": 1280, "height": 900},
+                    user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 13_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
                 )
                 self.logger.info("✔ Chrome launched after profile reset")
             except Exception as retry_exc:
