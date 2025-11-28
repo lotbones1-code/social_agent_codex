@@ -14,11 +14,13 @@ class AgentConfig:
 
     headless: bool = True
     debug: bool = False
+    strict_mode: bool = True
     auth_state: Path = Path("auth.json")
     user_data_dir: Path = Path.home() / ".social_agent/browser"
     download_dir: Path = Path("downloads")
     search_topics: List[str] = field(default_factory=lambda: ["automation", "ai agents"])
     max_videos_per_topic: int = 2
+    max_posts_per_cycle: int = 2
     caption_template: str = "{summary}\n🚀 Sourced via {author} — #ai #automation"
     growth_actions_per_cycle: int = 3
     auto_replies_per_cycle: int = 2
@@ -53,6 +55,7 @@ def load_config() -> AgentConfig:
     cfg = AgentConfig()
     cfg.headless = _parse_bool(os.getenv("HEADLESS"), cfg.headless)
     cfg.debug = _parse_bool(os.getenv("DEBUG"), cfg.debug)
+    cfg.strict_mode = _parse_bool(os.getenv("STRICT_MODE"), cfg.strict_mode)
 
     auth_path = os.getenv("AUTH_FILE") or os.getenv("AUTH_STATE")
     if auth_path:
@@ -79,6 +82,7 @@ def load_config() -> AgentConfig:
         cfg.auto_reply_template = reply_template
 
     cfg.max_videos_per_topic = int(os.getenv("MAX_VIDEOS_PER_TOPIC", cfg.max_videos_per_topic))
+    cfg.max_posts_per_cycle = int(os.getenv("MAX_POSTS_PER_CYCLE", cfg.max_posts_per_cycle))
     cfg.growth_actions_per_cycle = int(
         os.getenv("GROWTH_ACTIONS_PER_CYCLE", cfg.growth_actions_per_cycle)
     )
