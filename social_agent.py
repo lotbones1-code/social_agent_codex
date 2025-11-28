@@ -16,10 +16,13 @@ from bot.ai_captioner import AICaptioner
 from bot.browser import BrowserManager
 from bot.config_loader import load_config
 from bot.engagement import EngagementModule
+from bot.growth_optimizer import GrowthOptimizer
 from bot.post_tracker import PostTracker
 from bot.poster import VideoPoster
 from bot.hybrid_downloader import HybridDownloader
+from bot.trend_analyzer import TrendAnalyzer
 from bot.video_validator import VideoValidator
+from bot.viral_scorer import ViralScorer
 from bot.viral_scraper import ViralScraper, VideoCandidate
 
 
@@ -83,8 +86,13 @@ def run_influencer_cycle(logger: logging.Logger) -> None:
             )
             validator = VideoValidator(logger)
 
-            # Only initialize AI captioner if we have API key
+            # 🚀 GROWTH SYSTEMS
+            trend_analyzer = TrendAnalyzer(page, logger)
+            growth_optimizer = GrowthOptimizer(page, logger)
+
+            # Only initialize AI systems if we have API key
             captioner = None
+            viral_scorer = None
             if config.openai.api_key:
                 captioner = AICaptioner(
                     api_key=config.openai.api_key,
@@ -93,14 +101,42 @@ def run_influencer_cycle(logger: logging.Logger) -> None:
                     temperature=config.openai.temperature,
                     logger=logger,
                 )
+                viral_scorer = ViralScorer(
+                    openai_api_key=config.openai.api_key,
+                    logger=logger,
+                )
+                logger.info("✅ AI systems enabled (captions + viral scoring)")
             else:
-                logger.warning("No OPENAI_API_KEY found - will use fallback captions")
+                logger.warning("No OPENAI_API_KEY found - will use fallback captions and skip viral scoring")
 
-            # Scrape viral videos
+            # 🔥 Analyze trending topics FIRST
             logger.info("=" * 60)
-            logger.info("Scraping candidates...")
+            logger.info("🔥 Analyzing trending topics...")
+            trending_topics = trend_analyzer.get_trending_topics(max_topics=10)
+            trending_hashtags = trend_analyzer.get_trending_hashtags(max_hashtags=3)
+
+            if trending_topics:
+                logger.info(f"📈 Top trending topics:")
+                for topic in trending_topics[:5]:
+                    logger.info(f"  #{topic['rank']}: {topic['topic']} ({topic['category']}) - {topic['tweet_count']}")
+
+            if trending_hashtags:
+                logger.info(f"#️⃣ Trending hashtags: {', '.join(trending_hashtags)}")
+
+            # Scrape viral videos (prioritize trending topics)
+            logger.info("=" * 60)
+            logger.info("Scraping viral video candidates...")
+
+            # Use trending topics if available, fallback to config topics
+            search_topics = config.influencer.topics
+            if trending_topics:
+                # Mix trending topics with configured topics
+                trending_keywords = [t["topic"] for t in trending_topics[:3]]
+                search_topics = trending_keywords + config.influencer.topics
+                logger.info(f"🎯 Prioritizing trending topics: {trending_keywords}")
+
             candidates = scraper.find_candidates(
-                topics=config.influencer.topics,
+                topics=search_topics,
                 use_explore=True,
                 max_per_source=10,
             )
@@ -175,6 +211,32 @@ def run_influencer_cycle(logger: logging.Logger) -> None:
                             pass
                         continue
 
+                    # 🎯 Calculate viral score (skip low-potential videos)
+                    if viral_scorer:
+                        logger.info("Calculating viral score...")
+
+                        # Check if video topic is trending
+                        is_trending = trend_analyzer.should_post_about_topic(
+                            candidate.text,
+                            trending_topics
+                        )
+
+                        viral_score_data = viral_scorer.calculate_viral_score(
+                            video_text=candidate.text,
+                            author=candidate.author,
+                            engagement_metrics=None,  # Could extract from candidate if available
+                            is_trending=is_trending,
+                        )
+
+                        # Skip low-potential videos to save credit
+                        if viral_score_data["recommendation"] == "skip":
+                            logger.warning(f"⏭️ Skipping low viral potential (score: {viral_score_data['score']}/100)")
+                            try:
+                                video_path.unlink()
+                            except:
+                                pass
+                            continue
+
                     # Generate caption
                     logger.info("Generating caption...")
                     if captioner:
@@ -188,7 +250,23 @@ def run_influencer_cycle(logger: logging.Logger) -> None:
                         # Fallback caption
                         caption = f"{candidate.text[:150]}\n\n📹 via {candidate.author}"
 
-                    logger.info(f"Caption: {caption[:80]}...")
+                    # 🔥 Inject trending hashtags for maximum reach
+                    if trending_hashtags and random.random() < 0.7:  # 70% chance to add hashtags
+                        # Add 1-2 trending hashtags
+                        num_hashtags = random.randint(1, min(2, len(trending_hashtags)))
+                        selected_hashtags = random.sample(trending_hashtags, num_hashtags)
+
+                        # Add hashtags before the credit line
+                        if "📹 via" in caption:
+                            parts = caption.split("📹 via")
+                            hashtag_line = " " + " ".join(selected_hashtags)
+                            caption = parts[0].rstrip() + hashtag_line + "\n\n📹 via" + parts[1]
+                        else:
+                            caption += " " + " ".join(selected_hashtags)
+
+                        logger.info(f"✨ Added trending hashtags: {', '.join(selected_hashtags)}")
+
+                    logger.info(f"Caption: {caption[:100]}...")
 
                     # Post video with retry logic
                     logger.info("Posting video...")
@@ -247,6 +325,31 @@ def run_influencer_cycle(logger: logging.Logger) -> None:
                     retweet=False,  # Be conservative with retweets
                     max_actions=5,
                 )
+
+            # 🚀 GROWTH OPTIMIZATION - Strategic engagement to gain followers
+            logger.info("=" * 60)
+            logger.info("🚀 Running growth optimization...")
+
+            # Engage with trending topics to get visibility
+            if trending_topics:
+                top_trending = trending_topics[0]["topic"]
+                logger.info(f"Engaging with top trending topic: {top_trending}")
+                growth_optimizer.engage_with_viral_accounts(
+                    topic=top_trending,
+                    max_accounts=3,
+                    actions_per_account=2,
+                )
+
+            # Engage with trending hashtags
+            if trending_hashtags:
+                for hashtag in trending_hashtags[:2]:  # Top 2 hashtags
+                    growth_optimizer.engage_with_trending_hashtag(
+                        hashtag=hashtag,
+                        max_actions=5,
+                    )
+                    time.sleep(random.uniform(5, 10))
+
+            logger.info("✅ Growth optimization complete")
 
             logger.info("=" * 60)
             logger.info(f"Cycle complete! Posted: {posted_count}")
