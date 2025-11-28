@@ -17,17 +17,41 @@ class VideoPoster:
         self.dry_run = dry_run
 
     def _open_composer(self) -> bool:
-        try:
-            self.logger.info("Opening composer page…")
-            self.page.goto("https://x.com/compose/post", wait_until="networkidle")
-            self.page.wait_for_selector(
-                "div[data-testid='tweetTextarea_0'] div[contenteditable='true']",
-                timeout=15000,
-            )
-            return True
-        except PlaywrightError as exc:
-            self.logger.warning("Could not open composer: %s", exc)
-            return False
+        """Open composer via UI interaction instead of direct URL."""
+        max_attempts = 3
+        for attempt in range(1, max_attempts + 1):
+            try:
+                # Step 1: Navigate to home page
+                self.logger.info("Step 1/3: Navigating to X home page...")
+                self.page.goto("https://x.com/home", wait_until="domcontentloaded", timeout=30000)
+                time.sleep(2)
+                self.logger.info("✓ Loaded home page")
+
+                # Step 2: Click the sidebar "Post" button
+                self.logger.info("Step 2/3: Clicking sidebar Post button...")
+                post_button_selector = "a[data-testid='SideNav_NewTweet_Button']"
+                self.page.wait_for_selector(post_button_selector, timeout=10000, state="visible")
+                self.page.locator(post_button_selector).click()
+                self.logger.info("✓ Clicked Post button")
+                time.sleep(1)
+
+                # Step 3: Wait for composer to appear
+                self.logger.info("Step 3/3: Waiting for composer to appear...")
+                composer_selector = "div[data-testid='tweetTextarea_0'] div[contenteditable='true']"
+                self.page.wait_for_selector(composer_selector, timeout=15000, state="visible")
+                self.logger.info("✓ Composer appeared successfully")
+                return True
+
+            except PlaywrightError as exc:
+                self.logger.warning("Composer open attempt %d/%d failed: %s", attempt, max_attempts, exc)
+                if attempt < max_attempts:
+                    self.logger.info("Retrying in 2 seconds...")
+                    time.sleep(2)
+                else:
+                    self.logger.error("❌ Could not open composer after %d attempts", max_attempts)
+                    return False
+
+        return False
 
     def _attach_video(self, video_path: Path) -> bool:
         """Attach video reliably across all 2025 X upload variants."""
@@ -38,32 +62,33 @@ class VideoPoster:
                     time.sleep(2)  # Brief pause between retries
 
                 self.logger.info("📤 Uploading video: %s (%.2f MB)", video_path.name, video_path.stat().st_size / (1024*1024))
-                self.logger.debug("Waiting for upload zone to render...")
-                # Ensure the upload zone renders
-                self.page.wait_for_selector("input[type='file']", timeout=20000)
 
-                # Try new 2025 input selector first
+                # Step 5: Wait for file input and upload video
+                self.logger.info("Step 5: Waiting for file input element...")
+                # Priority order for file input selectors
                 candidates = [
                     "input[type='file'][accept*='video']",
+                    "input[type='file']",
                     "input[data-testid='fileInput']",
-                    "//input[@type='file']",
                 ]
 
                 upload_input = None
                 for selector in candidates:
                     try:
+                        self.logger.debug("Trying file input selector: %s", selector)
                         el = self.page.locator(selector).first
                         el.wait_for(state="attached", timeout=5000)
                         upload_input = el
+                        self.logger.info("✓ Found file input: %s", selector)
                         break
                     except:
                         continue
 
                 if upload_input is None:
-                    self.logger.warning("Could not find any working file input selector.")
+                    self.logger.warning("❌ Could not find file input selector")
                     continue
 
-                self.logger.debug("Setting video file on input element...")
+                self.logger.info("Uploading video file...")
                 upload_input.set_input_files(str(video_path))
 
                 # Wait for upload progress to finish
@@ -109,32 +134,40 @@ class VideoPoster:
 
     def _submit(self) -> bool:
         """Try multiple strategies to click the Post button."""
-        self.logger.info("🚀 Attempting to submit post...")
+        self.logger.info("🚀 Step 6: Attempting to submit post...")
 
-        # FIX #2: Post button detection with fallback selectors
+        # Post button detection with fallback selectors (prioritize div variant)
         post_button_selectors = [
+            "div[data-testid='tweetButtonInline']",
             "button[data-testid='tweetButtonInline']",
             "button[data-testid='tweetButton']",
-            "div[data-testid='tweetButtonInline']",
             "div[data-testid='tweetButton']",
         ]
 
         post_button = None
         for sel in post_button_selectors:
             try:
-                self.page.wait_for_selector(sel, timeout=4000)
+                self.logger.debug("Trying post button selector: %s", sel)
+                self.page.wait_for_selector(sel, timeout=5000, state="visible")
                 post_button = self.page.locator(sel)
+                self.logger.info("✓ Found post button: %s", sel)
                 break
-            except:
+            except PlaywrightError:
                 continue
 
         if not post_button:
-            raise Exception("Post button not found - tried all selectors")
+            self.logger.error("❌ Post button not found - tried all selectors")
+            return False
 
-        post_button.click()
-        self.logger.info("✅ Clicked Post button")
-        time.sleep(3)
-        return True
+        try:
+            post_button.click()
+            self.logger.info("✅ Clicked Post button successfully")
+            time.sleep(3)
+            self.logger.info("Step 7: Post submitted successfully")
+            return True
+        except PlaywrightError as exc:
+            self.logger.error("❌ Failed to click Post button: %s", exc)
+            return False
 
     def _latest_post_url(self) -> Optional[str]:
         try:
@@ -176,10 +209,12 @@ class VideoPoster:
 
         if not self._open_composer():
             return None
-        self.logger.info("Typing caption into composer…")
+        # Step 4: Type caption into composer
+        self.logger.info("Step 4: Typing caption into composer...")
         try:
-            # FIX #1: Composer detection with fallback selectors
+            # Composer detection with fallback selectors
             composer_selectors = [
+                "div[data-testid='tweetTextarea_0'] div[contenteditable='true']",
                 "div[data-testid='tweetTextarea_0']",
                 "div[role='textbox']",
                 "textarea",
@@ -188,22 +223,25 @@ class VideoPoster:
             composer_box = None
             for sel in composer_selectors:
                 try:
-                    self.page.wait_for_selector(sel, timeout=5000)
+                    self.logger.debug("Trying composer selector: %s", sel)
+                    self.page.wait_for_selector(sel, timeout=5000, state="visible")
                     composer_box = self.page.locator(sel)
+                    self.logger.info("✓ Found composer: %s", sel)
                     break
                 except:
                     continue
 
             if not composer_box:
-                raise Exception("Composer not found - tried all selectors")
+                self.logger.error("❌ Composer not found - tried all selectors")
+                return None
 
-            composer_box.wait_for(state="visible", timeout=15000)
             composer_box.click()
+            time.sleep(0.5)
             composer_box.fill(caption)
+            self.logger.info("✓ Caption typed successfully")
         except PlaywrightError as exc:
-            self.logger.warning("Could not type caption: %s", exc)
+            self.logger.error("❌ Could not type caption: %s", exc)
             return None
-        self.logger.info("Caption typed successfully.")
 
         self.logger.info("Uploading video to composer…")
         if not self._attach_video(video_path):
