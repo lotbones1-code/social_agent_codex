@@ -8,8 +8,11 @@ from typing import Optional
 from playwright.sync_api import Error as PlaywrightError, TimeoutError as PlaywrightTimeout, Page, Locator
 
 
-# Post button selector constant
-POST_BUTTON_SELECTOR = "[data-testid='tweetButtonInline']"
+# Post button selector constant - match both button and div[role='button']
+POST_BUTTON_SELECTOR = "button[data-testid='tweetButtonInline'], div[role='button'][data-testid='tweetButtonInline']"
+
+# Composer textarea selector for focusing before keyboard submit
+TEXTAREA_SELECTOR = "div[data-testid='tweetTextarea_0'] div[contenteditable='true']"
 
 
 class VideoPoster:
@@ -138,31 +141,49 @@ class VideoPoster:
                     self.logger.error("❌ Video upload failed after 3 attempts")
         return False
 
-    def _get_post_button(self) -> Locator:
-        """Get the Post button locator."""
-        btn = self.page.locator(POST_BUTTON_SELECTOR).first
-        return btn
+    def _pick_post_button(self) -> Optional[Locator]:
+        """Pick the best Post button candidate - visible and contains 'Post' text."""
+        btns = self.page.locator(POST_BUTTON_SELECTOR)
+        count = btns.count()
+        if count == 0:
+            return None
 
-    def _is_post_button_enabled(self, btn: Locator) -> bool:
-        """Check if the Post button is enabled and clickable."""
+        # Prefer visible button with text containing "Post"
+        for i in range(count):
+            el = btns.nth(i)
+            try:
+                if el.is_visible(timeout=500):
+                    txt = (el.inner_text(timeout=500) or "").strip().lower()
+                    if "post" in txt:
+                        return el
+            except PlaywrightError:
+                continue
+
+        # Fallback: first visible
+        for i in range(count):
+            el = btns.nth(i)
+            try:
+                if el.is_visible(timeout=500):
+                    return el
+            except PlaywrightError:
+                continue
+
+        # Fallback: first element
+        return btns.first
+
+    def _focus_composer_textarea(self) -> None:
+        """Focus the composer textarea before keyboard submit."""
         try:
-            if not btn.is_visible(timeout=2000):
-                return False
-            # aria-disabled is the most important
-            aria_disabled = btn.get_attribute("aria-disabled") or ""
-            if aria_disabled.lower() == "true":
-                return False
-            # X sometimes uses disabled attribute too
-            disabled_attr = btn.get_attribute("disabled")
-            if disabled_attr is not None:
-                return False
-            return True
-        except PlaywrightError:
-            return False
+            area = self.page.locator(TEXTAREA_SELECTOR).first
+            if area.is_visible(timeout=2000):
+                self.logger.info("🖱 Focusing composer textarea before keyboard submit...")
+                area.click(timeout=3000, force=True)
+        except PlaywrightError as exc:
+            self.logger.warning("⚠️ Could not focus composer textarea: %s", exc)
 
     def _submit(self) -> bool:
-        """Click the Post button with SUPER AGGRESSIVE retry logic - just keep clicking!"""
-        self.logger.info("🚀 Starting aggressive Post button clicking sequence...")
+        """Click the Post button with DIAGNOSTIC + SMART PICKING + aggressive retry logic."""
+        self.logger.info("🚀 Starting Post button submission with diagnostics...")
 
         # 1) Give X a moment to finalize upload
         self.logger.info("🕒 Brief settle wait (3 seconds)...")
@@ -174,109 +195,115 @@ class VideoPoster:
             self.logger.info("=" * 60)
             return True
 
-        # 2) Wait for Post button to exist and be visible (not checking enabled state!)
-        self.logger.info("⏳ Waiting for Post button to appear in DOM...")
+        # 2) DIAGNOSTIC: Show all Post button candidates
+        self.logger.info("🔍 Running diagnostics on Post button candidates...")
         try:
-            self.page.wait_for_selector(POST_BUTTON_SELECTOR, state="visible", timeout=10000)
-            self.logger.info("✅ Post button is VISIBLE in composer")
-        except PlaywrightTimeout:
-            self.logger.error("❌ Post button never appeared in DOM after 10s")
-            return False
+            btns = self.page.locator(POST_BUTTON_SELECTOR)
+            count = btns.count()
+            self.logger.info("🔍 Post button candidates found: %d", count)
 
-        # 3) SUPER AGGRESSIVE: Just keep clicking for 40 seconds straight!
-        # Don't wait for aria-disabled to flip - it's unreliable. Just click!
+            for i in range(count):
+                try:
+                    el = btns.nth(i)
+                    visible = False
+                    bbox = None
+                    text = ""
+                    disabled_attr = None
+                    aria_disabled = None
+
+                    try:
+                        visible = el.is_visible(timeout=1000)
+                    except PlaywrightError:
+                        pass
+
+                    try:
+                        bbox = el.bounding_box()
+                    except PlaywrightError:
+                        pass
+
+                    try:
+                        text = el.inner_text(timeout=1000)
+                    except PlaywrightError:
+                        pass
+
+                    try:
+                        disabled_attr = el.get_attribute("disabled")
+                        aria_disabled = el.get_attribute("aria-disabled")
+                    except PlaywrightError:
+                        pass
+
+                    self.logger.info(
+                        "🔎 Candidate %d: visible=%s text=%r disabled=%r aria-disabled=%r bbox=%r",
+                        i, visible, text, disabled_attr, aria_disabled, bbox,
+                    )
+                except PlaywrightError as exc:
+                    self.logger.warning("⚠️ Error inspecting Post candidate %d: %s", i, exc)
+        except PlaywrightError as exc:
+            self.logger.warning("⚠️ Could not run diagnostics: %s", exc)
+
+        # 3) AGGRESSIVE CLICKING LOOP with smart picker (40 seconds)
         self.logger.info("🖱 Starting AGGRESSIVE clicking loop (40 seconds)...")
-        start_time = time.time()
-        click_attempts = 0
-        max_duration = 40  # 40 seconds
+        deadline = time.time() + 40
+        attempt = 0
 
-        while time.time() - start_time < max_duration:
-            click_attempts += 1
-
+        while time.time() < deadline:
+            attempt += 1
             try:
-                # Re-grab button each time
-                btn = self.page.locator(POST_BUTTON_SELECTOR).first
+                # Use smart picker to get the best candidate
+                btn = self._pick_post_button()
+                if not btn:
+                    if attempt % 3 == 0:
+                        self.logger.warning("⚠️ No Post button candidate found (attempt %d) – retrying...", attempt)
+                    time.sleep(1.5)
+                    continue
 
-                # Check if button still exists (if not, we probably succeeded!)
+                if attempt % 3 == 0:
+                    self.logger.info("🖱 Click attempt %d (%.1fs elapsed)...", attempt, time.time() - (deadline - 40))
+
+                # Click with force=True
+                btn.click(timeout=10000, force=True)
+
+                # Check if composer closed or button disappeared
                 try:
-                    if not btn.is_visible(timeout=500):
-                        self.logger.info("✅✅✅ POST BUTTON DISAPPEARED - Tweet was posted!")
-                        return True
-                except:
-                    # Button gone = success
-                    self.logger.info("✅✅✅ POST BUTTON GONE - Tweet was posted!")
+                    self.page.wait_for_selector(POST_BUTTON_SELECTOR, state="detached", timeout=15000)
+                    self.logger.info("✅✅✅ POST SUBMITTED SUCCESSFULLY - Post button is gone!")
                     return True
-
-                # Try to click with force=True (ignore overlays, disabled state, etc.)
-                if click_attempts % 5 == 0:
-                    self.logger.info("🖱 Click attempt %d (%.1fs elapsed)...", click_attempts, time.time() - start_time)
-
-                btn.click(timeout=3000, force=True)
-
-                # After clicking, immediately check if composer disappeared
-                time.sleep(1)
-
-                # Check if we succeeded (composer modal gone or URL changed)
-                current_url = self.page.url
-                if "/compose/post" not in current_url:
-                    self.logger.info("✅✅✅ COMPOSER CLOSED - URL changed to: %s", current_url)
-                    return True
-
-                # Check if Post button disappeared
-                try:
-                    if not self.page.locator(POST_BUTTON_SELECTOR).first.is_visible(timeout=500):
-                        self.logger.info("✅✅✅ POST BUTTON DISAPPEARED AFTER CLICK!")
-                        return True
-                except:
-                    self.logger.info("✅✅✅ POST BUTTON GONE AFTER CLICK!")
-                    return True
-
-                # Still here? Try again after a short delay
-                time.sleep(1)
+                except PlaywrightTimeout:
+                    # If still present, loop and try again
+                    if attempt % 3 == 0:
+                        self.logger.warning("⚠️ Post button still present after click (attempt %d) – retrying...", attempt)
+                    time.sleep(1.5)
+                    continue
 
             except PlaywrightError as exc:
-                # Click failed, but keep trying
-                if click_attempts % 5 == 0:
-                    self.logger.debug("Click attempt %d failed: %s", click_attempts, str(exc)[:80])
-                time.sleep(1)
-                continue
+                if attempt % 3 == 0:
+                    self.logger.warning("⚠️ Click attempt %d raised PlaywrightError: %s", attempt, str(exc)[:120])
+                time.sleep(1.5)
 
-        # 4) After 40 seconds of clicking, try keyboard shortcut as last resort
-        self.logger.warning("⚠️  40 seconds of clicking didn't work - trying keyboard shortcut...")
+        # 4) KEYBOARD SHORTCUT FALLBACK
+        self.logger.warning("⚠️ 40 seconds of clicking didn't work - trying keyboard shortcut...")
+        self._focus_composer_textarea()
+
         try:
-            self.logger.info("⌨️  Sending Cmd+Enter...")
+            self.logger.info("⌨️ Sending Cmd+Enter...")
             self.page.keyboard.press("Meta+Enter")
-            time.sleep(2)
+            time.sleep(2.0)
 
-            # Check if it worked
-            if "/compose/post" not in self.page.url:
-                self.logger.info("✅✅✅ KEYBOARD SHORTCUT WORKED - Composer closed!")
-                return True
-        except PlaywrightError:
-            try:
-                self.logger.info("⌨️  Trying Ctrl+Enter...")
-                self.page.keyboard.press("Control+Enter")
-                time.sleep(2)
+            # Try Ctrl+Enter as fallback on non-mac
+            self.logger.info("⌨️ Sending Ctrl+Enter...")
+            self.page.keyboard.press("Control+Enter")
+            time.sleep(2.0)
+        except PlaywrightError as exc:
+            self.logger.warning("⚠️ Keyboard submit raised PlaywrightError: %s", exc)
 
-                if "/compose/post" not in self.page.url:
-                    self.logger.info("✅✅✅ KEYBOARD SHORTCUT WORKED - Composer closed!")
-                    return True
-            except PlaywrightError as exc:
-                self.logger.error("❌ Keyboard shortcuts failed: %s", exc)
-
-        # 5) Last check - did composer close anyway?
+        # 5) FINAL VERIFICATION
         try:
-            if not self.page.locator(POST_BUTTON_SELECTOR).first.is_visible(timeout=2000):
-                self.logger.warning("⚠️  Post button gone - tweet MAY have posted despite errors")
-                return True
-        except:
-            self.logger.warning("⚠️  Post button gone - tweet MAY have posted despite errors")
+            self.page.wait_for_selector(POST_BUTTON_SELECTOR, state="detached", timeout=15000)
+            self.logger.info("✅✅✅ POST SUBMITTED SUCCESSFULLY via keyboard shortcut!")
             return True
-
-        # Still here = failed
-        self.logger.error("❌ Failed to post after %d click attempts over 40+ seconds", click_attempts)
-        self.logger.error("❌ Composer is still open - tweet was NOT posted")
-        return False
+        except PlaywrightTimeout:
+            self.logger.error("❌ Failed to post after aggressive clicking + keyboard fallback – composer still open.")
+            return False
 
     def _latest_post_url(self) -> Optional[str]:
         """Get the URL of the most recent post from profile."""
