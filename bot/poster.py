@@ -241,7 +241,35 @@ class VideoPoster:
         except PlaywrightError as exc:
             self.logger.warning("⚠️ Could not run diagnostics: %s", exc)
 
-        # 3) AGGRESSIVE CLICKING LOOP with smart picker (40 seconds)
+        # 3) WAIT FOR POST BUTTON TO BECOME ENABLED (X needs time to encode video)
+        self.logger.info("⏳ Waiting for Post button to become enabled (X is processing video)...")
+        self.logger.info("⏳ This can take 30-90 seconds for video encoding...")
+        wait_start = time.time()
+        max_wait = 90  # 90 seconds for video encoding
+        enabled = False
+
+        while time.time() - wait_start < max_wait:
+            try:
+                btn = self._pick_post_button()
+                if btn:
+                    aria_disabled = btn.get_attribute("aria-disabled")
+                    if aria_disabled == "false":
+                        elapsed = time.time() - wait_start
+                        self.logger.info("✅ Post button is NOW ENABLED after %.1f seconds!", elapsed)
+                        enabled = True
+                        break
+                    elif int(time.time() - wait_start) % 10 == 0:  # Log every 10 seconds
+                        self.logger.info("⏱ Still waiting for encoding... (%.1fs elapsed, aria-disabled=%s)",
+                                       time.time() - wait_start, aria_disabled)
+                time.sleep(2)  # Check every 2 seconds
+            except PlaywrightError:
+                time.sleep(2)
+                continue
+
+        if not enabled:
+            self.logger.warning("⚠️ Post button never became enabled after %d seconds - will try clicking anyway...", max_wait)
+
+        # 4) AGGRESSIVE CLICKING LOOP with smart picker (40 seconds)
         self.logger.info("🖱 Starting AGGRESSIVE clicking loop (40 seconds)...")
         deadline = time.time() + 40
         attempt = 0
@@ -280,7 +308,7 @@ class VideoPoster:
                     self.logger.warning("⚠️ Click attempt %d raised PlaywrightError: %s", attempt, str(exc)[:120])
                 time.sleep(1.5)
 
-        # 4) KEYBOARD SHORTCUT FALLBACK
+        # 5) KEYBOARD SHORTCUT FALLBACK
         self.logger.warning("⚠️ 40 seconds of clicking didn't work - trying keyboard shortcut...")
         self._focus_composer_textarea()
 
@@ -296,7 +324,7 @@ class VideoPoster:
         except PlaywrightError as exc:
             self.logger.warning("⚠️ Keyboard submit raised PlaywrightError: %s", exc)
 
-        # 5) FINAL VERIFICATION
+        # 6) FINAL VERIFICATION
         try:
             self.page.wait_for_selector(POST_BUTTON_SELECTOR, state="detached", timeout=15000)
             self.logger.info("✅✅✅ POST SUBMITTED SUCCESSFULLY via keyboard shortcut!")
