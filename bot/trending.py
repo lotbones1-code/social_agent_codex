@@ -56,7 +56,12 @@ class TrendingTopics:
                     continue
 
                 # Skip metadata lines (categories, "Trending", etc.)
-                if any(skip in line_clean for skip in ["·", "Trending in", "posts", "post"]):
+                # Be specific to avoid false positives (e.g., "Post Malone" should not be skipped)
+                if "·" in line_clean or "Trending in" in line_clean:
+                    continue
+                if line_clean.endswith(" posts") or line_clean.endswith(" post"):
+                    continue
+                if line_clean.startswith("posts ") or line_clean.startswith("post "):
                     continue
 
                 # Skip if line is just a number (like "12.3K" or "1,234")
@@ -131,8 +136,16 @@ class TrendingTopics:
                 self.logger.debug("⚠️ Rejected topic (no letters): %r", topic)
                 continue
 
+            # Skip AI-related topics (we filter AI videos anyway)
+            topic_lower = topic.lower()
+            ai_keywords = ["ai generated", "ai video", "midjourney", "dall-e", "dalle",
+                          "stable diffusion", "ai art", "chatgpt", "openai"]
+            if any(ai_kw in topic_lower for ai_kw in ai_keywords):
+                self.logger.info("⚠️ Rejected topic (AI-related): %r", topic)
+                continue
+
             # Skip very generic/useless topics
-            if topic.lower() in ["trending", "new", "live", "viral", "hot"]:
+            if topic_lower in ["trending", "new", "live", "viral", "hot", "ai"]:
                 self.logger.debug("⚠️ Rejected topic (too generic): %r", topic)
                 continue
 
