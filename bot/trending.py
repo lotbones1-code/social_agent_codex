@@ -48,8 +48,29 @@ class TrendingTopics:
             if not lines:
                 continue
 
-            # First line is usually the topic/hashtag
-            topic = lines[0].replace("#", "").strip()
+            # FIND ACTUAL TOPIC (not category metadata or numbers)
+            topic = None
+            for line in lines:
+                line_clean = line.replace("#", "").strip()
+                if not line_clean:
+                    continue
+
+                # Skip metadata lines (categories, "Trending", etc.)
+                if any(skip in line_clean for skip in ["·", "Trending in", "posts", "post"]):
+                    continue
+
+                # Skip if line is just a number (like "12.3K" or "1,234")
+                if line_clean.replace(",", "").replace(".", "").replace("K", "").replace("M", "").isdigit():
+                    continue
+
+                # Skip very short lines (likely metadata)
+                if len(line_clean) < 3:
+                    continue
+
+                # This looks like the actual topic!
+                topic = line_clean
+                break
+
             if not topic:
                 continue
 
@@ -57,7 +78,7 @@ class TrendingTopics:
             post_count = 999999  # Default high number for unknown
             is_new = False
 
-            for line in lines[1:]:
+            for line in lines:
                 line_lower = line.lower()
                 # Check if marked as new/trending
                 if "new" in line_lower or "🔥" in line:
@@ -80,8 +101,10 @@ class TrendingTopics:
                                 break
                             else:
                                 # Regular number
-                                post_count = int(part.replace(",", ""))
-                                break
+                                num_str = part.replace(",", "")
+                                if num_str.isdigit():
+                                    post_count = int(num_str)
+                                    break
                         except (ValueError, AttributeError):
                             continue
 
@@ -96,13 +119,27 @@ class TrendingTopics:
             x[1],          # Then by post count ascending (lower = newer)
         ))
 
-        # Extract just the topic names, deduplicate
+        # Extract just the topic names, deduplicate, and validate
         topics: List[str] = []
         for topic, count, is_new in topic_data:
-            if topic not in topics:
-                marker = "🆕" if is_new else f"({count} posts)" if count < 999999 else ""
-                self.logger.debug("Trend: %s %s", topic, marker)
-                topics.append(topic)
+            if topic in topics:
+                continue
+
+            # FINAL VALIDATION: Ensure topic makes sense
+            # Skip if it's just numbers or garbage
+            if not any(c.isalpha() for c in topic):
+                self.logger.debug("⚠️ Rejected topic (no letters): %r", topic)
+                continue
+
+            # Skip very generic/useless topics
+            if topic.lower() in ["trending", "new", "live", "viral", "hot"]:
+                self.logger.debug("⚠️ Rejected topic (too generic): %r", topic)
+                continue
+
+            marker = "🆕" if is_new else f"({count} posts)" if count < 999999 else ""
+            self.logger.info("✓ Trend: %s %s", topic, marker)
+            topics.append(topic)
+
             if len(topics) >= self.max_topics:
                 break
 
