@@ -31,7 +31,7 @@ class AgentConfig:
     auto_reply_template: str = "Thanks for the mention, {author}! 🚀"
     trending_enabled: bool = True
     trending_max_topics: int = 6
-    trending_refresh_minutes: int = 45
+    trending_refresh_minutes: int = 10  # Check every 10 min to catch NEW trends faster
     openai_api_key: str | None = None
     gpt_caption_model: str = "gpt-4o-mini"
     download_user_agent: str | None = None

@@ -33,7 +33,9 @@ class TrendingTopics:
             self.logger.warning("Could not read trending topics: %s", exc)
             return []
 
-        topics: List[str] = []
+        # Store topics with metadata for smarter sorting
+        topic_data: List[tuple[str, int, bool]] = []  # (topic, post_count, is_new)
+
         for card in cards:
             try:
                 text = card.inner_text(timeout=2000)
@@ -41,33 +43,97 @@ class TrendingTopics:
                 continue
             if not text:
                 continue
-            cleaned = text.replace("#", "").split("\n")[0].strip()
-            if cleaned and cleaned not in topics:
-                topics.append(cleaned)
+
+            lines = text.split("\n")
+            if not lines:
+                continue
+
+            # First line is usually the topic/hashtag
+            topic = lines[0].replace("#", "").strip()
+            if not topic:
+                continue
+
+            # Extract post count (e.g., "1,234 posts" or "12.3K posts")
+            post_count = 999999  # Default high number for unknown
+            is_new = False
+
+            for line in lines[1:]:
+                line_lower = line.lower()
+                # Check if marked as new/trending
+                if "new" in line_lower or "🔥" in line:
+                    is_new = True
+
+                # Extract post count for velocity estimation
+                if "post" in line_lower or "tweet" in line_lower:
+                    # Parse numbers like "1,234 posts" or "12.3K posts"
+                    parts = line.split()
+                    for part in parts:
+                        try:
+                            # Handle K/M suffixes
+                            if "k" in part.lower():
+                                num = float(part.lower().replace("k", "").replace(",", ""))
+                                post_count = int(num * 1000)
+                                break
+                            elif "m" in part.lower():
+                                num = float(part.lower().replace("m", "").replace(",", ""))
+                                post_count = int(num * 1000000)
+                                break
+                            else:
+                                # Regular number
+                                post_count = int(part.replace(",", ""))
+                                break
+                        except (ValueError, AttributeError):
+                            continue
+
+            topic_data.append((topic, post_count, is_new))
+
+        # PRIORITIZE NEW/FRESH TRENDS:
+        # 1. Topics marked "NEW" first
+        # 2. Then topics with LOWER post counts (newer trends)
+        # 3. Then everything else
+        topic_data.sort(key=lambda x: (
+            not x[2],      # is_new=True first (False sorts before True, so invert)
+            x[1],          # Then by post count ascending (lower = newer)
+        ))
+
+        # Extract just the topic names, deduplicate
+        topics: List[str] = []
+        for topic, count, is_new in topic_data:
+            if topic not in topics:
+                marker = "🆕" if is_new else f"({count} posts)" if count < 999999 else ""
+                self.logger.debug("Trend: %s %s", topic, marker)
+                topics.append(topic)
             if len(topics) >= self.max_topics:
                 break
+
         return topics
 
     def fetch(self) -> List[str]:
         if self._cache and not self._is_stale():
             return self._cache
 
+        # Try main Trending tab first (best for catching NEW trends)
         url = "https://x.com/explore/tabs/trending"
-        self.logger.info("Refreshing trending topics from %s", url)
+        self.logger.info("🔍 Refreshing trending topics from %s", url)
         try:
             self.page.goto(url, wait_until="domcontentloaded", timeout=60000)
-            self.page.wait_for_timeout(1500)
+            self.page.wait_for_timeout(2000)  # Give trends time to load
         except PlaywrightError as exc:
             self.logger.warning("Failed to load trending tab: %s", exc)
             return self._cache
 
         topics = self._extract_topics()
+
+        # If we got topics, great! Cache them
         if topics:
             self._cache = topics
             self._last_fetch = time.time()
-            self.logger.info("Loaded %d trending topics", len(topics))
+            self.logger.info("✅ Loaded %d trending topics (prioritizing NEW/fresh trends)", len(topics))
+            for i, topic in enumerate(topics[:5]):  # Log top 5
+                self.logger.info("  %d. %s", i + 1, topic)
         else:
             self.logger.info("No trending topics found; using cached set of %d", len(self._cache))
+
         return self._cache
 
 

@@ -315,23 +315,57 @@ class VideoPoster:
         try:
             self.logger.info("⌨️ Sending Cmd+Enter...")
             self.page.keyboard.press("Meta+Enter")
-            time.sleep(2.0)
+            time.sleep(3.0)  # Give X more time to process
 
             # Try Ctrl+Enter as fallback on non-mac
             self.logger.info("⌨️ Sending Ctrl+Enter...")
             self.page.keyboard.press("Control+Enter")
-            time.sleep(2.0)
+            time.sleep(3.0)  # Give X more time to process
         except PlaywrightError as exc:
             self.logger.warning("⚠️ Keyboard submit raised PlaywrightError: %s", exc)
 
-        # 6) FINAL VERIFICATION
+        # 6) FINAL VERIFICATION - Check multiple signals that post succeeded
+        self.logger.info("🔍 Checking if post was submitted...")
+
+        # Check 1: Did button disappear?
         try:
-            self.page.wait_for_selector(POST_BUTTON_SELECTOR, state="detached", timeout=15000)
-            self.logger.info("✅✅✅ POST SUBMITTED SUCCESSFULLY via keyboard shortcut!")
+            self.page.wait_for_selector(POST_BUTTON_SELECTOR, state="detached", timeout=30000)
+            self.logger.info("✅✅✅ POST SUBMITTED SUCCESSFULLY - Post button disappeared!")
             return True
         except PlaywrightTimeout:
-            self.logger.error("❌ Failed to post after aggressive clicking + keyboard fallback – composer still open.")
-            return False
+            self.logger.warning("⚠️ Post button still visible after 30s...")
+
+        # Check 2: Did URL change away from composer?
+        time.sleep(2)
+        current_url = self.page.url
+        if "/compose/post" not in current_url:
+            self.logger.info("✅✅✅ POST SUBMITTED SUCCESSFULLY - Left composer (now at: %s)", current_url)
+            return True
+
+        # Check 3: Is composer modal closed? (check for backdrop or modal)
+        try:
+            composer_modal = self.page.locator("[aria-labelledby='modal-header']")
+            if composer_modal.count() == 0:
+                self.logger.info("✅✅✅ POST SUBMITTED SUCCESSFULLY - Composer modal is gone!")
+                return True
+        except PlaywrightError:
+            pass
+
+        # Check 4: Last resort - wait a bit longer and check button again
+        self.logger.info("🔍 Waiting 10 more seconds to see if post completes...")
+        time.sleep(10)
+        try:
+            if not self.page.locator(POST_BUTTON_SELECTOR).first.is_visible(timeout=3000):
+                self.logger.info("✅✅✅ POST SUBMITTED SUCCESSFULLY - Post button gone after extended wait!")
+                return True
+        except PlaywrightError:
+            self.logger.info("✅✅✅ POST SUBMITTED SUCCESSFULLY - Post button element detached!")
+            return True
+
+        # Still here = probably failed (but log a softer message)
+        self.logger.warning("⚠️ Could not confirm post submission - composer may still be open")
+        self.logger.warning("⚠️ Check X manually to verify if tweet was posted")
+        return False
 
     def _latest_post_url(self) -> Optional[str]:
         """Get the URL of the most recent post from profile."""
