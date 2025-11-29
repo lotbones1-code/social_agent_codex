@@ -91,10 +91,29 @@ class VideoScraper:
             time.sleep(1.5)
 
     def search_topic(self, topic: str) -> List[ScrapedPost]:
-        """Search for video posts about a topic."""
+        """Search for video posts about a topic, optimized for viral content."""
         query = topic.replace(" ", "%20")
-        url = f"https://x.com/search?q={query}&f=live"
-        self.logger.info("Searching for videos about '%s'", topic)
+
+        # SMART SEARCH STRATEGY:
+        # - Funny/viral topics: prefer TOP (high engagement) for proven viral content
+        # - Trending/news: prefer LIVE (latest) for fresh breaking content
+        # - Sports: use TOP for highlights (better quality)
+        topic_lower = topic.lower()
+        if any(keyword in topic_lower for keyword in ["funny", "viral", "meme", "lol"]):
+            search_filter = "top"  # Get most engaged viral content
+            strategy = "TOP (most viral)"
+        elif any(keyword in topic_lower for keyword in ["trending", "news", "breaking"]):
+            search_filter = "live"  # Get freshest content
+            strategy = "LIVE (freshest)"
+        elif any(keyword in topic_lower for keyword in ["nfl", "nba", "mlb", "sports", "soccer", "football", "basketball"]):
+            search_filter = "top"  # Get best highlights
+            strategy = "TOP (best plays)"
+        else:
+            search_filter = "live"  # Default to latest
+            strategy = "LIVE (latest)"
+
+        url = f"https://x.com/search?q={query}&f={search_filter}"
+        self.logger.info("🔍 Searching for videos: '%s' (strategy: %s)", topic, strategy)
         try:
             self.page.goto(url, wait_until="domcontentloaded", timeout=60000)
         except PlaywrightError as exc:

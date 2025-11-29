@@ -40,49 +40,104 @@ class CaptionGenerator:
                 self.logger.warning("Could not initialize ChatGPT client: %s", exc)
 
     def _fallback_caption(self, context: VideoContext) -> str:
-        """Generate a simple fallback caption when AI generation fails or is not available."""
-        add_ons = ["", "🔥", "🚀", "✨"]
+        """Generate a viral-optimized fallback caption when AI generation fails or is not available."""
+        # Better emoji choices based on content type
+        topic_lower = context.topic.lower()
+        if any(sport in topic_lower for sport in ["nfl", "nba", "mlb", "soccer", "football", "basketball"]):
+            emojis = ["🔥", "⚡", "🏈", "🏀", ""]
+            prefixes = ["THIS is crazy", "Absolutely INSANE", "No way", "Holy", ""]
+        elif any(funny in topic_lower for funny in ["funny", "viral", "meme"]):
+            emojis = ["😭", "💀", "😂", "", "lmao"]
+            prefixes = ["I can't", "Why is this so", "This is the most", "Bro", ""]
+        else:
+            emojis = ["🔥", "🚀", "✨", "⚡", ""]
+            prefixes = ["This is", "Absolutely", "Just", "Peak", ""]
+
         decorated_summary = context.summary.strip()
         if not decorated_summary:
-            decorated_summary = f"Check out this {context.topic} content!"
+            decorated_summary = f"{random.choice(prefixes)} {context.topic} content"
 
-        suffix = random.choice(add_ons)
+        # Build engaging caption
+        prefix = random.choice(prefixes)
+        emoji = random.choice(emojis)
         template = self.template
 
         # Ensure no {author} references leak through
         template = template.replace("{author}", "").replace("via ", "").replace("by ", "")
 
-        # Format with just the summary
+        # Format with summary
         base = template.format(summary=decorated_summary).strip()
-        caption = f"{base} {suffix}".strip()
+
+        # Add prefix and emoji variation
+        if prefix and random.random() > 0.5:
+            caption = f"{prefix} {base} {emoji}".strip()
+        else:
+            caption = f"{base} {emoji}".strip()
 
         return self._sanitize_caption(caption)
 
     def _chatgpt_caption(self, context: VideoContext) -> Optional[str]:
         if not self.client:
             return None
+
+        # Determine content strategy based on topic
+        topic_lower = context.topic.lower()
+        if any(sport in topic_lower for sport in ["nfl", "nba", "mlb", "soccer", "football", "basketball"]):
+            style_hint = (
+                "Write like a passionate sports fan. Use dramatic language, player names if mentioned, "
+                "and capture the excitement. Examples: 'THIS is why [player] is HIM 🔥', "
+                "'Absolutely INSANE play right here', 'No way this just happened 😳'"
+            )
+        elif any(funny in topic_lower for funny in ["funny", "viral", "meme"]):
+            style_hint = (
+                "Write like a viral meme account. Keep it relatable, witty, and shareable. "
+                "Use internet slang naturally. Examples: 'I can't breathe 😭', "
+                "'This is the most [adjective] thing I've seen today', 'Why is this so accurate lmao'"
+            )
+        elif "trending" in topic_lower or "news" in topic_lower:
+            style_hint = (
+                "Write like a breaking news account. Create urgency and FOMO. "
+                "Examples: 'BREAKING: [event]', 'Everyone's talking about this', "
+                "'This is blowing up right now 🚨'"
+            )
+        else:
+            style_hint = (
+                "Write like a viral content curator. Be engaging and shareable. "
+                "Make people want to watch, like, and repost."
+            )
+
         prompt = (
-            "You are an expert viral social copywriter for X (formerly Twitter). "
-            "Write a concise, engaging caption (max 260 chars) for a video post. Include 2-3 relevant hashtags. "
-            "Keep it punchy, authentic, and scroll-stopping. Use emojis sparingly and only when they add value.\n\n"
+            "You are an EXPERT viral content creator for X (Twitter) with 1M+ followers. "
+            "Your captions consistently get 10K+ likes because they're ENGAGING and SHAREABLE.\n\n"
+            f"{style_hint}\n\n"
+            "CAPTION REQUIREMENTS:\n"
+            "✅ MAX 260 characters (leave room for video player)\n"
+            "✅ Hook in first 5 words (make them STOP scrolling)\n"
+            "✅ 2-3 strategic hashtags (trending + niche)\n"
+            "✅ 1-2 emojis MAX (only if they add value)\n"
+            "✅ Natural, conversational tone (not corporate)\n"
+            "✅ Create curiosity or emotion (shock, humor, excitement)\n\n"
             "CRITICAL RULES:\n"
-            "- DO NOT tag, mention, or credit ANY accounts (@handles)\n"
-            "- DO NOT include 'via', 'from', 'by', 'credit', 'source', 'h/t', or similar attributions\n"
-            "- DO NOT reference the original author or creator in any way\n"
-            "- ONLY output the caption text + hashtags (nothing else)\n\n"
+            "❌ NO @mentions, credits, attributions, 'via', 'from', 'by', 'source', 'h/t'\n"
+            "❌ NO question marks in hooks (sounds desperate)\n"
+            "❌ NO 'Check out', 'Watch', 'Look at' (boring)\n"
+            "❌ NO emoji spam (looks fake)\n\n"
             f"Topic: {context.topic}\n"
-            f"Video summary: {context.summary}\n"
+            f"Video content: {context.summary}\n\n"
+            "Write the caption NOW (ONLY the caption text, nothing else):"
         )
         try:  # pragma: no cover - remote call
             response = self.client.chat.completions.create(
                 model=self.model,
                 messages=[{"role": "user", "content": prompt}],
-                max_tokens=120,
-                temperature=0.7,
+                max_tokens=150,  # Increased from 120 for better captions
+                temperature=0.8,  # Increased from 0.7 for more creative captions
             )
             content = response.choices[0].message.content if response.choices else None
             if content:
                 caption = content.strip()
+                # Remove quotes if GPT wrapped the caption
+                caption = caption.strip('"').strip("'")
                 if len(caption) > 260:
                     caption = caption[:257] + "..."
                 return self._sanitize_caption(caption)
