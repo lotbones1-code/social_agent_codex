@@ -12,6 +12,12 @@ from playwright.sync_api import (
     Playwright,
 )
 
+try:
+    from playwright_stealth import stealth_sync
+    HAS_STEALTH = True
+except ImportError:
+    HAS_STEALTH = False
+
 from .config import AgentConfig
 
 
@@ -93,10 +99,22 @@ class BrowserManager:
 
     def _launch_persistent_context(self, chromium) -> Optional[BrowserContext]:
         self.config.user_data_dir.mkdir(parents=True, exist_ok=True)
+        # Stealth browser args to avoid bot detection
+        stealth_args = [
+            "--disable-dev-shm-usage",
+            "--disable-extensions",
+            "--disable-blink-features=AutomationControlled",
+            "--no-sandbox",
+            "--disable-infobars",
+            "--disable-background-timer-throttling",
+            "--disable-backgrounding-occluded-windows",
+            "--disable-renderer-backgrounding",
+        ]
         launch_kwargs = {
             "user_data_dir": str(self.config.user_data_dir),
             "headless": self.config.headless,
-            "args": ["--disable-dev-shm-usage", "--disable-extensions"],
+            "args": stealth_args,
+            "ignore_default_args": ["--enable-automation"],
             "viewport": {"width": 1280, "height": 900},
         }
 
@@ -136,6 +154,17 @@ class BrowserManager:
             return None
 
         page: Page = context.new_page()
+
+        # Apply stealth mode to avoid bot detection
+        if HAS_STEALTH:
+            try:
+                stealth_sync(page)
+                self.logger.info("Stealth mode applied to browser page")
+            except Exception as exc:
+                self.logger.warning("Could not apply stealth mode: %s", exc)
+        else:
+            self.logger.debug("playwright-stealth not installed; skipping stealth mode")
+
         try:
             page.goto("https://x.com/home", wait_until="domcontentloaded", timeout=60000)
         except PlaywrightError:

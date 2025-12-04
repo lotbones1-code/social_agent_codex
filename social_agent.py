@@ -129,6 +129,19 @@ def run_bot() -> None:
     )
     logger = logging.getLogger("social_agent")
 
+    # Debug: Print configuration summary
+    logger.info("=== BOT CONFIGURATION ===")
+    logger.info("headless: %s", config.headless)
+    logger.info("debug: %s", config.debug)
+    logger.info("search_topics: %s", config.search_topics)
+    logger.info("max_videos_per_topic: %d", config.max_videos_per_topic)
+    logger.info("max_posts_per_cycle: %d", config.max_posts_per_cycle)
+    logger.info("growth_actions_per_cycle: %d", config.growth_actions_per_cycle)
+    logger.info("openai_api_key: %s", "SET" if config.openai_api_key else "NOT SET")
+    logger.info("auth_state: %s (exists: %s)", config.auth_state, config.auth_state.exists())
+    logger.info("user_data_dir: %s", config.user_data_dir)
+    logger.info("=========================")
+
     scheduler = Scheduler(config)
 
     def cycle() -> None:
