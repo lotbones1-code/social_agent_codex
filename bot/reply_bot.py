@@ -132,33 +132,49 @@ class ReplyBot:
 
     def _gpt_reply(self, candidate: TweetCandidate, focus: str) -> Optional[str]:
         """Generate a reply using GPT."""
-        prompt = f"""You are a helpful professional engaging on X/Twitter. Generate a natural, conversational reply to this tweet.
-The reply should:
-1. Be genuine and add value to the conversation
-2. Reference their specific point about "{focus}"
-3. Naturally mention you have a useful resource/tool that could help
-4. End with this link in a natural way: {self.config.referral_link}
-5. Be under 260 characters
-6. Sound human, not spammy or salesy
-7. NO hashtags, NO emojis unless absolutely natural
+        prompt = f"""You are a successful tech entrepreneur and growth expert who genuinely helps people on X/Twitter.
 
-Tweet to reply to:
-Author: {candidate.author}
-Topic: {candidate.topic}
-Content: {candidate.text}
+Your goal: Write a reply that sounds like a real person sharing genuine value, NOT a bot or marketer.
 
-Generate ONLY the reply text, nothing else."""
+PERSONALITY:
+- Confident but humble
+- Shares from real experience
+- Gives specific actionable insights
+- Builds rapport before promoting anything
+
+REPLY REQUIREMENTS:
+1. Start by acknowledging their insight or asking a thoughtful question
+2. Share a relevant personal experience or tip (1 sentence)
+3. If naturally fitting, mention you documented your approach here: {self.config.referral_link}
+4. Keep it under 240 characters
+5. Sound like a real person texting a colleague
+6. NO hashtags, NO excessive punctuation, minimal emojis
+
+BAD EXAMPLE: "Great post! Check out my resource: [link]"
+GOOD EXAMPLE: "This mirrors what we found scaling our team - the async standups were game-changing. Wrote up our playbook if useful: [link]"
+
+Tweet you're replying to:
+@{candidate.author}: {candidate.text}
+
+Topic context: {candidate.topic}
+
+Write ONLY the reply, no quotes or explanation:"""
 
         try:
             response = self.client.chat.completions.create(
                 model=self.config.gpt_caption_model,
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=100,
-                temperature=0.8,
+                messages=[
+                    {"role": "system", "content": "You are a helpful tech professional who gives genuine, valuable replies on Twitter. Never sound like a bot or spammer."},
+                    {"role": "user", "content": prompt}
+                ],
+                max_tokens=120,
+                temperature=0.85,
             )
             content = response.choices[0].message.content if response.choices else None
             if content:
                 reply = content.strip().strip('"').strip("'")
+                # Clean up any accidental quotes or formatting
+                reply = reply.replace('"""', '').replace("'''", '')
                 self.logger.info("[ReplyBot] GPT generated reply: %s", reply[:100])
                 return reply
         except Exception as exc:
@@ -225,6 +241,139 @@ Generate ONLY the reply text, nothing else."""
             self.logger.warning("[ReplyBot] Failed to post reply: %s", exc)
             return False
 
+    def _search_influencer_tweets(self, limit: int = 15) -> List[TweetCandidate]:
+        """Search for high-engagement tweets from influencers in the niche."""
+        # Search for popular tweets with high engagement
+        searches = [
+            "AI automation min_faves:100",
+            "growth hacking min_faves:50",
+            "startup tips min_faves:100",
+            "product launch min_faves:50",
+            "SaaS growth min_faves:50",
+        ]
+
+        all_candidates: List[TweetCandidate] = []
+
+        for search_query in searches:
+            if len(all_candidates) >= limit:
+                break
+
+            query = search_query.replace(" ", "%20")
+            url = f"https://x.com/search?q={query}&f=live"
+            self.logger.info("[ReplyBot] Searching influencer tweets: '%s'", search_query)
+
+            try:
+                self.page.goto(url, wait_until="domcontentloaded", timeout=60000)
+                time.sleep(2)
+
+                # Scroll to load tweets
+                for _ in range(2):
+                    self.page.mouse.wheel(0, 1000)
+                    time.sleep(1)
+
+                tweets = self.page.locator("article[data-testid='tweet']").all()
+
+                for tweet in tweets[:5]:  # Take top 5 from each search
+                    try:
+                        text_el = tweet.locator("div[data-testid='tweetText']")
+                        if text_el.count() == 0:
+                            continue
+                        text = text_el.first.inner_text(timeout=3000)
+
+                        # Skip spam
+                        text_lower = text.lower()
+                        if any(spam in text_lower for spam in self.config.spam_keywords):
+                            continue
+
+                        link = tweet.locator("a[href*='/status/']").first
+                        href = link.get_attribute("href") or ""
+                        if not href or "/status/" not in href:
+                            continue
+
+                        author_el = tweet.locator("div[data-testid='User-Name'] a").first
+                        author = author_el.inner_text(timeout=3000) if author_el.count() > 0 else "someone"
+
+                        tweet_url = f"https://x.com{href}" if href.startswith("/") else href
+                        all_candidates.append(TweetCandidate(
+                            url=tweet_url,
+                            author=author,
+                            text=text[:500],
+                            topic=search_query.split(" min_faves")[0]
+                        ))
+                    except PlaywrightError:
+                        continue
+
+            except PlaywrightError as exc:
+                self.logger.warning("[ReplyBot] Failed searching influencers: %s", exc)
+                continue
+
+        self.logger.info("[ReplyBot] Found %d influencer tweets to engage with", len(all_candidates))
+        return all_candidates
+
+    def _post_original_tweet(self) -> bool:
+        """Post an original tweet to build account credibility."""
+        if not self.client:
+            return False
+
+        prompt = f"""You are a tech entrepreneur sharing a quick insight on X/Twitter.
+
+Write a short, valuable tweet (under 240 chars) about ONE of these topics:
+- AI automation tip
+- Growth hacking insight
+- Productivity hack
+- Startup lesson learned
+
+Make it:
+- Specific and actionable
+- Sound like genuine experience
+- Include a subtle CTA to check your resource: {self.config.referral_link}
+- NO hashtags unless 1-2 very relevant ones
+
+Example style:
+"Biggest unlock this quarter: automating our onboarding emails saved 12hrs/week. Documented the exact flow here: [link]"
+
+Write ONLY the tweet:"""
+
+        try:
+            response = self.client.chat.completions.create(
+                model=self.config.gpt_caption_model,
+                messages=[
+                    {"role": "system", "content": "You write authentic, valuable tweets that build credibility."},
+                    {"role": "user", "content": prompt}
+                ],
+                max_tokens=100,
+                temperature=0.9,
+            )
+            content = response.choices[0].message.content if response.choices else None
+            if not content:
+                return False
+
+            tweet_text = content.strip().strip('"').strip("'")
+
+            # Navigate to compose
+            self.page.goto("https://x.com/compose/post", wait_until="domcontentloaded", timeout=30000)
+            time.sleep(2)
+
+            composer = self.page.locator("div[data-testid='tweetTextarea_0']").first
+            if not composer.is_visible(timeout=5000):
+                return False
+
+            composer.fill(tweet_text)
+            time.sleep(1)
+
+            # Post
+            post_btn = self.page.locator("button[data-testid='tweetButton']").first
+            if post_btn.is_visible(timeout=3000):
+                post_btn.click()
+                time.sleep(2)
+                self.logger.info("[ReplyBot] Posted original tweet: %s", tweet_text[:80])
+                return True
+
+        except Exception as exc:
+            self.logger.warning("[ReplyBot] Failed to post original tweet: %s", exc)
+
+        return False
+
     def run_reply_cycle(self) -> int:
         """Run a cycle of finding tweets and replying."""
         if not self.config.enable_replies:
@@ -236,39 +385,61 @@ Generate ONLY the reply text, nothing else."""
             return 0
 
         total_replies = 0
-        topics = self.config.search_topics
 
+        # First, try to post an original tweet to build credibility
+        if self.client and random.random() < 0.3:  # 30% chance per cycle
+            self.logger.info("[ReplyBot] Posting original content...")
+            if self._post_original_tweet():
+                total_replies += 1
+                time.sleep(random.uniform(5, 10))
+
+        # Search for influencer/high-engagement tweets first
+        self.logger.info("[ReplyBot] Searching for influencer tweets...")
+        influencer_candidates = self._search_influencer_tweets(limit=10)
+
+        # Also search regular topic tweets
+        topics = self.config.search_topics
         self.logger.info("[ReplyBot] Starting reply cycle for %d topics", len(topics))
 
+        all_candidates = list(influencer_candidates)
+
         for topic in topics:
-            if total_replies >= self.config.max_replies_per_topic * len(topics):
+            candidates = self._search_tweets(topic, limit=self.config.max_replies_per_topic * 2)
+            all_candidates.extend(candidates)
+
+        # Shuffle and dedupe
+        random.shuffle(all_candidates)
+        seen_urls = set()
+        unique_candidates = []
+        for c in all_candidates:
+            if c.url not in seen_urls:
+                seen_urls.add(c.url)
+                unique_candidates.append(c)
+
+        self.logger.info("[ReplyBot] Total unique candidates: %d", len(unique_candidates))
+
+        max_total_replies = self.config.max_replies_per_topic * len(topics)
+
+        for candidate in unique_candidates:
+            if total_replies >= max_total_replies:
                 break
 
-            candidates = self._search_tweets(topic, limit=self.config.max_replies_per_topic * 2)
-            random.shuffle(candidates)
+            reply_text = self._generate_reply(candidate)
+            if not reply_text:
+                continue
 
-            replies_for_topic = 0
-            for candidate in candidates:
-                if replies_for_topic >= self.config.max_replies_per_topic:
-                    break
+            if self._post_reply(candidate, reply_text):
+                total_replies += 1
 
-                reply_text = self._generate_reply(candidate)
-                if not reply_text:
-                    continue
+                # Random delay between replies
+                delay = random.uniform(
+                    self.config.action_delay_min,
+                    self.config.action_delay_max
+                )
+                self.logger.info("[ReplyBot] Waiting %.1fs before next action", delay)
+                time.sleep(delay)
 
-                if self._post_reply(candidate, reply_text):
-                    replies_for_topic += 1
-                    total_replies += 1
-
-                    # Random delay between replies
-                    delay = random.uniform(
-                        self.config.action_delay_min,
-                        self.config.action_delay_max
-                    )
-                    self.logger.info("[ReplyBot] Waiting %.1fs before next action", delay)
-                    time.sleep(delay)
-
-        self.logger.info("[ReplyBot] Cycle complete: %d replies sent", total_replies)
+        self.logger.info("[ReplyBot] Cycle complete: %d replies/posts sent", total_replies)
         return total_replies
 
 
