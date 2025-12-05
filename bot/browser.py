@@ -13,10 +13,11 @@ from playwright.sync_api import (
 )
 
 try:
-    from playwright_stealth import stealth_sync
+    from playwright_stealth import Stealth
     HAS_STEALTH = True
 except ImportError:
     HAS_STEALTH = False
+    Stealth = None
 
 from .config import AgentConfig
 
@@ -156,9 +157,10 @@ class BrowserManager:
         page: Page = context.new_page()
 
         # Apply stealth mode to avoid bot detection
-        if HAS_STEALTH:
+        if HAS_STEALTH and Stealth:
             try:
-                stealth_sync(page)
+                stealth = Stealth()
+                stealth.apply_stealth_sync(page)
                 self.logger.info("Stealth mode applied to browser page")
             except Exception as exc:
                 self.logger.warning("Could not apply stealth mode: %s", exc)
