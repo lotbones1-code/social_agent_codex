@@ -14,6 +14,7 @@ from bot.config import AgentConfig, load_config
 from bot.downloader import VideoDownloader
 from bot.growth import GrowthActions
 from bot.poster import VideoPoster
+from bot.reply_bot import ReplyBot
 from bot.scheduler import Scheduler
 from bot.scraper import ScrapedPost, VideoScraper
 from bot.trending import TrendingTopics
@@ -140,6 +141,11 @@ def run_bot() -> None:
     logger.info("openai_api_key: %s", "SET" if config.openai_api_key else "NOT SET")
     logger.info("auth_state: %s (exists: %s)", config.auth_state, config.auth_state.exists())
     logger.info("user_data_dir: %s", config.user_data_dir)
+    logger.info("--- Reply Bot Settings ---")
+    logger.info("enable_replies: %s", config.enable_replies)
+    logger.info("referral_link: %s", config.referral_link if config.referral_link else "NOT SET")
+    logger.info("max_replies_per_topic: %d", config.max_replies_per_topic)
+    logger.info("reply_templates: %d configured", len(config.reply_templates))
     logger.info("=========================")
 
     scheduler = Scheduler(config)
@@ -175,6 +181,7 @@ def run_bot() -> None:
                 model=config.gpt_caption_model,
             )
             growth = GrowthActions(poster, logger)
+            reply_bot = ReplyBot(session.page, config, logger)
             trending = TrendingTopics(
                 session.page,
                 logger,
@@ -227,6 +234,17 @@ def run_bot() -> None:
                         remaining,
                     )
                     total_posted += posted
+
+                # Run reply bot cycle (smart replies with referral links)
+                if config.enable_replies and config.referral_link:
+                    logger.info("[stage:replies] Starting smart reply cycle...")
+                    replies_sent = reply_bot.run_reply_cycle()
+                    logger.info("[stage:replies] Sent %d replies with referral links", replies_sent)
+                else:
+                    if not config.referral_link:
+                        logger.info("[stage:replies] Skipped - no REFERRAL_LINK configured")
+                    elif not config.enable_replies:
+                        logger.info("[stage:replies] Skipped - replies disabled")
             finally:
                 session.close()
         logger.info("Cycle complete. Waiting %ss before the next run.", config.loop_delay_seconds)

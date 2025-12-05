@@ -40,6 +40,19 @@ class AgentConfig:
     min_viral_score: float = 0.25
     upload_retry_attempts: int = 3
     post_retry_attempts: int = 3
+    # Reply bot settings
+    reply_templates: List[str] = field(default_factory=list)
+    referral_link: str = ""
+    max_replies_per_topic: int = 3
+    relevant_keywords: List[str] = field(
+        default_factory=lambda: ["AI", "automation", "growth", "launch"]
+    )
+    spam_keywords: List[str] = field(
+        default_factory=lambda: ["giveaway", "airdrop", "casino", "xxx"]
+    )
+    min_tweet_length: int = 60
+    min_keyword_matches: int = 1
+    enable_replies: bool = True
 
     def ensure_paths(self) -> None:
         self.auth_state.parent.mkdir(parents=True, exist_ok=True)
@@ -116,6 +129,27 @@ def load_config() -> AgentConfig:
         os.getenv("UPLOAD_RETRY_ATTEMPTS", cfg.upload_retry_attempts)
     )
     cfg.post_retry_attempts = int(os.getenv("POST_RETRY_ATTEMPTS", cfg.post_retry_attempts))
+
+    # Reply bot settings
+    cfg.referral_link = os.getenv("REFERRAL_LINK", cfg.referral_link)
+    cfg.max_replies_per_topic = int(os.getenv("MAX_REPLIES_PER_TOPIC", cfg.max_replies_per_topic))
+    cfg.min_tweet_length = int(os.getenv("MIN_TWEET_LENGTH", cfg.min_tweet_length))
+    cfg.min_keyword_matches = int(os.getenv("MIN_KEYWORD_MATCHES", cfg.min_keyword_matches))
+    cfg.enable_replies = _parse_bool(os.getenv("ENABLE_REPLIES"), cfg.enable_replies)
+
+    # Parse reply templates (pipe-separated)
+    reply_templates_raw = os.getenv("REPLY_TEMPLATES", "")
+    if reply_templates_raw:
+        cfg.reply_templates = [t.strip() for t in reply_templates_raw.split("||") if t.strip()]
+
+    # Parse keywords (pipe-separated)
+    keywords_raw = os.getenv("RELEVANT_KEYWORDS", "")
+    if keywords_raw:
+        cfg.relevant_keywords = [k.strip() for k in keywords_raw.split("||") if k.strip()]
+
+    spam_raw = os.getenv("SPAM_KEYWORDS", "")
+    if spam_raw:
+        cfg.spam_keywords = [k.strip() for k in spam_raw.split("||") if k.strip()]
 
     cfg.ensure_paths()
     return cfg
