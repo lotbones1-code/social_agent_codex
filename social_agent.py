@@ -158,118 +158,131 @@ def run_bot() -> None:
 
     scheduler = Scheduler(config)
 
-    def cycle() -> None:
-        logger.info("Starting engagement cycle.")
-        with sync_playwright() as playwright:
-            manager = BrowserManager(playwright, config, logger)
-            session = manager.start()
-            if not session:
-                logger.error("Could not start authenticated session. Exiting cycle.")
+    # Use a single browser session for all cycles
+    with sync_playwright() as playwright:
+        logger.info("Starting browser session...")
+        manager = BrowserManager(playwright, config, logger)
+        session = manager.start()
+
+        if not session:
+            logger.error("=" * 50)
+            logger.error("LOGIN FAILED!")
+            logger.error("Please run with HEADLESS=false and login manually.")
+            logger.error("The browser window will wait for you to complete login.")
+            logger.error("=" * 50)
+            return
+
+        logger.info("Login successful! Starting bot cycles...")
+
+        # Initialize all components once
+        poster = VideoPoster(
+            session.page,
+            logger,
+            upload_retries=config.upload_retry_attempts,
+            post_retries=config.post_retry_attempts,
+        )
+        scraper = VideoScraper(session.page, logger)
+        scorer = ViralScorer(logger, min_score=config.min_viral_score)
+        downloader = VideoDownloader(
+            config.download_dir,
+            logger,
+            user_agent=config.download_user_agent,
+        )
+        try:
+            downloader.set_cookies(session.context.cookies())
+        except Exception:
+            logger.debug("Could not inject cookies into downloader; continuing without Premium headers")
+        captioner = CaptionGenerator(
+            config.caption_template,
+            openai_api_key=config.openai_api_key,
+            model=config.gpt_caption_model,
+        )
+        growth = GrowthActions(poster, logger)
+        reply_bot = ReplyBot(session.page, config, logger)
+        dm_bot = DMBot(session.page, config, logger)
+        trending = TrendingTopics(
+            session.page,
+            logger,
+            refresh_minutes=config.trending_refresh_minutes,
+            max_topics=config.trending_max_topics,
+        )
+        trend_analyzer = TrendAnalyzer(
+            logger,
+            require_trending=config.require_trending,
+            max_topics=config.trending_max_topics,
+        )
+
+        def run_cycle() -> None:
+            logger.info("Starting engagement cycle...")
+
+            configured_topics = list(dict.fromkeys(config.search_topics))
+            trending_topics: List[str] = []
+            if config.trending_enabled:
+                logger.info("[stage:trending] Fetching trending topics...")
+                trending_topics = trending.fetch()
+            topics = trend_analyzer.build_topics(configured_topics, trending_topics)
+            if not topics:
+                logger.info("No topics available; ending cycle early.")
                 return
-            poster = VideoPoster(
-                session.page,
-                logger,
-                upload_retries=config.upload_retry_attempts,
-                post_retries=config.post_retry_attempts,
-            )
-            scraper = VideoScraper(session.page, logger)
-            scorer = ViralScorer(logger, min_score=config.min_viral_score)
-            downloader = VideoDownloader(
-                config.download_dir,
-                logger,
-                user_agent=config.download_user_agent,
-            )
-            try:
-                downloader.set_cookies(session.context.cookies())
-            except Exception:
-                logger.debug("Could not inject cookies into downloader; continuing without Premium headers")
-            captioner = CaptionGenerator(
-                config.caption_template,
-                openai_api_key=config.openai_api_key,
-                model=config.gpt_caption_model,
-            )
-            growth = GrowthActions(poster, logger)
-            reply_bot = ReplyBot(session.page, config, logger)
-            dm_bot = DMBot(session.page, config, logger)
-            trending = TrendingTopics(
-                session.page,
-                logger,
-                refresh_minutes=config.trending_refresh_minutes,
-                max_topics=config.trending_max_topics,
-            )
-            trend_analyzer = TrendAnalyzer(
-                logger,
-                require_trending=config.require_trending,
-                max_topics=config.trending_max_topics,
+            total_posted = 0
+            per_cycle_cap = (
+                config.max_posts_per_cycle if config.strict_mode else None
             )
 
-            try:
-                configured_topics = list(dict.fromkeys(config.search_topics))
-                trending_topics: List[str] = []
-                if config.trending_enabled:
-                    logger.info("[stage:trending] Fetching trending topics…")
-                    trending_topics = trending.fetch()
-                topics = trend_analyzer.build_topics(configured_topics, trending_topics)
-                if not topics:
-                    logger.info("No topics available; ending cycle early.")
-                    return
-                total_posted = 0
-                per_cycle_cap = (
-                    config.max_posts_per_cycle if config.strict_mode else None
+            for topic in topics:
+                remaining = None
+                if per_cycle_cap is not None:
+                    remaining = max(per_cycle_cap - total_posted, 0)
+                    if remaining == 0:
+                        logger.info(
+                            "Per-cycle post cap of %d reached; skipping remaining topics.",
+                            per_cycle_cap,
+                        )
+                        break
+
+                posted = handle_topic(
+                    topic,
+                    scraper,
+                    scorer,
+                    downloader,
+                    poster,
+                    captioner,
+                    scheduler,
+                    growth,
+                    config,
+                    logger,
+                    remaining,
                 )
+                total_posted += posted
 
-                for topic in topics:
-                    remaining = None
-                    if per_cycle_cap is not None:
-                        remaining = max(per_cycle_cap - total_posted, 0)
-                        if remaining == 0:
-                            logger.info(
-                                "Per-cycle post cap of %d reached; skipping remaining topics.",
-                                per_cycle_cap,
-                            )
-                            break
+            # Run reply bot cycle (smart replies with referral links)
+            if config.enable_replies and config.referral_link:
+                logger.info("[stage:replies] Starting smart reply cycle...")
+                replies_sent = reply_bot.run_reply_cycle()
+                logger.info("[stage:replies] Sent %d replies with referral links", replies_sent)
+            else:
+                if not config.referral_link:
+                    logger.info("[stage:replies] Skipped - no REFERRAL_LINK configured")
+                elif not config.enable_replies:
+                    logger.info("[stage:replies] Skipped - replies disabled")
 
-                    posted = handle_topic(
-                        topic,
-                        scraper,
-                        scorer,
-                        downloader,
-                        poster,
-                        captioner,
-                        scheduler,
-                        growth,
-                        config,
-                        logger,
-                        remaining,
-                    )
-                    total_posted += posted
+            # Run DM bot cycle (personalized outreach)
+            if config.enable_dms and config.referral_link:
+                logger.info("[stage:dms] Starting DM outreach cycle...")
+                dms_sent = dm_bot.run_dm_cycle(max_dms=5)
+                logger.info("[stage:dms] Sent %d personalized DMs", dms_sent)
+            else:
+                if not config.enable_dms:
+                    logger.info("[stage:dms] Skipped - DMs disabled")
+                elif not config.referral_link:
+                    logger.info("[stage:dms] Skipped - no REFERRAL_LINK configured")
 
-                # Run reply bot cycle (smart replies with referral links)
-                if config.enable_replies and config.referral_link:
-                    logger.info("[stage:replies] Starting smart reply cycle...")
-                    replies_sent = reply_bot.run_reply_cycle()
-                    logger.info("[stage:replies] Sent %d replies with referral links", replies_sent)
-                else:
-                    if not config.referral_link:
-                        logger.info("[stage:replies] Skipped - no REFERRAL_LINK configured")
-                    elif not config.enable_replies:
-                        logger.info("[stage:replies] Skipped - replies disabled")
+            logger.info("Cycle complete. Waiting %ss before the next run.", config.loop_delay_seconds)
 
-                # Run DM bot cycle (personalized outreach)
-                if config.enable_dms and config.referral_link:
-                    logger.info("[stage:dms] Starting DM outreach cycle...")
-                    dms_sent = dm_bot.run_dm_cycle(max_dms=5)
-                    logger.info("[stage:dms] Sent %d personalized DMs", dms_sent)
-                else:
-                    if not config.enable_dms:
-                        logger.info("[stage:dms] Skipped - DMs disabled")
-                    elif not config.referral_link:
-                        logger.info("[stage:dms] Skipped - no REFERRAL_LINK configured")
-            finally:
-                session.close()
-        logger.info("Cycle complete. Waiting %ss before the next run.", config.loop_delay_seconds)
-
-    scheduler.run_forever(cycle)
+        try:
+            scheduler.run_forever(run_cycle)
+        finally:
+            session.close()
 
 
 if __name__ == "__main__":

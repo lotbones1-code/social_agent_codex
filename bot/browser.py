@@ -79,6 +79,15 @@ class BrowserManager:
         if not self.config.x_username or not self.config.x_password:
             return False
 
+        # Skip if using placeholder credentials
+        if self.config.x_username in ("changeme@example.com", "your_x_username_here", ""):
+            self.logger.info("Skipping automated login - placeholder credentials detected")
+            return False
+
+        if self.config.x_password in ("super-secret-password", "your_x_password_here", ""):
+            self.logger.info("Skipping automated login - placeholder password detected")
+            return False
+
         self.logger.info("Attempting automated login with provided credentials...")
 
         try:
