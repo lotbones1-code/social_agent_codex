@@ -11,6 +11,7 @@ from playwright.sync_api import sync_playwright
 from bot.browser import BrowserManager
 from bot.captioner import CaptionGenerator, VideoContext
 from bot.config import AgentConfig, load_config
+from bot.dm_bot import DMBot
 from bot.downloader import VideoDownloader
 from bot.growth import GrowthActions
 from bot.poster import VideoPoster
@@ -141,11 +142,18 @@ def run_bot() -> None:
     logger.info("openai_api_key: %s", "SET" if config.openai_api_key else "NOT SET")
     logger.info("auth_state: %s (exists: %s)", config.auth_state, config.auth_state.exists())
     logger.info("user_data_dir: %s", config.user_data_dir)
+    logger.info("--- Login Settings ---")
+    logger.info("x_username: %s", "SET" if config.x_username else "NOT SET")
+    logger.info("x_password: %s", "SET" if config.x_password else "NOT SET")
     logger.info("--- Reply Bot Settings ---")
     logger.info("enable_replies: %s", config.enable_replies)
     logger.info("referral_link: %s", config.referral_link if config.referral_link else "NOT SET")
     logger.info("max_replies_per_topic: %d", config.max_replies_per_topic)
     logger.info("reply_templates: %d configured", len(config.reply_templates))
+    logger.info("--- DM Bot Settings ---")
+    logger.info("enable_dms: %s", config.enable_dms)
+    logger.info("dm_templates: %d configured", len(config.dm_templates))
+    logger.info("dm_interest_threshold: %.2f", config.dm_interest_threshold)
     logger.info("=========================")
 
     scheduler = Scheduler(config)
@@ -182,6 +190,7 @@ def run_bot() -> None:
             )
             growth = GrowthActions(poster, logger)
             reply_bot = ReplyBot(session.page, config, logger)
+            dm_bot = DMBot(session.page, config, logger)
             trending = TrendingTopics(
                 session.page,
                 logger,
@@ -245,6 +254,17 @@ def run_bot() -> None:
                         logger.info("[stage:replies] Skipped - no REFERRAL_LINK configured")
                     elif not config.enable_replies:
                         logger.info("[stage:replies] Skipped - replies disabled")
+
+                # Run DM bot cycle (personalized outreach)
+                if config.enable_dms and config.referral_link:
+                    logger.info("[stage:dms] Starting DM outreach cycle...")
+                    dms_sent = dm_bot.run_dm_cycle(max_dms=5)
+                    logger.info("[stage:dms] Sent %d personalized DMs", dms_sent)
+                else:
+                    if not config.enable_dms:
+                        logger.info("[stage:dms] Skipped - DMs disabled")
+                    elif not config.referral_link:
+                        logger.info("[stage:dms] Skipped - no REFERRAL_LINK configured")
             finally:
                 session.close()
         logger.info("Cycle complete. Waiting %ss before the next run.", config.loop_delay_seconds)

@@ -53,6 +53,15 @@ class AgentConfig:
     min_tweet_length: int = 60
     min_keyword_matches: int = 1
     enable_replies: bool = True
+    # DM settings
+    enable_dms: bool = False
+    dm_templates: List[str] = field(default_factory=list)
+    dm_interest_threshold: float = 3.2
+    dm_question_weight: float = 0.75
+    dm_trigger_length: int = 220
+    # Login credentials (optional - for automated login)
+    x_username: str = ""
+    x_password: str = ""
 
     def ensure_paths(self) -> None:
         self.auth_state.parent.mkdir(parents=True, exist_ok=True)
@@ -150,6 +159,20 @@ def load_config() -> AgentConfig:
     spam_raw = os.getenv("SPAM_KEYWORDS", "")
     if spam_raw:
         cfg.spam_keywords = [k.strip() for k in spam_raw.split("||") if k.strip()]
+
+    # DM settings
+    cfg.enable_dms = _parse_bool(os.getenv("ENABLE_DMS"), cfg.enable_dms)
+    cfg.dm_interest_threshold = float(os.getenv("DM_INTEREST_THRESHOLD", cfg.dm_interest_threshold))
+    cfg.dm_question_weight = float(os.getenv("DM_QUESTION_WEIGHT", cfg.dm_question_weight))
+    cfg.dm_trigger_length = int(os.getenv("DM_TRIGGER_LENGTH", cfg.dm_trigger_length))
+
+    dm_templates_raw = os.getenv("DM_TEMPLATES", "")
+    if dm_templates_raw:
+        cfg.dm_templates = [t.strip() for t in dm_templates_raw.split("||") if t.strip()]
+
+    # Login credentials
+    cfg.x_username = os.getenv("USERNAME") or os.getenv("X_USERNAME") or ""
+    cfg.x_password = os.getenv("PASSWORD") or os.getenv("X_PASSWORD") or ""
 
     cfg.ensure_paths()
     return cfg

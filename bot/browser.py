@@ -74,7 +74,73 @@ class BrowserManager:
                 continue
         return False
 
+    def _automated_login(self, page: Page) -> bool:
+        """Attempt automated login using stored credentials."""
+        if not self.config.x_username or not self.config.x_password:
+            return False
+
+        self.logger.info("Attempting automated login with provided credentials...")
+
+        try:
+            # Wait for and fill username field
+            username_field = page.locator("input[autocomplete='username'], input[name='text']").first
+            if not username_field.is_visible(timeout=10000):
+                self.logger.warning("Username field not found")
+                return False
+
+            username_field.fill(self.config.x_username)
+            time.sleep(0.5)
+
+            # Click Next button
+            next_btn = page.locator("button:has-text('Next'), div[role='button']:has-text('Next')").first
+            if next_btn.is_visible(timeout=5000):
+                next_btn.click()
+                time.sleep(2)
+
+            # Check for unusual activity / phone verification prompt
+            unusual_check = page.locator("input[data-testid='ocfEnterTextTextInput']")
+            if unusual_check.is_visible(timeout=3000):
+                self.logger.warning("X requires additional verification (phone/email). Manual login required.")
+                return False
+
+            # Wait for and fill password field
+            password_field = page.locator("input[type='password'], input[name='password']").first
+            if not password_field.is_visible(timeout=10000):
+                self.logger.warning("Password field not found")
+                return False
+
+            password_field.fill(self.config.x_password)
+            time.sleep(0.5)
+
+            # Click Login button
+            login_btn = page.locator("button[data-testid='LoginForm_Login_Button'], button:has-text('Log in')").first
+            if login_btn.is_visible(timeout=5000):
+                login_btn.click()
+                time.sleep(3)
+
+            # Check if login was successful
+            if self._is_logged_in(page) or page.url.startswith("https://x.com/home"):
+                try:
+                    page.context.storage_state(path=str(self.config.auth_state))
+                except PlaywrightError:
+                    pass
+                self.logger.info("Automated login successful!")
+                return True
+
+            self.logger.warning("Automated login did not complete - may need manual verification")
+            return False
+
+        except PlaywrightError as exc:
+            self.logger.warning("Automated login failed: %s", exc)
+            return False
+
     def _prompt_manual_login(self, page: Page) -> bool:
+        # First try automated login if credentials are available
+        if self.config.x_username and self.config.x_password:
+            if self._automated_login(page):
+                return True
+            self.logger.info("Automated login failed, falling back to manual login...")
+
         self.logger.info(
             "No saved login was available. Please complete the X login in the opened window."
         )
