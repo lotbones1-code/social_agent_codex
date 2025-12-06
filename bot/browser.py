@@ -5,7 +5,6 @@ import time
 from typing import Optional
 
 from playwright.sync_api import (
-    Browser,
     BrowserContext,
     Error as PlaywrightError,
     Page,
@@ -23,17 +22,9 @@ from .config import AgentConfig
 
 
 class BrowserSession:
-    """Thin wrapper that ensures Playwright context, page, and login state."""
+    """Simple wrapper for browser context and page."""
 
-    def __init__(
-        self,
-        browser: Browser,
-        context: BrowserContext,
-        page: Page,
-        config: AgentConfig,
-        logger: logging.Logger,
-    ):
-        self.browser = browser
+    def __init__(self, context: BrowserContext, page: Page, config: AgentConfig, logger: logging.Logger):
         self.context = context
         self.page = page
         self.config = config
@@ -41,12 +32,11 @@ class BrowserSession:
 
     def close(self) -> None:
         try:
-            self.logger.debug("Closing browser context")
+            self.logger.info("Saving session and closing browser...")
             self.context.storage_state(path=str(self.config.auth_state))
             self.context.close()
-            self.browser.close()
         except PlaywrightError as exc:
-            self.logger.warning("Error while closing browser context: %s", exc)
+            self.logger.warning("Error closing browser: %s", exc)
 
 
 class BrowserManager:
@@ -56,206 +46,140 @@ class BrowserManager:
         self.logger = logger
 
     def _is_logged_in(self, page: Page) -> bool:
+        """Check if we're logged into X."""
         try:
-            if page.is_closed():
-                return False
-        except PlaywrightError:
-            return False
-        selectors = [
-            "div[data-testid='SideNav_NewTweet_Button']",
-            "a[aria-label='Profile']",
-            "a[href='/compose/post']",
-        ]
-        for selector in selectors:
-            try:
-                if page.locator(selector).is_visible(timeout=2000):
-                    return True
-            except PlaywrightError:
-                continue
+            # Check URL first
+            if "x.com/home" in page.url or "twitter.com/home" in page.url:
+                return True
+
+            # Check for logged-in elements
+            selectors = [
+                "[data-testid='SideNav_NewTweet_Button']",
+                "[aria-label='Profile']",
+                "[href='/compose/post']",
+                "[data-testid='AppTabBar_Home_Link']",
+            ]
+            for sel in selectors:
+                try:
+                    if page.locator(sel).first.is_visible(timeout=1500):
+                        return True
+                except:
+                    continue
+        except:
+            pass
         return False
 
-    def _automated_login(self, page: Page) -> bool:
-        """Attempt automated login using stored credentials."""
-        if not self.config.x_username or not self.config.x_password:
-            return False
+    def _wait_for_manual_login(self, page: Page) -> bool:
+        """Wait for user to complete login manually."""
+        self.logger.info("")
+        self.logger.info("=" * 50)
+        self.logger.info("MANUAL LOGIN REQUIRED")
+        self.logger.info("Please log in to X in the browser window.")
+        self.logger.info("You have 10 minutes to complete login.")
+        self.logger.info("=" * 50)
+        self.logger.info("")
 
-        # Skip if using placeholder credentials
-        if self.config.x_username in ("changeme@example.com", "your_x_username_here", ""):
-            self.logger.info("Skipping automated login - placeholder credentials detected")
-            return False
-
-        if self.config.x_password in ("super-secret-password", "your_x_password_here", ""):
-            self.logger.info("Skipping automated login - placeholder password detected")
-            return False
-
-        self.logger.info("Attempting automated login with provided credentials...")
-
-        try:
-            # Wait for and fill username field
-            username_field = page.locator("input[autocomplete='username'], input[name='text']").first
-            if not username_field.is_visible(timeout=10000):
-                self.logger.warning("Username field not found")
-                return False
-
-            username_field.fill(self.config.x_username)
-            time.sleep(0.5)
-
-            # Click Next button
-            next_btn = page.locator("button:has-text('Next'), div[role='button']:has-text('Next')").first
-            if next_btn.is_visible(timeout=5000):
-                next_btn.click()
-                time.sleep(2)
-
-            # Check for unusual activity / phone verification prompt
-            unusual_check = page.locator("input[data-testid='ocfEnterTextTextInput']")
-            if unusual_check.is_visible(timeout=3000):
-                self.logger.warning("X requires additional verification (phone/email). Manual login required.")
-                return False
-
-            # Wait for and fill password field
-            password_field = page.locator("input[type='password'], input[name='password']").first
-            if not password_field.is_visible(timeout=10000):
-                self.logger.warning("Password field not found")
-                return False
-
-            password_field.fill(self.config.x_password)
-            time.sleep(0.5)
-
-            # Click Login button
-            login_btn = page.locator("button[data-testid='LoginForm_Login_Button'], button:has-text('Log in')").first
-            if login_btn.is_visible(timeout=5000):
-                login_btn.click()
-                time.sleep(3)
-
-            # Check if login was successful
-            if self._is_logged_in(page) or page.url.startswith("https://x.com/home"):
-                try:
-                    page.context.storage_state(path=str(self.config.auth_state))
-                except PlaywrightError:
-                    pass
-                self.logger.info("Automated login successful!")
-                return True
-
-            self.logger.warning("Automated login did not complete - may need manual verification")
-            return False
-
-        except PlaywrightError as exc:
-            self.logger.warning("Automated login failed: %s", exc)
-            return False
-
-    def _prompt_manual_login(self, page: Page) -> bool:
-        # First try automated login if credentials are available
-        if self.config.x_username and self.config.x_password:
-            if self._automated_login(page):
-                return True
-            self.logger.info("Automated login failed, falling back to manual login...")
-
-        self.logger.info(
-            "No saved login was available. Please complete the X login in the opened window."
-        )
-        deadline = time.time() + 600
+        deadline = time.time() + 600  # 10 minutes
         last_log = 0.0
+
         while time.time() < deadline:
-            if self._is_logged_in(page) or page.url.startswith("https://x.com/home"):
-                time.sleep(3)
+            # Check if logged in
+            if self._is_logged_in(page):
+                self.logger.info("Login detected! Saving session...")
+                time.sleep(2)
                 try:
-                    page.context.storage_state(path=str(self.config.auth_state))
-                except PlaywrightError as exc:
-                    self.logger.error("Could not persist auth state: %s", exc)
-                    return False
-                self.logger.info("Login detected and saved. Continuing.")
+                    self.context.storage_state(path=str(self.config.auth_state))
+                    self.logger.info("Session saved to %s", self.config.auth_state)
+                except Exception as e:
+                    self.logger.warning("Could not save session: %s", e)
                 return True
-            if time.time() - last_log > 10:
+
+            # Log progress every 15 seconds
+            if time.time() - last_log > 15:
                 remaining = int(deadline - time.time())
-                self.logger.info("Waiting for manual login... (%ss left)", remaining)
+                self.logger.info("Waiting for login... (%d seconds left)", remaining)
                 last_log = time.time()
-            time.sleep(3)
-        self.logger.error("Timed out waiting for login. Please retry.")
+
+            time.sleep(2)
+
+        self.logger.error("Login timed out after 10 minutes.")
         return False
-
-    def _launch_persistent_context(self, chromium) -> Optional[BrowserContext]:
-        self.config.user_data_dir.mkdir(parents=True, exist_ok=True)
-        # Stealth browser args to avoid bot detection
-        stealth_args = [
-            "--disable-dev-shm-usage",
-            "--disable-extensions",
-            "--disable-blink-features=AutomationControlled",
-            "--no-sandbox",
-            "--disable-infobars",
-            "--disable-background-timer-throttling",
-            "--disable-backgrounding-occluded-windows",
-            "--disable-renderer-backgrounding",
-        ]
-        launch_kwargs = {
-            "user_data_dir": str(self.config.user_data_dir),
-            "headless": self.config.headless,
-            "args": stealth_args,
-            "ignore_default_args": ["--enable-automation"],
-            "viewport": {"width": 1280, "height": 900},
-        }
-
-        storage_state = None
-        if self.config.auth_state.exists():
-            storage_state = str(self.config.auth_state)
-            self.logger.info("Restoring login session from %s", storage_state)
-
-        try:
-            return chromium.launch_persistent_context(**launch_kwargs)
-        except PlaywrightError as exc:
-            self.logger.error("Unable to launch persistent context: %s", exc)
-            return None
-
-    def _ensure_logged_in(self, page: Page, context: BrowserContext) -> bool:
-        if self._is_logged_in(page):
-            return True
-
-        try:
-            page.goto("https://x.com/login", wait_until="networkidle", timeout=60000)
-        except PlaywrightError:
-            self.logger.warning("Could not navigate to login page for re-authentication.")
-
-        if not self._prompt_manual_login(page):
-            return False
-
-        try:
-            context.storage_state(path=str(self.config.auth_state))
-        except PlaywrightError as exc:
-            self.logger.warning("Failed to persist storage state: %s", exc)
-        return True
 
     def start(self) -> Optional[BrowserSession]:
-        chromium = self.playwright.chromium
-        context = self._launch_persistent_context(chromium)
-        if context is None:
+        """Start browser and ensure login."""
+        self.logger.info("Launching browser...")
+
+        # Create profile directory
+        self.config.user_data_dir.mkdir(parents=True, exist_ok=True)
+
+        # Browser args for stealth
+        args = [
+            "--disable-blink-features=AutomationControlled",
+            "--no-sandbox",
+            "--disable-dev-shm-usage",
+        ]
+
+        try:
+            # Launch persistent context (keeps login across restarts)
+            self.context = self.playwright.chromium.launch_persistent_context(
+                user_data_dir=str(self.config.user_data_dir),
+                headless=self.config.headless,
+                args=args,
+                ignore_default_args=["--enable-automation"],
+                viewport={"width": 1280, "height": 900},
+            )
+        except PlaywrightError as exc:
+            self.logger.error("Failed to launch browser: %s", exc)
             return None
 
-        page: Page = context.new_page()
+        # Get or create page
+        if self.context.pages:
+            page = self.context.pages[0]
+            self.logger.info("Using existing browser page")
+        else:
+            page = self.context.new_page()
+            self.logger.info("Created new browser page")
 
-        # Apply stealth mode to avoid bot detection
+        # Apply stealth if available
         if HAS_STEALTH and Stealth:
             try:
                 stealth = Stealth()
                 stealth.apply_stealth_sync(page)
-                self.logger.info("Stealth mode applied to browser page")
-            except Exception as exc:
-                self.logger.warning("Could not apply stealth mode: %s", exc)
-        else:
-            self.logger.debug("playwright-stealth not installed; skipping stealth mode")
+                self.logger.info("Stealth mode applied")
+            except Exception as e:
+                self.logger.debug("Stealth mode failed: %s", e)
 
+        # Navigate to X
         try:
-            page.goto("https://x.com/home", wait_until="domcontentloaded", timeout=60000)
+            self.logger.info("Navigating to X...")
+            page.goto("https://x.com/home", wait_until="domcontentloaded", timeout=30000)
+            time.sleep(2)
         except PlaywrightError:
-            self.logger.debug("Initial home navigation failed; continuing to login check.")
+            self.logger.info("Navigation timeout, checking login status...")
 
-        if not self._ensure_logged_in(page, context):
-            try:
-                context.close()
-            except PlaywrightError:
-                pass
-            return None
+        # Check if already logged in
+        if self._is_logged_in(page):
+            self.logger.info("Already logged in!")
+            return BrowserSession(self.context, page, self.config, self.logger)
 
-        self.logger.info("Authenticated X session ready (persistent profile: %s)", self.config.user_data_dir)
-        return BrowserSession(context.browser, context, page, self.config, self.logger)
+        # Need to login - go to login page
+        try:
+            self.logger.info("Not logged in, going to login page...")
+            page.goto("https://x.com/login", wait_until="domcontentloaded", timeout=30000)
+            time.sleep(2)
+        except PlaywrightError:
+            pass
+
+        # Wait for manual login
+        if self._wait_for_manual_login(page):
+            return BrowserSession(self.context, page, self.config, self.logger)
+
+        # Login failed - cleanup
+        try:
+            self.context.close()
+        except:
+            pass
+        return None
 
 
 __all__ = ["BrowserManager", "BrowserSession"]
