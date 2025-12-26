@@ -1,0 +1,121 @@
+{
+  "templates": [
+    {
+      "id": "casual_1",
+      "tier": "casual",
+      "text": "biden at 62% seems high tbh. senate odds looking weird",
+      "category": "casual",
+      "emoji": null
+    },
+    {
+      "id": "casual_2",
+      "tier": "casual",
+      "text": "missouri race undervalued imo. 18% is free money",
+      "category": "casual",
+      "emoji": null
+    },
+    {
+      "id": "casual_3",
+      "tier": "casual",
+      "text": "why is nobody talking about the house odds rn",
+      "category": "casual",
+      "emoji": "🤔"
+    },
+    {
+      "id": "casual_4",
+      "tier": "casual",
+      "text": "2026 senate looking spicy. dems at 62 feels off",
+      "category": "casual",
+      "emoji": null
+    },
+    {
+      "id": "lowercase_1",
+      "tier": "casual",
+      "text": "polymarket has this completely wrong lol. senate race mispriced",
+      "category": "casual",
+      "emoji": null
+    },
+    {
+      "id": "typo_1",
+      "tier": "casual",
+      "text": "The 2026 odds dont make sense to me. Too much hype pricing in",
+      "category": "casual",
+      "emoji": null
+    },
+    {
+      "id": "short_1",
+      "tier": "casual",
+      "text": "senate odds wild rn",
+      "category": "casual",
+      "emoji": "👀"
+    },
+    {
+      "id": "question_1",
+      "tier": "casual",
+      "text": "am i crazy or is the senate market completely off?",
+      "category": "casual",
+      "emoji": null
+    },
+    {
+      "id": "personal_1",
+      "tier": "casual",
+      "text": "been watching polymarket all day. senate odds moved 8% in an hour",
+      "category": "casual",
+      "emoji": null
+    },
+    {
+      "id": "realtime_1",
+      "tier": "casual",
+      "text": "polymarket odds just spiked. someones knows something we dont",
+      "category": "casual",
+      "emoji": "🚨"
+    },
+    {
+      "id": "casual_5",
+      "tier": "casual",
+      "text": "house gop odds feel way too low rn",
+      "category": "casual",
+      "emoji": null
+    },
+    {
+      "id": "casual_6",
+      "tier": "casual",
+      "text": "been checking these markets hourly. something feels off",
+      "category": "casual",
+      "emoji": "👀"
+    },
+    {
+      "id": "casual_7",
+      "tier": "casual",
+      "text": "senate at 52%? thats sus",
+      "category": "casual",
+      "emoji": null
+    },
+    {
+      "id": "casual_8",
+      "tier": "casual",
+      "text": "odds shifted 5 points in the last hour. whys nobody talking about this",
+      "category": "casual",
+      "emoji": null
+    },
+    {
+      "id": "casual_9",
+      "tier": "casual",
+      "text": "polymarket sleeping on this race",
+      "category": "casual",
+      "emoji": "😴"
+    },
+    {
+      "id": "casual_10",
+      "tier": "casual",
+      "text": "2026 midterms are gonna be wild. odds dont reflect it yet",
+      "category": "casual",
+      "emoji": null
+    }
+  ],
+  "hashtag_sets": [
+    [],
+    ["#Polymarket"],
+    ["#predictionmarkets"]
+  ]
+}

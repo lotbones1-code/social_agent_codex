@@ -1,0 +1,17 @@
+{
+  "queries": {
+    "crypto betting insights": {
+      "attempts": 7,
+      "successes": 0
+    },
+    "political market trends": {
+      "attempts": 16,
+      "successes": 0
+    },
+    "prediction markets news": {
+      "attempts": 7,
+      "successes": 0
+    }
+  },
+  "last_updated": "2025-12-20T18:17:17.328186"
+}

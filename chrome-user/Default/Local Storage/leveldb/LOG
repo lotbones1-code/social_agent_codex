@@ -1,2 +1,3 @@
-2025/11/06-02:43:42.255 2c88277 Creating DB /Users/shamil/social_agent/chrome-user/Default/Local Storage/leveldb since it was missing.
-2025/11/06-02:43:42.264 2c88277 Reusing MANIFEST /Users/shamil/social_agent/chrome-user/Default/Local Storage/leveldb/MANIFEST-000001
+2025/12/14-17:39:55.457 ae2938b Reusing MANIFEST /Users/shamil/social_agent/chrome-user/Default/Local Storage/leveldb/MANIFEST-000001
+2025/12/14-17:39:55.460 ae2938b Recovering log #3
+2025/12/14-17:39:55.460 ae2938b Reusing old log /Users/shamil/social_agent/chrome-user/Default/Local Storage/leveldb/000003.log 

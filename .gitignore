@@ -1,0 +1,63 @@
+# Environment variables and API keys
+.env
+*.env
+.env.local
+notion_token.txt
+cookies.json
+
+# Authentication storage
+auth_storage/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+venv_*/
+venv_py314.bak_*/
+*.egg-info/
+dist/
+build/
+
+# Logs
+*.log
+logs/
+notion_backup.log
+bot.log
+activity_log.txt
+
+# Browser profiles
+chrome_profile/
+chrome-user/
+.chrome_profile/
+
+# Storage/state files
+storage/*.json
+!storage/.gitkeep
+
+# Media files (large files - don't track)
+media/videos/*.mp4
+media/images/*.jpg
+media/images/*.png
+media/images/*.jpeg
+media/images/*.gif
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Backup files
+*.backup
+*.bak
+*_backup.py
+social_agent.backup.py
+social_agent.safe.copy.*.py
+

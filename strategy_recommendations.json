@@ -1,0 +1,547 @@
+{
+  "recommendations": [
+    {
+      "timestamp": "2025-12-20T01:00:27.783411",
+      "recommendation": {
+        "best_topic": "2026 midterm",
+        "best_topic_reason": "This topic had the highest actions (6) among all topics analyzed, indicating some level of engagement.",
+        "recommended_topic_focus": [
+          "election betting",
+          "senate odds",
+          "prediction market"
+        ],
+        "link_frequency_recommendation": "DECREASE to 0%",
+        "link_frequency_reasoning": "With a CTR of 0.0% and no links used in posts, the current strategy of not using links should be maintained, as links have not contributed to engagement.",
+        "engagement_mix_adjustment": "INCREASE likes to 20%",
+        "engagement_mix_reasoning": "Encouraging likes can help create a more engaging environment and improve overall visibility, which is currently lacking.",
+        "warning_signs": [
+          "Overall clicks are at 0",
+          "No posts with links"
+        ],
+        "top_3_actions": [
+          "Create more engaging content for '2026 midterm'",
+          "Utilize visuals or polls to increase interaction",
+          "Experiment with different posting times"
+        ],
+        "confidence_level": "MEDIUM"
+      },
+      "status": "implemented"
+    },
+    {
+      "timestamp": "2025-12-21T01:00:33.013236",
+      "recommendation": {
+        "best_topic": "polymarket",
+        "best_topic_reason": "It has the most actions despite low overall performance, indicating potential interest.",
+        "recommended_topic_focus": [
+          "polymarket",
+          "stock market predictions",
+          "prediction markets sports"
+        ],
+        "link_frequency_recommendation": "DECREASE to 50%",
+        "link_frequency_reasoning": "The CTR is 0%, indicating that links are not driving engagement and should be reduced to encourage more interaction.",
+        "engagement_mix_adjustment": "INCREASE likes to 10%",
+        "engagement_mix_reasoning": "With no likes or retweets, increasing the focus on generating likes can help build a more engaged audience, which is crucial for growth.",
+        "warning_signs": [
+          "Total clicks are very low across all topics",
+          "No views or interactions noted"
+        ],
+        "top_3_actions": [
+          "Create more engaging content without links",
+          "Encourage user interaction through polls or questions",
+          "Monitor performance closely to adjust strategies"
+        ],
+        "confidence_level": "MEDIUM"
+      },
+      "status": "implemented"
+    },
+    {
+      "timestamp": "2025-12-21T01:55:59.917928",
+      "recommendation": {
+        "best_topic": "stock market predictions",
+        "best_topic_reason": "Despite low views and clicks, it had the highest actions, indicating user engagement.",
+        "recommended_topic_focus": [
+          "stock market predictions",
+          "prediction markets sports",
+          "polymarket"
+        ],
+        "link_frequency_recommendation": "DECREASE to 0%",
+        "link_frequency_reasoning": "With a CTR of 0.0%, it indicates that links are not being engaged with and should be reduced to focus on content that drives interaction.",
+        "engagement_mix_adjustment": "INCREASE likes to 10%",
+        "engagement_mix_reasoning": "Increasing likes can help boost visibility and engagement, fostering a more interactive community.",
+        "warning_signs": [
+          "Total views and clicks are extremely low, indicating poor reach and engagement.",
+          "CTR on links is 0%, signaling that links are ineffective."
+        ],
+        "top_3_actions": [
+          "Shift focus to topics with higher engagement",
+          "Engage users through polls or questions to stimulate interaction",
+          "Create more engaging content without links to improve views and interactions"
+        ],
+        "confidence_level": "HIGH"
+      },
+      "status": "implemented"
+    },
+    {
+      "timestamp": "2025-12-23T01:49:18.842648",
+      "recommendation": {
+        "best_topic": "polymarket",
+        "best_topic_reason": "It is the only topic that was mentioned, indicating a specific focus on Polymarket.",
+        "recommended_topic_focus": [
+          "polymarket",
+          "crypto trading",
+          "market predictions"
+        ],
+        "link_frequency_recommendation": "DECREASE to 0%",
+        "link_frequency_reasoning": "The CTR is currently at 0%, indicating that links are not engaging users effectively.",
+        "engagement_mix_adjustment": "INCREASE likes to 20%",
+        "engagement_mix_reasoning": "Increasing likes can help boost visibility and engagement, as there are no current likes or retweets.",
+        "warning_signs": [
+          "CTR is at 0%",
+          "No clicks or engagement recorded"
+        ],
+        "top_3_actions": [
+          "Create more engaging content about Polymarket",
+          "Encourage user interaction through questions",
+          "Utilize visuals or polls to increase engagement"
+        ],
+        "confidence_level": "MEDIUM"
+      },
+      "status": "implemented"
+    },
+    {
+      "timestamp": "2025-12-23T01:59:25.970449",
+      "recommendation": {
+        "best_topic": "Polymarket",
+        "best_topic_reason": "Polymarket is the only topic being addressed, making it the primary focus.",
+        "recommended_topic_focus": [
+          "Polymarket news",
+          "Polymarket predictions",
+          "Polymarket tutorials"
+        ],
+        "link_frequency_recommendation": "DECREASE to 0%",
+        "link_frequency_reasoning": "With a CTR of 0.0% and no links used, it is advisable to focus on engagement without links to build interest first.",
+        "engagement_mix_adjustment": "INCREASE likes to 50%",
+        "engagement_mix_reasoning": "Encouraging likes can help increase visibility and engagement, fostering a more interactive audience.",
+        "warning_signs": [
+          "No clicks recorded",
+          "No links used"
+        ],
+        "top_3_actions": [
+          "Create engaging posts about Polymarket",
+          "Encourage user interaction through questions",
+          "Share informative content related to Polymarket"
+        ],
+        "confidence_level": "HIGH"
+      },
+      "status": "implemented"
+    },
+    {
+      "timestamp": "2025-12-24T01:01:13.684097",
+      "recommendation": {
+        "best_topic": "polymarket",
+        "best_topic_reason": "This topic had the highest number of actions (5) among the topics analyzed, indicating some level of interest.",
+        "recommended_topic_focus": [
+          "polymarket",
+          "betting markets",
+          "election odds"
+        ],
+        "link_frequency_recommendation": "DECREASE to 40%",
+        "link_frequency_reasoning": "With a CTR of 0.0% across all links, decreasing the frequency of links may help improve engagement and encourage more organic interactions.",
+        "engagement_mix_adjustment": "INCREASE likes to 50%",
+        "engagement_mix_reasoning": "Increasing likes can help improve visibility in feeds, as engagement metrics influence algorithmic reach, especially since likes are currently low.",
+        "warning_signs": [
+          "Total clicks are at 0",
+          "Overall engagement is very low"
+        ],
+        "top_3_actions": [
+          "Create engaging content around polymarket",
+          "Incorporate questions or polls to encourage interaction",
+          "Experiment with different posting times to find peak engagement"
+        ],
+        "confidence_level": "MEDIUM"
+      },
+      "status": "implemented"
+    },
+    {
+      "timestamp": "2025-12-24T01:38:16.128509",
+      "recommendation": {
+        "best_topic": "polymarket",
+        "best_topic_reason": "Despite having a high number of posts with links, it generated no clicks, indicating potential interest that needs to be nurtured.",
+        "recommended_topic_focus": [
+          "Polymarket",
+          "betting markets",
+          "election odds"
+        ],
+        "link_frequency_recommendation": "DECREASE to 40%",
+        "link_frequency_reasoning": "With a CTR of 0.0%, it is crucial to reduce the number of links to avoid overwhelming the audience and to focus on generating engagement first.",
+        "engagement_mix_adjustment": "INCREASE likes to 50%",
+        "engagement_mix_reasoning": "Increasing likes can help build a more engaged audience and create a foundation for future interactions, especially since current likes are low.",
+        "warning_signs": [
+          "No clicks generated despite multiple posts",
+          "Overall engagement is very low"
+        ],
+        "top_3_actions": [
+          "Create engaging content without links",
+          "Use visually appealing media to increase engagement",
+          "Encourage interaction through questions or polls"
+        ],
+        "confidence_level": "HIGH"
+      },
+      "status": "implemented"
+    },
+    {
+      "timestamp": "2025-12-24T01:53:16.454423",
+      "recommendation": {
+        "best_topic": "polymarket",
+        "best_topic_reason": "This topic had the highest actions with a significant number of posts using links, indicating interest despite low overall performance metrics.",
+        "recommended_topic_focus": [
+          "polymarket",
+          "betting markets",
+          "election odds"
+        ],
+        "link_frequency_recommendation": "DECREASE to 40%",
+        "link_frequency_reasoning": "With a CTR of 0.0% on links, decreasing the frequency of links could help focus on content that engages users more effectively.",
+        "engagement_mix_adjustment": "INCREASE likes to 50%",
+        "engagement_mix_reasoning": "Increasing likes can enhance visibility and engagement, as they are currently low and can help foster a more interactive community.",
+        "warning_signs": [
+          "Total clicks are very low",
+          "CTR is below 1%"
+        ],
+        "top_3_actions": [
+          "Post more engaging content",
+          "Use visuals or polls to increase interaction",
+          "Experiment with different posting times"
+        ],
+        "confidence_level": "HIGH"
+      },
+      "status": "implemented"
+    },
+    {
+      "timestamp": "2025-12-25T01:25:13.641302",
+      "recommendation": {
+        "best_topic": "polymarket",
+        "best_topic_reason": "It had the highest number of actions (4) compared to betting markets.",
+        "recommended_topic_focus": [
+          "polymarket",
+          "betting markets",
+          "general betting trends"
+        ],
+        "link_frequency_recommendation": "DECREASE to 0%",
+        "link_frequency_reasoning": "There were no clicks from posts with links, indicating that links are not effective at this time.",
+        "engagement_mix_adjustment": "INCREASE likes to 50%",
+        "engagement_mix_reasoning": "Increasing likes can help improve overall visibility and engagement, as the current mix lacks any likes or interactions.",
+        "warning_signs": [
+          "Total clicks are very low (0 clicks)",
+          "No posts with links were effective"
+        ],
+        "top_3_actions": [
+          "Create engaging posts about polymarket",
+          "Incorporate visuals or memes related to the topic",
+          "Encourage user interaction through questions or polls"
+        ],
+        "confidence_level": "HIGH"
+      },
+      "status": "implemented"
+    },
+    {
+      "timestamp": "2025-12-25T01:28:21.486334",
+      "recommendation": {
+        "best_topic": "betting markets",
+        "best_topic_reason": "Both topics had the same performance metrics, but 'betting markets' is generally more engaging and relevant for Polymarket's audience.",
+        "recommended_topic_focus": [
+          "betting markets",
+          "polymarket",
+          "trending events"
+        ],
+        "link_frequency_recommendation": "DECREASE to 0%",
+        "link_frequency_reasoning": "With a CTR of 0%, there is no engagement with links, indicating that the audience is not responding to them.",
+        "engagement_mix_adjustment": "INCREASE likes to 50%",
+        "engagement_mix_reasoning": "Increasing likes can help improve visibility and engagement, as the current metrics show no interactions.",
+        "warning_signs": [
+          "CTR is 0%",
+          "No clicks or likes recorded"
+        ],
+        "top_3_actions": [
+          "Create engaging content focusing on betting markets",
+          "Introduce interactive polls or questions",
+          "Utilize visuals or memes to enhance engagement"
+        ],
+        "confidence_level": "HIGH"
+      },
+      "status": "implemented"
+    }
+  ],
+  "implemented": [
+    {
+      "timestamp": "2025-12-20T01:00:27.783411",
+      "recommendation": {
+        "best_topic": "2026 midterm",
+        "best_topic_reason": "This topic had the highest actions (6) among all topics analyzed, indicating some level of engagement.",
+        "recommended_topic_focus": [
+          "election betting",
+          "senate odds",
+          "prediction market"
+        ],
+        "link_frequency_recommendation": "DECREASE to 0%",
+        "link_frequency_reasoning": "With a CTR of 0.0% and no links used in posts, the current strategy of not using links should be maintained, as links have not contributed to engagement.",
+        "engagement_mix_adjustment": "INCREASE likes to 20%",
+        "engagement_mix_reasoning": "Encouraging likes can help create a more engaging environment and improve overall visibility, which is currently lacking.",
+        "warning_signs": [
+          "Overall clicks are at 0",
+          "No posts with links"
+        ],
+        "top_3_actions": [
+          "Create more engaging content for '2026 midterm'",
+          "Utilize visuals or polls to increase interaction",
+          "Experiment with different posting times"
+        ],
+        "confidence_level": "MEDIUM"
+      },
+      "status": "implemented"
+    },
+    {
+      "timestamp": "2025-12-21T01:00:33.013236",
+      "recommendation": {
+        "best_topic": "polymarket",
+        "best_topic_reason": "It has the most actions despite low overall performance, indicating potential interest.",
+        "recommended_topic_focus": [
+          "polymarket",
+          "stock market predictions",
+          "prediction markets sports"
+        ],
+        "link_frequency_recommendation": "DECREASE to 50%",
+        "link_frequency_reasoning": "The CTR is 0%, indicating that links are not driving engagement and should be reduced to encourage more interaction.",
+        "engagement_mix_adjustment": "INCREASE likes to 10%",
+        "engagement_mix_reasoning": "With no likes or retweets, increasing the focus on generating likes can help build a more engaged audience, which is crucial for growth.",
+        "warning_signs": [
+          "Total clicks are very low across all topics",
+          "No views or interactions noted"
+        ],
+        "top_3_actions": [
+          "Create more engaging content without links",
+          "Encourage user interaction through polls or questions",
+          "Monitor performance closely to adjust strategies"
+        ],
+        "confidence_level": "MEDIUM"
+      },
+      "status": "implemented"
+    },
+    {
+      "timestamp": "2025-12-21T01:55:59.917928",
+      "recommendation": {
+        "best_topic": "stock market predictions",
+        "best_topic_reason": "Despite low views and clicks, it had the highest actions, indicating user engagement.",
+        "recommended_topic_focus": [
+          "stock market predictions",
+          "prediction markets sports",
+          "polymarket"
+        ],
+        "link_frequency_recommendation": "DECREASE to 0%",
+        "link_frequency_reasoning": "With a CTR of 0.0%, it indicates that links are not being engaged with and should be reduced to focus on content that drives interaction.",
+        "engagement_mix_adjustment": "INCREASE likes to 10%",
+        "engagement_mix_reasoning": "Increasing likes can help boost visibility and engagement, fostering a more interactive community.",
+        "warning_signs": [
+          "Total views and clicks are extremely low, indicating poor reach and engagement.",
+          "CTR on links is 0%, signaling that links are ineffective."
+        ],
+        "top_3_actions": [
+          "Shift focus to topics with higher engagement",
+          "Engage users through polls or questions to stimulate interaction",
+          "Create more engaging content without links to improve views and interactions"
+        ],
+        "confidence_level": "HIGH"
+      },
+      "status": "implemented"
+    },
+    {
+      "timestamp": "2025-12-23T01:49:18.842648",
+      "recommendation": {
+        "best_topic": "polymarket",
+        "best_topic_reason": "It is the only topic that was mentioned, indicating a specific focus on Polymarket.",
+        "recommended_topic_focus": [
+          "polymarket",
+          "crypto trading",
+          "market predictions"
+        ],
+        "link_frequency_recommendation": "DECREASE to 0%",
+        "link_frequency_reasoning": "The CTR is currently at 0%, indicating that links are not engaging users effectively.",
+        "engagement_mix_adjustment": "INCREASE likes to 20%",
+        "engagement_mix_reasoning": "Increasing likes can help boost visibility and engagement, as there are no current likes or retweets.",
+        "warning_signs": [
+          "CTR is at 0%",
+          "No clicks or engagement recorded"
+        ],
+        "top_3_actions": [
+          "Create more engaging content about Polymarket",
+          "Encourage user interaction through questions",
+          "Utilize visuals or polls to increase engagement"
+        ],
+        "confidence_level": "MEDIUM"
+      },
+      "status": "implemented"
+    },
+    {
+      "timestamp": "2025-12-23T01:59:25.970449",
+      "recommendation": {
+        "best_topic": "Polymarket",
+        "best_topic_reason": "Polymarket is the only topic being addressed, making it the primary focus.",
+        "recommended_topic_focus": [
+          "Polymarket news",
+          "Polymarket predictions",
+          "Polymarket tutorials"
+        ],
+        "link_frequency_recommendation": "DECREASE to 0%",
+        "link_frequency_reasoning": "With a CTR of 0.0% and no links used, it is advisable to focus on engagement without links to build interest first.",
+        "engagement_mix_adjustment": "INCREASE likes to 50%",
+        "engagement_mix_reasoning": "Encouraging likes can help increase visibility and engagement, fostering a more interactive audience.",
+        "warning_signs": [
+          "No clicks recorded",
+          "No links used"
+        ],
+        "top_3_actions": [
+          "Create engaging posts about Polymarket",
+          "Encourage user interaction through questions",
+          "Share informative content related to Polymarket"
+        ],
+        "confidence_level": "HIGH"
+      },
+      "status": "implemented"
+    },
+    {
+      "timestamp": "2025-12-24T01:01:13.684097",
+      "recommendation": {
+        "best_topic": "polymarket",
+        "best_topic_reason": "This topic had the highest number of actions (5) among the topics analyzed, indicating some level of interest.",
+        "recommended_topic_focus": [
+          "polymarket",
+          "betting markets",
+          "election odds"
+        ],
+        "link_frequency_recommendation": "DECREASE to 40%",
+        "link_frequency_reasoning": "With a CTR of 0.0% across all links, decreasing the frequency of links may help improve engagement and encourage more organic interactions.",
+        "engagement_mix_adjustment": "INCREASE likes to 50%",
+        "engagement_mix_reasoning": "Increasing likes can help improve visibility in feeds, as engagement metrics influence algorithmic reach, especially since likes are currently low.",
+        "warning_signs": [
+          "Total clicks are at 0",
+          "Overall engagement is very low"
+        ],
+        "top_3_actions": [
+          "Create engaging content around polymarket",
+          "Incorporate questions or polls to encourage interaction",
+          "Experiment with different posting times to find peak engagement"
+        ],
+        "confidence_level": "MEDIUM"
+      },
+      "status": "implemented"
+    },
+    {
+      "timestamp": "2025-12-24T01:38:16.128509",
+      "recommendation": {
+        "best_topic": "polymarket",
+        "best_topic_reason": "Despite having a high number of posts with links, it generated no clicks, indicating potential interest that needs to be nurtured.",
+        "recommended_topic_focus": [
+          "Polymarket",
+          "betting markets",
+          "election odds"
+        ],
+        "link_frequency_recommendation": "DECREASE to 40%",
+        "link_frequency_reasoning": "With a CTR of 0.0%, it is crucial to reduce the number of links to avoid overwhelming the audience and to focus on generating engagement first.",
+        "engagement_mix_adjustment": "INCREASE likes to 50%",
+        "engagement_mix_reasoning": "Increasing likes can help build a more engaged audience and create a foundation for future interactions, especially since current likes are low.",
+        "warning_signs": [
+          "No clicks generated despite multiple posts",
+          "Overall engagement is very low"
+        ],
+        "top_3_actions": [
+          "Create engaging content without links",
+          "Use visually appealing media to increase engagement",
+          "Encourage interaction through questions or polls"
+        ],
+        "confidence_level": "HIGH"
+      },
+      "status": "implemented"
+    },
+    {
+      "timestamp": "2025-12-24T01:53:16.454423",
+      "recommendation": {
+        "best_topic": "polymarket",
+        "best_topic_reason": "This topic had the highest actions with a significant number of posts using links, indicating interest despite low overall performance metrics.",
+        "recommended_topic_focus": [
+          "polymarket",
+          "betting markets",
+          "election odds"
+        ],
+        "link_frequency_recommendation": "DECREASE to 40%",
+        "link_frequency_reasoning": "With a CTR of 0.0% on links, decreasing the frequency of links could help focus on content that engages users more effectively.",
+        "engagement_mix_adjustment": "INCREASE likes to 50%",
+        "engagement_mix_reasoning": "Increasing likes can enhance visibility and engagement, as they are currently low and can help foster a more interactive community.",
+        "warning_signs": [
+          "Total clicks are very low",
+          "CTR is below 1%"
+        ],
+        "top_3_actions": [
+          "Post more engaging content",
+          "Use visuals or polls to increase interaction",
+          "Experiment with different posting times"
+        ],
+        "confidence_level": "HIGH"
+      },
+      "status": "implemented"
+    },
+    {
+      "timestamp": "2025-12-25T01:25:13.641302",
+      "recommendation": {
+        "best_topic": "polymarket",
+        "best_topic_reason": "It had the highest number of actions (4) compared to betting markets.",
+        "recommended_topic_focus": [
+          "polymarket",
+          "betting markets",
+          "general betting trends"
+        ],
+        "link_frequency_recommendation": "DECREASE to 0%",
+        "link_frequency_reasoning": "There were no clicks from posts with links, indicating that links are not effective at this time.",
+        "engagement_mix_adjustment": "INCREASE likes to 50%",
+        "engagement_mix_reasoning": "Increasing likes can help improve overall visibility and engagement, as the current mix lacks any likes or interactions.",
+        "warning_signs": [
+          "Total clicks are very low (0 clicks)",
+          "No posts with links were effective"
+        ],
+        "top_3_actions": [
+          "Create engaging posts about polymarket",
+          "Incorporate visuals or memes related to the topic",
+          "Encourage user interaction through questions or polls"
+        ],
+        "confidence_level": "HIGH"
+      },
+      "status": "implemented"
+    },
+    {
+      "timestamp": "2025-12-25T01:28:21.486334",
+      "recommendation": {
+        "best_topic": "betting markets",
+        "best_topic_reason": "Both topics had the same performance metrics, but 'betting markets' is generally more engaging and relevant for Polymarket's audience.",
+        "recommended_topic_focus": [
+          "betting markets",
+          "polymarket",
+          "trending events"
+        ],
+        "link_frequency_recommendation": "DECREASE to 0%",
+        "link_frequency_reasoning": "With a CTR of 0%, there is no engagement with links, indicating that the audience is not responding to them.",
+        "engagement_mix_adjustment": "INCREASE likes to 50%",
+        "engagement_mix_reasoning": "Increasing likes can help improve visibility and engagement, as the current metrics show no interactions.",
+        "warning_signs": [
+          "CTR is 0%",
+          "No clicks or likes recorded"
+        ],
+        "top_3_actions": [
+          "Create engaging content focusing on betting markets",
+          "Introduce interactive polls or questions",
+          "Utilize visuals or memes to enhance engagement"
+        ],
+        "confidence_level": "HIGH"
+      },
+      "status": "implemented"
+    }
+  ],
+  "rejected": []
+}

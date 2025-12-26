@@ -1,0 +1,65 @@
+{
+  "queries": {
+    "crypto betting insights": {
+      "attempts": 7,
+      "successes": 0
+    },
+    "political market trends": {
+      "attempts": 16,
+      "successes": 0
+    },
+    "prediction markets news": {
+      "attempts": 7,
+      "successes": 0
+    },
+    "policy betting odds": {
+      "attempts": 4,
+      "successes": 0
+    },
+    "prediction markets sports": {
+      "attempts": 5,
+      "successes": 0
+    },
+    "crypto prediction markets": {
+      "attempts": 11,
+      "successes": 0
+    },
+    "NBA championship odds": {
+      "attempts": 14,
+      "successes": 0
+    },
+    "election betting trends": {
+      "attempts": 5,
+      "successes": 0
+    },
+    "betting markets": {
+      "attempts": 34,
+      "successes": 20
+    },
+    "political odds": {
+      "attempts": 9,
+      "successes": 0
+    },
+    "Polymarket": {
+      "attempts": 242,
+      "successes": 0
+    },
+    "election odds": {
+      "attempts": 4,
+      "successes": 1
+    },
+    "prediction market": {
+      "attempts": 201,
+      "successes": 1
+    },
+    "polymarket": {
+      "attempts": 63,
+      "successes": 35
+    },
+    "trending events": {
+      "attempts": 3,
+      "successes": 2
+    }
+  },
+  "last_updated": "2025-12-25T16:09:12.860177"
+}

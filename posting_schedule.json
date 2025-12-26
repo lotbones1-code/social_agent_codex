@@ -1,0 +1,18 @@
+{
+  "text_posts": {
+    "posts_per_day": 3,
+    "interval_hours_min": 4,
+    "interval_hours_max": 8,
+    "next_post_time": null
+  },
+  "video_posts": {
+    "posts_per_day": 1,
+    "interval_hours": 24,
+    "next_video_time": null
+  },
+  "last_post_timestamp": null,
+  "last_video_timestamp": null,
+  "total_posts_today": 0,
+  "posts_in_last_24h": []
+}
+
