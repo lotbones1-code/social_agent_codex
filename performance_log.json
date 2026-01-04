@@ -10,16 +10,46 @@
       "views": 0,
       "likes": 0,
       "clicks": 0
+    },
+    {
+      "type": "reply",
+      "topic": "polymarket",
+      "has_link": false,
+      "post_id": "2007782975212290278",
+      "timestamp": "2026-01-04T04:56:29.330625",
+      "views": 0,
+      "likes": 0,
+      "clicks": 0
+    },
+    {
+      "type": "reply",
+      "topic": "polymarket",
+      "has_link": false,
+      "post_id": "2007783063892504738",
+      "timestamp": "2026-01-04T04:57:43.501309",
+      "views": 0,
+      "likes": 0,
+      "clicks": 0
+    },
+    {
+      "type": "reply",
+      "topic": "polymarket",
+      "has_link": false,
+      "post_id": "2007782954743795957",
+      "timestamp": "2026-01-04T04:59:03.553032",
+      "views": 0,
+      "likes": 0,
+      "clicks": 0
     }
   ],
   "topics": {
     "polymarket": {
-      "count": 1,
+      "count": 4,
       "views": 0,
       "clicks": 0,
       "likes": 0,
       "with_link": 0,
-      "without_link": 1
+      "without_link": 4
     }
   },
   "totals": {
@@ -33,6 +63,6 @@
     "total_views": 0,
     "total_clicks": 0,
     "total_likes": 0,
-    "replys": 1
+    "replys": 4
   }
 }
