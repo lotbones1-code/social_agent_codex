@@ -35,7 +35,7 @@ class PostCleanup:
         Delete if ANY of these are true:
         1. Has image attachments (the dumb AI images we had)
         2. Zero views after 48+ hours
-        3. Mentions outdated content (Biden 2024, Trump 2024, 2024 election)
+        3. Mentions outdated content (2024 references)
         4. Posted more than 7 days ago with under 5 views
         5. Under 1 view after 72+ hours (definitely dead)
         """
@@ -78,7 +78,7 @@ class PostCleanup:
         outdated_keywords = [
             "biden 2024",
             "trump 2024",
-            "2024 election",
+            "2024",  # Block stale year references
             "biden vs trump",
             "2024 race"
         ]

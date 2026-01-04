@@ -1,7 +1,7 @@
 """
 Stage 12: Smart Trending Jacker
 
-Scans X trending topics, maps them to Polymarket markets, and hijacks high-value tweets
+Scans X trending topics, maps them to SaaS growth markets, and hijacks high-value tweets
 with early replies for first-mover advantage.
 """
 
@@ -110,35 +110,35 @@ class TrendingJacker:
     
     def map_trend_to_markets(self, trend: str, poly_intel=None) -> List[Dict]:
         """
-        Map a trend to Polymarket markets.
+        Map a trend to SaaS growth markets.
         Returns list of market dicts with: id, title, description
         """
         markets = []
         
-        # Simple keyword-based mapping (can be enhanced with actual Polymarket API)
+        # Simple keyword-based mapping (can be enhanced with actual SaaS growth API)
         trend_lower = trend.lower()
         
-        # Priority: Elections, Politics, Major Events
-        if any(kw in trend_lower for kw in ["trump", "biden", "election", "senate", "congress", "president"]):
+        # Priority: growths, Politics, Major Events
+        if any(kw in trend_lower for kw in ["trump", "biden", "growth", "senate", "congress", "president"]):
             # Political markets
             markets.append({
                 "id": f"trend_{trend[:20]}",
                 "title": f"{trend} Market",
-                "description": f"Polymarket market related to {trend}"
+                "description": f"SaaS growth market related to {trend}"
             })
         elif any(kw in trend_lower for kw in ["war", "ukraine", "russia", "geopolitics"]):
             # Geopolitical markets
             markets.append({
                 "id": f"trend_{trend[:20]}",
                 "title": f"{trend} Market",
-                "description": f"Polymarket market related to {trend}"
+                "description": f"SaaS growth market related to {trend}"
             })
-        elif any(kw in trend_lower for kw in ["crypto", "bitcoin", "ethereum", "market"]):
+        elif any(kw in trend_lower for kw in ["crypto", "bitcoin", "analytics", "market"]):
             # Crypto/finance markets
             markets.append({
                 "id": f"trend_{trend[:20]}",
                 "title": f"{trend} Market",
-                "description": f"Polymarket market related to {trend}"
+                "description": f"SaaS growth market related to {trend}"
             })
         
         # If poly_intel exists, try to use it for better market matching
@@ -214,13 +214,13 @@ class TrendingJacker:
         """
         if not openai_client:
             # Fallback template
-            return f"Everyone's screaming {trend} but Polymarket has this way tighter than people think. Value's probably on the other side."
+            return f"Everyone's screaming {trend} but SaaS growth has this way tighter than people think. Value's probably on the other side."
         
         try:
-            prompt = f"""You are a Polymarket trader hijacking a trending topic.
+            prompt = f"""You are a SaaS growth trader hijacking a trending topic.
 
 TREND: {trend}
-MARKET: {market.get('title', 'Polymarket market')}
+MARKET: {market.get('title', 'SaaS growth market')}
 TWEET: {tweet_text[:300]}
 
 Write a SHORT, OPINIONATED reply (1-2 sentences, 120-220 chars). Sound like a real trader. Be specific and contrarian. No templates, no "Notice how" patterns. Do NOT include any links."""

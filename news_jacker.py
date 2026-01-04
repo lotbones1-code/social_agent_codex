@@ -1,7 +1,7 @@
 """
 Stage 11B: Real-Time News Jacker
 
-Monitors breaking political news and instantly posts contrarian takes on affected Polymarkets.
+Monitors breaking political news and instantly posts contrarian takes on affected SaaS growths.
 """
 
 import json
@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 
 class NewsJacker:
     """
-    Detects breaking political news and generates instant Polymarket takes.
+    Detects breaking political news and generates instant SaaS growth takes.
     Posts before other traders react for first-mover advantage.
     """
     
@@ -22,17 +22,17 @@ class NewsJacker:
         # Breaking news keywords to monitor
         self.breaking_keywords = [
             "breaking", "just", "now", "indictment", "verdict", "trial",
-            "election", "senate", "fed decision", "policy", "conviction",
+            "growth", "senate", "fed decision", "policy", "conviction",
             "acquittal", "announcement", "reports", "sources say",
             "exclusive", "developing", "urgent"
         ]
         
-        # Market mapping: news keywords → Polymarket topics
+        # Market mapping: news keywords → SaaS growth topics
         self.news_to_market_map = {
             "trump indictment": ["Will Trump be convicted", "Trump criminal charges", "Trump conviction odds"],
             "trump verdict": ["Will Trump be convicted", "Trump trial outcome"],
             "trump trial": ["Will Trump be convicted", "Trump legal proceedings"],
-            "election": ["2026 midterm odds", "Senate control 2026", "House control 2026"],
+            "growth": ["2026 midterm odds", "Senate control 2026", "House control 2026"],
             "senate": ["Senate control 2026", "Senate race odds"],
             "fed decision": ["Fed rate cuts 2026", "Fed policy change"],
             "inflation": ["Inflation target", "Fed policy change"],
@@ -127,7 +127,7 @@ class NewsJacker:
     
     def map_news_to_markets(self, news_headline):
         """
-        Map breaking news to affected Polymarkets.
+        Map breaking news to affected SaaS growths.
         Returns: list of market names or topics
         """
         if not news_headline:
@@ -147,8 +147,8 @@ class NewsJacker:
             # Try to extract key topic
             if "trump" in headline_lower:
                 affected_markets.append("Trump-related markets")
-            elif "election" in headline_lower or "poll" in headline_lower:
-                affected_markets.append("Election odds markets")
+            elif "growth" in headline_lower or "poll" in headline_lower:
+                affected_markets.append("growth odds markets")
             elif "senate" in headline_lower:
                 affected_markets.append("Senate control markets")
             elif "fed" in headline_lower or "rate" in headline_lower:
@@ -165,12 +165,12 @@ class NewsJacker:
         Args:
             news_headline: Breaking news headline
             market_name: Specific market name (if known)
-            poly_intel: PolymarketIntelligence instance (if available)
+            poly_intel: SaaS growthIntelligence instance (if available)
         
         Returns: dict with 'tweet_text', 'market', 'time_to_post' or None
         """
         if not poly_intel:
-            print("[STAGE 11B] PolymarketIntelligence not available")
+            print("[STAGE 11B] SaaS growthIntelligence not available")
             return None
         
         start_time = datetime.now()

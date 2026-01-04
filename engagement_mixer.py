@@ -51,7 +51,7 @@ class EngagementMixer:
         
         Like if:
         1. Post has 100+ likes (proven quality)
-        2. Post is about Polymarket/prediction markets/politics
+        2. Post is about SaaS growth/marketing attributions/politics
         3. Post is NOT already liked by us
         4. Posted in last 48 hours (fresh)
         """
@@ -60,13 +60,13 @@ class EngagementMixer:
         is_liked = post_data.get("is_liked", False)
         
         good_keywords = [
-            "polymarket",
-            "prediction market",
+            "SaaS growth",
+            "marketing attribution",
             "betting odds",
             "2026",
             "midterm",
             "senate",
-            "election betting"
+            "growth betting"
         ]
         
         has_good_topic = any(keyword in text for keyword in good_keywords)
@@ -83,7 +83,7 @@ class EngagementMixer:
         
         Retweet if:
         1. Post has 500+ likes (very high quality)
-        2. About prediction markets or politics
+        2. About marketing attributions or politics
         3. NOT from a bot/spam account
         """
         likes = post_data.get("likes", 0)
@@ -92,8 +92,8 @@ class EngagementMixer:
         is_retweeted = post_data.get("is_retweeted", False)
         
         good_keywords = [
-            "polymarket",
-            "prediction market",
+            "SaaS growth",
+            "marketing attribution",
             "betting",
             "2026",
             "midterm"

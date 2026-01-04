@@ -12,12 +12,14 @@ else
     exit 1
 fi
 
-# Launch Chrome with remote debugging on port 9222
-# Using a custom user data directory so it doesn't interfere with your main Chrome
-USER_DATA_DIR="$HOME/.chrome-debug"
+# Launch Chrome with remote debugging on port 9223 (separate from other bots on 9222)
+# Using a custom user data directory so it doesn't interfere with your main Chrome or other bots
+USER_DATA_DIR="$HOME/.chrome-debug-dub"
+CDP_PORT="${CDP_PORT:-9223}"
 
-echo "🚀 Launching Chrome with remote debugging on port 9222..."
+echo "🚀 Launching Chrome with remote debugging on port $CDP_PORT..."
 echo "📁 User data directory: $USER_DATA_DIR"
+echo "🔌 CDP port: $CDP_PORT (separate from other bots)"
 echo ""
 echo "✅ Once Chrome opens:"
 echo "   1. Log into X/Twitter in the Chrome window"
@@ -30,7 +32,7 @@ echo "Press Ctrl+C to stop this script (which will close Chrome)."
 echo ""
 
 "$CHROME" \
-    --remote-debugging-port=9222 \
+    --remote-debugging-port="$CDP_PORT" \
     --user-data-dir="$USER_DATA_DIR" \
     --no-first-run \
     --no-default-browser-check

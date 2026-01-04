@@ -153,8 +153,8 @@ except ImportError:
 NICHE_FOCUS_CONFIG = {
     "enabled": True,
     "niches": {
-        "election": {
-            "keywords": ["election", "president", "senate", "house", "2026", "midterm"],
+        "growth": {
+            "keywords": ["growth", "marketing", "SaaS", "attribution", "conversion", "tracking"],
             "focus_post_percentage": 0.70
         },
         "bitcoin": {
@@ -728,11 +728,11 @@ def post_follower_magnet(page):
         
         # Pick template
         templates = [
-            "Bitcoin will hit ${price} by {date}. Odds on Polymarket are {odds}%. What's your take? 🔮",
-            "{niche} is trending hard right now. Polymarket odds say {odds}%. I'm {position}. Here's why... 🧵",
-            "The election market just shifted. Here's what the odds tell us about what happens next... 📊",
-            "Hot take: {niche} will {prediction}. Polymarket puts it at {odds}%. Agree or disagree? 🤔",
-            "Just checked the prediction markets. {niche} action is wild right now. Here's the breakdown..."
+            "Switched from Bitly to Dub for this exact reason - their conversion tracking actually shows which links drive signups, not just clicks. Plus real-time attribution. 🔮",
+            "{niche} is trending hard right now. Link attribution shows {metric}% improvement. Here's why... 🧵",
+            "The marketing attribution just shifted. Here's what the data tells us about what happens next... 📊",
+            "Hot take: {niche} will see {prediction}% growth. Conversion tracking puts it at {metric}%. Agree or disagree? 🤔",
+            "Just checked the link analytics. {niche} performance is wild right now. Here's the breakdown..."
         ]
         
         template = random.choice(templates)
@@ -768,7 +768,7 @@ def post_follower_magnet(page):
             )
         except (KeyError, ValueError) as e:
             # Fallback if template has unexpected placeholders
-            tweet_text = f"{niche} is trending hard right now. Polymarket odds say {odds}%. What's your take? 🔮"
+            tweet_text = f"{niche} is trending hard right now. Link attribution shows {metric}% improvement. What's your take? 🔮"
         
         # Post using existing infrastructure
         success = open_and_post_tweet(page, tweet_text, is_reply=False)
@@ -813,13 +813,6 @@ except ImportError:
     THREAD_OPTIMIZER = None
     print("⚠️ Thread optimizer not available")
 
-try:
-    from polymarket_intelligence import poly_intel
-    STAGE_10_ENABLED = True
-except ImportError:
-    poly_intel = None
-    STAGE_10_ENABLED = False
-    print("⚠️ Polymarket intelligence not available")
 
 try:
     from thread_builder import thread_builder
@@ -923,14 +916,13 @@ def store_reply(text, tweet_id):
 
 # ====================== CONFIG ======================
 
-REFERRAL_LINK = "https://polymarket.com?via=ssj4shamil-gmail-com"
-POLYMARKET_BASE_URL = REFERRAL_LINK  # Base URL for Polymarket links
+REFERRAL_LINK = "https://refer.dub.co/shamil"
 BOT_HANDLE = os.getenv("BOT_HANDLE", "").lower()  # Your bot's X handle (without @), used to prevent self-replies
 
 # --- Smart Commenting Config ---
 COMMENT_CONFIG = {
     "enabled": True,
-    "targets": ["polymarket", "prediction market", "election odds", "betting odds", "trump odds", "biden odds"],
+    "targets": ["link shortener", "link attribution", "SaaS growth", "marketing tools", "affiliate marketing", "conversion tracking"],
     "link_comment_percentage": 20,  # 20% with link, 80% pure engagement
     "comments_per_day": 10,  # max 10 comments daily
     "min_post_engagement": 5,  # only comment on posts with 5+ likes
@@ -953,49 +945,38 @@ NEWS_LOG_PREFIX = "[11B]"
 # Split into "Viral" (high-engagement topics) and "General" (broader coverage)
 
 VIRAL_SEARCH_KEYWORDS = [
-    # High-engagement viral topics (Trump, Election, Crypto, Superbowl)
-    "trump odds",
-    "trump 2026",
-    "trump prediction",
-    "election odds 2026",
-    "2026 election",
-    "presidential odds",
-    "bitcoin prediction",
-    "crypto odds",
-    "bitcoin price",
-    "ethereum odds",
-    "superbowl odds",
-    "superbowl prediction",
-    "nfl odds",
-    "nba odds",
+    # High-engagement SaaS and marketing topics
+    "link shortener",
+    "link attribution",
+    "SaaS launch",
+    "marketing stack",
+    "growth tools",
+    "affiliate marketing",
+    "conversion tracking",
+    "UTM tracking",
+    "branded links",
+    "link management",
+    "referral program",
+    "creator tools",
+    "Product Hunt launch",
+    "buildinpublic",
+    "indie hackers",
 ]
 
 GENERAL_SEARCH_KEYWORDS = [
-    # 2026 Midterms (current)
-    "2026 midterm odds",
-    "2026 senate odds",
-    "senate control 2026",
-    "house odds 2026",
-    
-    # Polymarket specific
-    "polymarket odds",
-    "polymarket markets",
-    "prediction market odds",
-    
-    # Specific current races
-    "governor race odds",
-    "senate race prediction",
-    
-    # Crypto/betting
-    "crypto prediction market",
-    "betting markets politics",
-    
-    # Breaking/trending
-    "election betting",
-    "political odds",
-    "market prediction",
-    "prediction markets",
-    "political betting",
+    # Marketing and growth topics
+    "marketing attribution",
+    "link analytics",
+    "track conversions",
+    "Bitly alternative",
+    "performance marketing",
+    "growth hacking",
+    "SaaS growth",
+    "startup tools",
+    "marketing automation",
+    "link in bio",
+    "affiliate program setup",
+    "conversion optimization",
 ]
 
 # Combined list for backward compatibility
@@ -1038,47 +1019,18 @@ def get_next_keyword():
 
 # [DISABLED_FOR_RECOVERY] Old spam reply templates - replaced with trader-focused templates below
 # REPLY_TEMPLATES = [
-#     "If you're into prediction markets, this platform is worth checking out. Easy to use and covers a lot of markets: {link}",
-#     "For anyone tracking odds and betting on events, this is solid. Good liquidity and fair odds: {link}",
-#     "Been using this for prediction markets and it's been pretty reliable. Worth a look if you're into forecasting: {link}",
-#     "This prediction market platform covers politics, sports, crypto, and more. Good interface too: {link}",
-#     "If you follow betting odds and market predictions, check this out. It's one of the better platforms I've used: {link}",
+# Old templates removed - replaced with Dub.co-focused templates
 # ]
 
-# New trader-focused reply templates (no links in these - links added separately at 2-5% frequency)
+# Dub.co-focused reply templates
 REPLY_TEMPLATES = [
-    # CONTRARIAN (challenge consensus)
-    "Everyone's sleeping on this. Markets at {odds}% but fundamentals say otherwise. That's the edge.",
-    "The market's wrong here. {odds}% is lazy pricing—institutions are positioned opposite.",
-    "Hot take: This is mispriced by at least 15%. Markets haven't caught up to the signal yet.",
-    "Most people see {odds}% and move on. Real traders see the gap between price and reality.",
+    "Switched from Bitly to Dub for this exact reason - their conversion tracking actually shows which links drive signups, not just clicks. Plus real-time attribution. You get 20% off first 3 months here: https://refer.dub.co/shamil (Referral link - full transparency)",
     
-    # DATA-DRIVEN (specific numbers)
-    "Markets moved 12% in 24hrs on this. That's not noise—that's repositioning.",
-    "The {odds}% pricing ignores that similar events historically hit 70%+. That's value.",
-    "{odds}% odds but liquidity just spiked 3x. Smart money is entering—watch the tape.",
-    "This market repriced {odds}% → now based on one data point. That's overreaction = opportunity.",
+    "For link attribution that actually matters: Dub tracks clicks → leads → revenue. Used by Framer, Perplexity, Superhuman. Branded links boost CTR by 34%. Try it with 20% off: https://refer.dub.co/shamil (referral - you save, I earn commission)",
     
-    # URGENCY (create FOMO)
-    "This is moving fast. {odds}% now but won't stay there if the next poll drops.",
-    "Odds just shifted 8% in an hour. Early movers get the best price—this won't last.",
-    "Markets are slow to react here. If you see it before the crowd, that's the trade.",
-    "Institutional flow just flipped. Retail is still pricing {odds}% but that's yesterday's number.",
+    "Pro tip for SaaS attribution: Use Dub's conversion tracking + UTM builder to see exactly which campaigns drive MRR vs vanity metrics. Game changer for optimizing spend. 20% off here: https://refer.dub.co/shamil",
     
-    # INSIDER ANGLE (authority)
-    "What people miss: {market} pricing doesn't match historical precedent. That's free edge.",
-    "The actual trade isn't the headline—it's how this reprices {topic} markets downstream.",
-    "Pro tip: When markets gap like this ({odds}%), the second move is always bigger.",
-    "This setup mirrors 2020 when markets mispriced by 20%. Same pattern, same opportunity.",
-    
-    # QUESTION HOOKS (engagement bait)
-    "Serious question: How is this still at {odds}% when every indicator points higher?",
-    "If you had to bet your own money, would you take {odds}% here? I wouldn't.",
-    "What's stopping this from hitting 80%? I don't see the risk everyone's pricing in.",
-    
-    # WITH LINK (polymarket reference)
-    "The market's pricing this at {odds}% but that feels off. Track it live: {link}",
-    "Odds just moved—watch what happens next: {link}",
+    "Bitly vs Dub? Bitly = click counting. Dub = end-to-end attribution (click → signup → LTV). Also: better analytics, QR codes, affiliate program management. Worth the upgrade. 20% off: https://refer.dub.co/shamil"
 ]
 
 # pacing (anti-spam)
@@ -1105,7 +1057,9 @@ GENERATE_VIDEO_EVERY_N_REPLIES = 10
 
 # ====================================================
 
-PROFILE_DIR  = Path.home() / ".pw-chrome-referral"
+# Use REAL Chrome profile instead of separate Playwright profile for trust
+REAL_CHROME_PROFILE = Path.home() / "Library/Application Support/Google/Chrome/Default"
+PROFILE_DIR = REAL_CHROME_PROFILE if REAL_CHROME_PROFILE.exists() else Path.home() / ".pw-chrome-referral"
 STORAGE_PATH = Path("storage/x.json")
 DEDUP_TWEETS = Path("storage/replied.json")
 DEDUP_TEXTS  = Path("storage/text_hashes.json")   # avoid posting the exact same sentence back to back
@@ -1145,162 +1099,8 @@ except Exception as e:
 
 # ====================== REAL-TIME DATA FETCHING ======================
 
-POLYMARKET_CACHE = {"data": None, "timestamp": 0, "cache_duration": 300}  # 5 min cache
 PRICE_CACHE = {"data": None, "timestamp": 0, "cache_duration": 120}  # 2 min cache
 TRENDING_CACHE = {"data": None, "timestamp": 0, "cache_duration": 300}  # 5 min cache
-
-def fetch_live_markets():
-    """
-    [DATA_FETCH] Fetch LIVE Polymarket markets from API (filters out 2024 markets, only >$10k volume).
-    
-    CRITICAL: NEVER returns markets with "2024" in title. Only returns current, active markets.
-    
-    Returns:
-        list: List of valid market dicts with {"question", "odds", "volume", "asset"} or empty list if API fails
-    """
-    import requests
-    
-    # Check cache first (15 min cache)
-    current_time = time.time()
-    if hasattr(fetch_live_markets, "_cache") and fetch_live_markets._cache:
-        cache_data, cache_time = fetch_live_markets._cache
-        if (current_time - cache_time) < 900:  # 15 minutes
-            log(f"[DATA_FETCH] Using cached live markets (age: {int(current_time - cache_time)}s)")
-            return cache_data
-    
-    # Try to fetch from Polymarket API
-    try:
-        api_url = "https://clob.polymarket.com/markets"
-        headers = {
-            "Accept": "application/json",
-            "User-Agent": "Mozilla/5.0"
-        }
-        
-        response = requests.get(api_url, headers=headers, timeout=10)
-        if response.status_code == 200:
-            all_markets = response.json()
-            
-            valid_markets = []
-            for market in all_markets:
-                market_title = (market.get("question", "") or "").lower()
-                market_question = market.get("question", "") or ""
-                
-                # CRITICAL FILTER: Reject any market with "2024" in title
-                if "2024" in market_title:
-                    continue
-                
-                # Filter: Only markets with >$10k volume
-                volume = float(market.get("volume", 0) or 0)
-                if volume < 10000:  # $10k minimum
-                    continue
-                
-                # Extract odds
-                yes_shares = float(market.get("yes_shares", 0) or 0)
-                no_shares = float(market.get("no_shares", 0) or 0)
-                total_shares = yes_shares + no_shares
-                
-                if total_shares > 0:
-                    odds = int((yes_shares / total_shares) * 100)
-                    
-                    # Extract asset name
-                    asset = "BTC"  # Default
-                    if "bitcoin" in market_title or "btc" in market_title:
-                        asset = "BTC"
-                    elif "ethereum" in market_title or "eth" in market_title:
-                        asset = "ETH"
-                    elif "solana" in market_title or "sol" in market_title:
-                        asset = "SOL"
-                    elif "trump" in market_title:
-                        asset = "TRUMP"
-                    elif "harris" in market_title:
-                        asset = "HARRIS"
-                    elif "election" in market_title or "senate" in market_title or "2026" in market_title:
-                        asset = "2026_ELECTION"
-                    
-                    valid_markets.append({
-                        "question": market_question,
-                        "odds": f"{odds}%",
-                        "volume": volume,
-                        "asset": asset,
-                        "market_id": market.get("id", "")
-                    })
-            
-            # Sort by volume (highest first)
-            valid_markets.sort(key=lambda x: x["volume"], reverse=True)
-            
-            # Cache the result
-            fetch_live_markets._cache = (valid_markets, current_time)
-            
-            log(f"[DATA_FETCH] Found {len(valid_markets)} live markets (filtered out 2024, min $10k volume)")
-            return valid_markets[:20]  # Return top 20
-            
-    except Exception as e:
-        log(f"[DATA_FETCH] Polymarket API error: {e}")
-        # DO NOT POST if API fails - return empty list
-        return []
-    
-    # If API fails, return empty list (DO NOT POST)
-    log(f"[DATA_FETCH] API failed, returning empty list (will not post)")
-    return []
-
-
-def fetch_polymarket_odds_live(market_name_or_topic):
-    """
-    [DATA_FETCH] Fetch LIVE Polymarket odds from API (with caching).
-    
-    Uses fetch_live_markets() to get valid markets, then searches for matching market.
-    NEVER returns 2024 data.
-    
-    Args:
-        market_name_or_topic: Market name or topic string
-    
-    Returns:
-        dict: {"odds": "45%", "asset": "BTC", "contrarian_odds": "55%", "old_odds": "40%", "trend": "Bitcoin ETF"}
-             or None if no valid markets found
-    """
-    # [IMPORT_FIX] random is already imported at top of file, don't re-import
-    
-    # Get live markets (already filtered for 2024 and volume)
-    live_markets = fetch_live_markets()
-    
-    if not live_markets:
-        log(f"[DATA_FETCH] No valid live markets found, cannot generate odds")
-        return None
-    
-    # Search for matching market
-    market_name_lower = (market_name_or_topic or "").lower()
-    for market in live_markets:
-        market_title = market.get("question", "").lower()
-        if any(keyword in market_title for keyword in market_name_lower.split()):
-            result = {
-                "odds": market.get("odds", "50%"),
-                "asset": market.get("asset", "BTC"),
-                "contrarian_odds": f"{100 - int(market.get('odds', '50%').replace('%', ''))}%",
-                "old_odds": f"{int(market.get('odds', '50%').replace('%', '')) + random.choice([-5, 5])}%",
-                "low_high": "low" if int(market.get("odds", "50%").replace("%", "")) < 50 else "high",
-                "trend": market.get("question", "")[:50] or "Bitcoin"
-            }
-            log(f"[DATA_FETCH] Polymarket: {result['asset']} {result['odds']}, trend: {result['trend'][:30]}")
-            return result
-    
-    # If no match, use first market from live list
-    if live_markets:
-        market = live_markets[0]
-        odds_int = int(market.get("odds", "50%").replace("%", ""))
-        result = {
-            "odds": market.get("odds", "50%"),
-            "asset": market.get("asset", "BTC"),
-            "contrarian_odds": f"{100 - odds_int}%",
-            "old_odds": f"{odds_int + random.choice([-5, 5])}%",
-            "low_high": "low" if odds_int < 50 else "high",
-            "trend": market.get("question", "")[:50] or "Bitcoin"
-        }
-        log(f"[DATA_FETCH] Using top live market: {result['asset']} {result['odds']}")
-        return result
-    
-    # No valid markets - return None (will prevent posting)
-    log(f"[DATA_FETCH] No valid markets available")
-    return None
 
 
 def fetch_crypto_prices_live(asset="BTC"):
@@ -1328,10 +1128,8 @@ def fetch_crypto_prices_live(asset="BTC"):
     # Map asset to CoinGecko ID
     asset_map = {
         "BTC": "bitcoin",
-        "ETH": "ethereum",
         "SOL": "solana",
         "BITCOIN": "bitcoin",
-        "ETHEREUM": "ethereum",
         "SOLANA": "solana"
     }
     
@@ -1383,7 +1181,7 @@ def fetch_crypto_prices_live(asset="BTC"):
     # Fallback: Generate realistic prices
     price_map = {
         "BTC": (85000, 120000),
-        "ETH": (3000, 5000),
+        "ANALYTICS": (3000, 5000),
         "SOL": (150, 300)
     }
     price_range = price_map.get(asset.upper(), (85000, 120000))
@@ -1427,9 +1225,9 @@ def fetch_trending_topics_live():
         "Bitcoin ETF approval",
         "Fed rate decision",
         "Solana ecosystem news",
-        "Polymarket volatility",
-        "Crypto market surge",
-        "Election odds shift",
+        "SaaS growth tools",
+        "Marketing attribution",
+        "Link management",
         "Market crash prediction",
         "DeFi protocol launch"
     ]
@@ -1462,30 +1260,13 @@ def fetch_trending_topics_live():
     return result
 
 
-def fetch_polymarket_odds_placeholder(market_name_or_topic):
-    """
-    [ODDS_INSERT] Fetch or estimate Polymarket odds for a market/topic.
-    Now uses live API with fallback.
-    
-    Args:
-        market_name_or_topic: Market name or topic string
-    
-    Returns:
-        dict: {"odds": "45%", "asset": "BTC", "contrarian_odds": "55%", "old_odds": "40%", "trend": "Bitcoin"}
-    """
-    # Use live fetching function (with fallback)
-    return fetch_polymarket_odds_live(market_name_or_topic)
-
-
 def validate_market_data(market_name, post_content):
     """
     [DATA_VALIDATOR] Validate market data before posting - block stale 2024 content.
     
     Blocks markets/content containing:
-    - "2024" (stale election data)
-    - "2024 election" (dead markets)
-    - "2024 presidential" (past events)
-    - "2024 nomination" (old data)
+    - "2024" (stale data)
+    - Old references (past events)
     
     Args:
         market_name: Market name/title to check
@@ -1494,7 +1275,7 @@ def validate_market_data(market_name, post_content):
     Returns:
         bool: True if market is current (valid), False if blocked (stale)
     """
-    blocked_terms = ["2024", "2024 election", "2024 presidential", "2024 nomination"]
+    blocked_terms = ["2024"]  # Block stale year references
     
     market_lower = (market_name or "").lower()
     content_lower = (post_content or "").lower()
@@ -1577,121 +1358,68 @@ def validate_content(content_text):
 
 def insert_odds_into_template(template_text, market_context=None):
     """
-    [ODDS_INSERT] Insert REAL-TIME Polymarket odds, prices, and trends into template placeholders.
+    [TEMPLATE_INSERT] Insert data into template placeholders.
     
-    Fetches LIVE data from:
-    - Polymarket API (odds, trends) - cached 5 min
-    - CoinGecko API (crypto prices) - cached 2 min
-    - Trending topics (trends, dates) - cached 5 min
+    Simple placeholder replacement for templates.
     
     Replaces:
-    - {odds} → "45%" (live from Polymarket API)
-    - {asset} → "BTC" (from market data)
-    - {topic} → market_name
-    - {trend} → trending topic (live, e.g., "Bitcoin ETF approval")
-    - {date} → date from trending data (e.g., "Jan 15", "Q1 2026")
-    - {price} → "$97,530" (live from CoinGecko)
-    - {contrarian_odds} → "55%"
-    - {old_odds} → "40%"
-    - {low/high} → "low" or "high"
+    - {metric} → "45%" (example metric)
+    - {topic} → topic name
+    - {trend} → trending topic
+    - {date} → date from trending data
+    - {price} → price data if available
     
     Args:
         template_text: Template string with placeholders
-        market_context: Optional dict with market info
+        market_context: Optional dict with context info
     
     Returns:
-        str: Template with placeholders filled with FRESH real-time data
+        str: Template with placeholders filled
     """
     if not template_text:
         return template_text
     
-    # [EMERGENCY FIX] Fetch live markets first (filters out 2024)
-    live_markets = fetch_live_markets()
-    if not live_markets:
-        log(f"[ODDS_INSERT] No valid live markets found, cannot insert data")
-        return template_text  # Return template as-is (will be rejected by validation)
-    
-    # Use first market from live list (highest volume)
-    top_market = live_markets[0]
-    market_name = top_market.get("question", "Bitcoin")
-    asset = top_market.get("asset", "BTC")
-    
-    # Fetch FRESH data (all cached, so fast)
-    try:
-        # Fetch live Polymarket odds (uses live markets)
-        odds_data = fetch_polymarket_odds_live(market_name)
-        if not odds_data:
-            log(f"[ODDS_INSERT] No valid odds data, cannot insert")
-            return template_text  # Return template as-is (will be rejected by validation)
-        
-        # Fetch live crypto prices for the asset
-        price_data = fetch_crypto_prices_live(asset)
-        
-        # Fetch trending topics and dates
-        trending_data = fetch_trending_topics_live()
-    except Exception as e:
-        log(f"[ODDS_INSERT] Error fetching live data: {e}")
-        # DO NOT use fallback - return template as-is (will be rejected by validation)
-        return template_text
-    
-    # Replace placeholders (order matters - do specific ones first)
     result = template_text
     
-    # Replace {market} first (use market name from live markets)
+    # Simple placeholder replacements
     if "{market}" in result:
-        market_display = market_name[:40] if market_name else "Bitcoin"
-        result = result.replace("{market}", market_display)
+        result = result.replace("{market}", "SaaS growth")
     
-    # Replace {market_A} and {market_B} (use two different markets)
-    if "{market_A}" in result or "{market_B}" in result:
-        if len(live_markets) >= 2:
-            market_a = live_markets[0].get("question", "Bitcoin")[:30]
-            market_b = live_markets[1].get("question", "Ethereum")[:30]
-            result = result.replace("{market_A}", market_a)
-            result = result.replace("{market_B}", market_b)
-        else:
-            # Fallback to single market
-            market_display = market_name[:30] if market_name else "Bitcoin"
-            result = result.replace("{market_A}", market_display)
-            result = result.replace("{market_B}", "Ethereum")
+    if "{topic}" in result:
+        result = result.replace("{topic}", "marketing attribution")
     
-    # Replace {trend} and {date} first (from trending data)
+    # Replace {market_A} and {market_B}
+    if "{market_A}" in result:
+        result = result.replace("{market_A}", "link attribution")
+    if "{market_B}" in result:
+        result = result.replace("{market_B}", "conversion tracking")
+    
+    # Replace {trend} and {date}
     if "{trend}" in result:
-        trend = trending_data.get("trend", trending_data.get("topics", ["Bitcoin"])[0] if trending_data.get("topics") else "Bitcoin")
-        result = result.replace("{trend}", str(trend)[:40])  # Limit length
+        result = result.replace("{trend}", "SaaS growth tools")
     
     if "{date}" in result:
-        date = trending_data.get("date", trending_data.get("dates", ["Q1 2026"])[0] if trending_data.get("dates") else "Q1 2026")
-        result = result.replace("{date}", str(date))
+        result = result.replace("{date}", "this quarter")
     
-    # Replace {price} with LIVE price data
+    # Replace {price}
     if "{price}" in result:
-        price = price_data.get("price", "$97,530")
-        result = result.replace("{price}", price)
+        result = result.replace("{price}", "$99")
     
-    # Replace odds-related placeholders
-    result = result.replace("{contrarian_odds}", odds_data.get("contrarian_odds", "55%"))
-    result = result.replace("{old_odds}", odds_data.get("old_odds", "40%"))
-    result = result.replace("{low/high}", odds_data.get("low_high", "low"))
-    result = result.replace("{odds}", odds_data.get("odds", "45%"))
-    result = result.replace("{asset}", asset)  # Use asset from odds_data
-    result = result.replace("{topic}", market_name[:30])  # Limit length
+    # Replace metric placeholders
+    result = result.replace("{contrarian_odds}", "55%")
+    result = result.replace("{old_odds}", "40%")
+    result = result.replace("{low/high}", "high")
+    result = result.replace("{odds}", "45%")
+    result = result.replace("{metric}", "45%")
+    result = result.replace("{asset}", "SaaS")
     
-    # Log data insertion
-    if "{odds}" not in result and odds_data.get("odds"):
-        log(f"[ODDS_INSERT] {asset}: {odds_data.get('odds')}, price: {price_data.get('price', 'N/A')}, trend: {trending_data.get('trend', 'N/A')[:30]}")
-    
-    # Replace {link} placeholder with actual Polymarket link (if present)
+    # Replace {link} placeholder with referral link
     if "{link}" in result:
         global REFERRAL_LINK
         if REFERRAL_LINK:
             result = result.replace("{link}", REFERRAL_LINK)
         else:
-            result = result.replace("{link}", "polymarket.com")
-    
-    # Log if we actually inserted odds (only log once, not for every placeholder)
-    if "{odds}" not in result and odds_data.get("odds"):
-        log(f"[ODDS_INSERT] {odds_data['asset']}: {odds_data['odds']}")
+            result = result.replace("{link}", "")
     
     return result
 
@@ -1943,7 +1671,7 @@ BANNED_PHRASES = [
     "Absolutely!",
     "Fascinating!",
     "Interesting point!",
-    "Prediction markets are definitely intriguing",
+    "Marketing attribution is definitely important",
     "As an AI",
     "I've analyzed",
     "My analysis shows",
@@ -1955,12 +1683,7 @@ BANNED_PHRASES = [
 ]
 
 OUTDATED_KEYWORDS = [
-    "biden 2024",
-    "trump 2024",
-    "2024 election",
-    "biden vs trump",
-    "2024 race",
-    "election 2024"
+    "2024"  # Block stale year references
 ]
 
 def clean_reply_text(text):
@@ -2003,7 +1726,7 @@ def format_for_mobile(text):
     return result if result else text
 
 def is_outdated_content(text):
-    """Check if post references past elections"""
+    """Check if post references past events"""
     if not text:
         return False
     text_lower = text.lower()
@@ -2182,7 +1905,7 @@ def append_link_if_needed(text: str, link: str, link_allowed: bool) -> str:
     
     Args:
         text: The message text to check
-        link: The Polymarket URL to append
+        link: The referral URL to append
         link_allowed: Whether link inclusion was approved by the system
     
     Returns:
@@ -2243,82 +1966,82 @@ def sha(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 def launch_ctx(p):
-    # User agent rotation (3 different agents for variety)
-    user_agents = [
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
-        "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
-    ]
+    # Connect to REAL Chrome browser using CDP (Chrome DevTools Protocol)
+    # User launches Chrome manually with: google-chrome --remote-debugging-port=9222
+    # This way it's a REAL browser, not automated!
     
-    # Get user agent from phase controller if available, otherwise rotate
-    selected_user_agent = USER_AGENT
-    if PHASE_CONTROLLER:
-        config = PHASE_CONTROLLER.get_phase_config()
-        phase_agents = config.get("user_agents", user_agents)
-        if phase_agents:
-            selected_user_agent = random.choice(phase_agents)
-    else:
-        selected_user_agent = random.choice(user_agents)
+    # Use port 9223 to avoid conflicts with other bots (default 9222)
+    cdp_port = os.getenv("CDP_PORT", "9223")
+    cdp_url = os.getenv("CDP_URL", f"http://localhost:{cdp_port}")
     
-    log(f"[USER_AGENT] Using: {selected_user_agent[:50]}...")
-    
-    ctx = p.chromium.launch_persistent_context(
-        user_data_dir=str(PROFILE_DIR),
-        channel="chrome",
-        headless=False,
-        viewport=None,
-        user_agent=selected_user_agent,
-        args=[
-            "--disable-blink-features=AutomationControlled",
-            "--no-sandbox",
-            "--disable-dev-shm-usage",
-            "--disable-features=IsolateOrigins,site-per-process",
-            "--no-first-run",
-            "--no-default-browser-check",
-        ],
-    )
-    page = ctx.pages[0] if ctx.pages else ctx.new_page()
-    page.add_init_script("Object.defineProperty(navigator, 'webdriver', { get: () => undefined });")
-    page.add_init_script("window.chrome = window.chrome || {};")
-    
-    # [SAFETY] Block file dialogs and downloads to prevent bot getting stuck
-    def block_file_dialog(dialog):
-        """Block all file dialogs (file chooser, save dialogs, etc.)"""
-        try:
-            log(f"[SAFETY] Blocked file dialog: {dialog.type}")
-            dialog.dismiss()
-        except Exception as e:
-            log(f"[SAFETY] Error blocking dialog: {e}")
-    
-    def block_download(download):
-        """Block all downloads to prevent file explorer from opening"""
-        try:
-            log(f"[SAFETY] Blocked download: {download.suggested_filename}")
-            download.cancel()
-        except Exception as e:
-            log(f"[SAFETY] Error blocking download: {e}")
-    
-    def block_file_chooser(file_chooser):
-        """Block file chooser dialogs"""
-        try:
-            log(f"[SAFETY] Blocked file chooser dialog")
-            # Cancel the file chooser by not setting any files
-        except Exception as e:
-            log(f"[SAFETY] Error blocking file chooser: {e}")
-    
-    # Register handlers on context (applies to all pages)
-    ctx.on("dialog", block_file_dialog)
-    ctx.on("download", block_download)
-    ctx.on("filechooser", block_file_chooser)
-    
-    # Also register on page for extra safety
-    page.on("dialog", block_file_dialog)
-    page.on("download", block_download)
-    page.on("filechooser", block_file_chooser)
-    
-    log("[SAFETY] File dialog and download blockers installed")
-    
-    return ctx, page
+    try:
+        log(f"[BROWSER] Connecting to REAL Chrome via CDP: {cdp_url}")
+        # Connect to existing Chrome instance
+        browser = p.chromium.connect_over_cdp(cdp_url)
+        
+        # Get the default context (Chrome's main context)
+        contexts = browser.contexts
+        if contexts:
+            ctx = contexts[0]
+            log(f"[BROWSER] Connected to existing Chrome context")
+        else:
+            # Create new context if none exists
+            ctx = browser.new_context()
+            log(f"[BROWSER] Created new Chrome context")
+        
+        # Get or create a page
+        if ctx.pages:
+            page = ctx.pages[0]
+        else:
+            page = ctx.new_page()
+        
+        # [SAFETY] Block file dialogs and downloads to prevent bot getting stuck
+        def block_file_dialog(dialog):
+            """Block all file dialogs (file chooser, save dialogs, etc.)"""
+            try:
+                log(f"[SAFETY] Blocked file dialog: {dialog.type}")
+                dialog.dismiss()
+            except Exception as e:
+                log(f"[SAFETY] Error blocking dialog: {e}")
+        
+        def block_download(download):
+            """Block all downloads to prevent file explorer from opening"""
+            try:
+                log(f"[SAFETY] Blocked download: {download.suggested_filename}")
+                download.cancel()
+            except Exception as e:
+                log(f"[SAFETY] Error blocking download: {e}")
+        
+        def block_file_chooser(file_chooser):
+            """Block file chooser dialogs"""
+            try:
+                log(f"[SAFETY] Blocked file chooser dialog")
+                # Cancel the file chooser by not setting any files
+            except Exception as e:
+                log(f"[SAFETY] Error blocking file chooser: {e}")
+        
+        # Register handlers on context (applies to all pages)
+        ctx.on("dialog", block_file_dialog)
+        ctx.on("download", block_download)
+        ctx.on("filechooser", block_file_chooser)
+        
+        # Also register on page for extra safety
+        page.on("dialog", block_file_dialog)
+        page.on("download", block_download)
+        page.on("filechooser", block_file_chooser)
+        
+        log("[SAFETY] File dialog and download blockers installed")
+        log(f"[BROWSER] ✅ Using REAL Chrome browser (not automated)")
+        return ctx, page
+        
+    except Exception as e:
+        log(f"[BROWSER] ❌ Failed to connect to Chrome via CDP: {e}")
+        log(f"[BROWSER] 💡 Launch Chrome manually with:")
+        log(f"[BROWSER]    bash launch_chrome_with_cdp.sh")
+        log(f"[BROWSER]    OR:")
+        log(f"[BROWSER]    /Applications/Google\\ Chrome.app/Contents/MacOS/Google\\ Chrome --remote-debugging-port={cdp_port} --user-data-dir=\"$HOME/.chrome-debug-dub\"")
+        log(f"[BROWSER]    Then run the bot again")
+        raise
 
 def stable_goto(page, url, timeout=120_000):
     try:
@@ -2400,7 +2123,7 @@ def search_live(page, query: str):
     # Search using the query exactly as provided (no automatic filter addition)
     # ChatGPT generates clean queries - use them as-is
     if not query or not query.strip():
-        query = "Polymarket"  # Safety fallback
+        query = "SaaS growth"  # Safety fallback
     
     # Use query exactly as provided - no filters added automatically
     search_query = query.strip()
@@ -2546,7 +2269,7 @@ def get_post_author(card) -> dict:
 
 def extract_main_topic(text: str) -> str:
     """Extract main topic/keyword from tweet text"""
-    topics = ["polymarket", "trump", "biden", "election", "odds", "prediction", "market", "betting"]
+    topics = ["SaaS", "marketing", "growth", "attribution", "conversion", "tracking", "links", "tools"]
     text_lower = text.lower()
     for topic in topics:
         if topic in text_lower:
@@ -2570,7 +2293,7 @@ def extract_key_entities(tweet_text: str) -> list[str]:
         if candidate in tweet_lower:
             entities.append(candidate.title())
     
-    # Extract years (election years)
+    # Extract years (if any)
     year_matches = re.findall(r'\b(20\d{2})\b', tweet_text)
     entities.extend(year_matches)
     
@@ -2621,8 +2344,8 @@ def validate_reply_context(reply_text: str, tweet_text: str, key_entities: list[
     
     # Block generic phrases that show lack of context
     generic_phrases = [
-        'absolutely', 'fascinating', 'interesting take', 'prediction markets show',
-        'prediction markets offer', 'markets suggest', 'polls say', 'data shows',
+        'absolutely', 'fascinating', 'interesting take', 'attribution shows',
+        'conversion tracking reveals', 'data suggests', 'analytics show', 'data shows',
         'this is interesting', 'great point', 'well said', 'i agree'
     ]
     reply_lower_clean = reply_lower
@@ -2707,46 +2430,41 @@ def compose_reply_text(tweet_text: str = "", topic: str = "", author_handle: str
             if is_urgent:
                 urgency_language = THREAD_OPTIMIZER.get_urgency_language(is_urgent=True)
         
-        system_prompt = """You are a smart Polymarket trader/analyst helping others understand prediction markets.
+        # Import system prompt from config
+        from bot.config import SYSTEM_PROMPT
+        system_prompt = SYSTEM_PROMPT + """
 
 Your goal: Write engaging X replies that:
-- Sound like an experienced trader (not a salesman)
+- Sound like a helpful SaaS growth expert (not a salesman)
 - Spot genuine insights in the original tweet
 - End with a question or call-to-action that drives engagement
-- Use the Polymarket link only when it adds value, not shoehorned
+- Use the referral link only when it adds value, not shoehorned
 
 Rules:
 - Keep replies under 200 characters when possible (X users scan fast)
 - Use 1-2 line breaks for readability (not walls of text)
 - Never sound like a bot (no "As an AI" or "I've analyzed")
-- Reference real trading concepts (odds movement, volatility, liquidity)
+- Reference real marketing concepts (attribution, conversion tracking, CTR)
 - End 40% of replies with a genuine question about their take
-- Save the Polymarket link for replies that naturally benefit from it
+- Save the referral link for replies that naturally benefit from it
 
 Reply style guide:
 - Confident but not arrogant ("I think X because..." not "X is obviously...")
 - Conversational ("Here's what I'm seeing..." not "My analysis shows...")
 - Short sentences (20 words average, not 40+)
-- No hashtags (traders hate spam tags)
-- 1-2 emojis max if it fits the vibe (📈 for gains, 🤔 for thinking, etc.)
+- No hashtags (spam tags)
+- 1-2 emojis max if it fits the vibe (📈 for growth, 🤔 for thinking, etc.)
 
 When you include a link, frame it as:
-- "You can track this live on [link]" (utility)
-- "Here's where traders are betting [link]" (credibility)
-- "This odds move is huge [link]" (urgency)
+- "I use [link] for this" (utility)
+- "Here's the tool I recommend [link]" (credibility)
+- "This solves that problem [link]" (value)
 NOT: "Check out this link!" (spam)
 
 Critical context rules:
-- Read TWEET_TEXT carefully and identify: specific candidates mentioned, races, years, odds, poll numbers
-- Your reply MUST reference the EXACT topic in the tweet (e.g., if tweet says "Vance 2028", don't talk about "Trump's odds")
+- Read TWEET_TEXT carefully and identify: specific tools mentioned, problems, use cases
+- Your reply MUST reference the EXACT topic in the tweet
 - Quote or paraphrase a specific phrase from the tweet to prove you read it
-- If tweet is about a future election (2028), don't talk about current events
-
-Date context (CRITICAL):
-- It is December 2025
-- DO NOT mention "Biden 2024" or "Trump 2024" (those are past)
-- DO mention current 2026 races, current market movements
-- Always reference TODAY's date context
 
 Media:
 - NEVER mention, generate, or describe images/videos
@@ -2773,10 +2491,10 @@ BANNED PHRASES (never use):
 - Generic analysis without numbers
 
 REQUIRED ELEMENTS (every reply must have 1+):
-- Specific percentage or odds movement
-- Contrarian statement ("Everyone's wrong", "Markets missed this")
-- Urgency indicator ("moving fast", "won't last", "just shifted")
-- Data reference ("historically", "liquidity spiked", "similar events")
+- Specific tool or technique mention
+- Helpful insight ("This solves X", "The issue is Y")
+- Data reference ("CTR increased by X%", "conversion tracking shows")
+- Practical tip or recommendation
 
 CHARACTER LIMIT: Keep replies under 240 characters (X limit is 280, leave room for link)."""
 
@@ -2853,7 +2571,7 @@ AUTHOR_HANDLE: {author_handle_input}
 BOT_HANDLE: {bot_handle_input}
 
 {urgency_prefix}{reply_type_instruction}{contrarian_instruction}{conversation_starter_instruction}
-Generate a unique, human X reply that focuses on prediction markets and odds. Use the {archetype.replace('_', ' ')} archetype. Do NOT mention Biden/Trump/2024 unless the tweet does. Do NOT reference images or media. Do NOT include any links (links are handled separately). Connect to what the market is pricing in. Keep under 200 characters."""
+Generate a unique, human X reply that focuses on SaaS growth, marketing tools, or link management. Use the {archetype.replace('_', ' ')} archetype. Do NOT reference images or media. Do NOT include any links (links are handled separately). Connect to their problem or use case. Keep under 200 characters."""
         
         # Apply style rotation and optimization
         style = "analytical"  # Default
@@ -3410,8 +3128,8 @@ def should_reply(tweet, card=None):
         
         # NEVER reply if the tweet is NOT about your markets (check keywords)
         relevant_keywords = [
-            'polymarket', 'prediction', 'odds', 'betting', 'market', 'trump', 'biden', 
-            'election', 'forecast', 'bet', 'wager', 'crypto', 'bitcoin', 'ethereum'
+            'SaaS', 'marketing', 'attribution', 'conversion', 'tracking', 'growth', 'tools',
+            'links', 'analytics', 'CTR', 'LTV', 'MRR', 'conversion', 'tracking'
         ]
         if not any(kw in account_text_lower for kw in relevant_keywords):
             log(f"[REPLY_FILTER] Skipped - not about relevant markets")
@@ -3436,30 +3154,27 @@ def should_target_for_reply(card, topic: str) -> tuple[bool, str]:
         account_text = card.inner_text() if hasattr(card, 'inner_text') else ""
         account_text_lower = account_text.lower()
         
-        # Define relevance keywords (expanded to include more prediction market terms)
+        # Define relevance keywords (expanded to include more marketing/growth terms)
         keywords = [
-            "polymarket",
-            "prediction market",
-            "prediction markets",
-            "betting odds",
-            "betting",
-            "odds",
-            "trump odds",
-            "biden odds",
-            "election odds",
-            "bet on trump",
-            "bet on biden",
-            "election prediction",
-            "prediction",
-            "predictions",
-            "forecast",
-            "forecasts",
-            "bet",
-            "wager",
-            "market odds",
-            "political betting",
-            "sports betting",
-            "crypto prediction",
+            "SaaS",
+            "marketing",
+            "attribution",
+            "conversion",
+            "tracking",
+            "links",
+            "analytics",
+            "growth",
+            "tools",
+            "CTR",
+            "LTV",
+            "MRR",
+            "affiliate",
+            "referral",
+            "branded links",
+            "link management",
+            "conversion tracking",
+            "marketing attribution",
+            "growth tools",
         ]
         
         # Check content match
@@ -3799,27 +3514,8 @@ def reply_to_card(page, card, topic: str, recent_replies: list, reply_idx: int) 
         if author_followers >= 500 or (tweet_text and any(kw in tweet_text.lower() for kw in ["bet", "wager", "odds", "prediction", "betting"])):
             reply_type = "high_value"
         
-        # STAGE 10: Check if politics market, generate AI thesis if so
+        # Generate reply using compose_reply_text
         text = None
-        if STAGE_10_ENABLED and poly_intel and "polymarket" in tweet_text.lower():
-            # STAGE 10 QUALITY FILTER: Only reply if tweet has actual betting/prediction substance
-            # Skip tweets that just mention "Polymarket" without odds, predictions, or market data
-            if not poly_intel.has_betting_substance(tweet_text):
-                log(f"[STAGE 10] ✗ Skipping reply - tweet lacks betting/prediction substance (just generic mention)")
-            else:
-                market_name = tweet_text.split("Polymarket")[0].strip() if "Polymarket" in tweet_text else tweet_text[:50]
-                if poly_intel.is_politics_market(market_name):
-                    context = poly_intel.fetch_market_context(market_name=market_name, market_odds="50%", volume_24h="$100k", resolution_date="2026-01-01", sentiment="neutral")
-                    thesis = poly_intel.generate_contrarian_thesis(context)
-                    if thesis:
-                        # STAGE 10B: format_thesis_for_tweet now includes quality filtering
-                        formatted = poly_intel.format_thesis_for_tweet(thesis, market_name, market_context=context)
-                        if formatted:
-                            text = formatted["message"]
-                            poly_intel.log_thesis(market_name, thesis)
-                            log(f"[STAGE 10] ✓ Generated thesis reply: {market_name}")
-        
-        # If Stage 10 didn't generate a reply, use normal compose_reply_text
         if not text:
             try:
                 text = compose_reply_text(tweet_text=tweet_text, topic=topic, author_handle=author_handle, bot_handle=BOT_HANDLE, include_link=False, reply_type=reply_type, author_followers=author_followers)
@@ -4236,7 +3932,7 @@ def force_original_post_immediately(state, text, source_stage, page=None):
         
         # Log analytics
         if ANALYTICS:
-            ANALYTICS.log_action("post", "polymarket", REFERRAL_LINK in text, "post_" + str(int(time.time())))
+            ANALYTICS.log_action("post", "saas_growth", REFERRAL_LINK in text, "post_" + str(int(time.time())))
         
         current_time = datetime.now().strftime("%H:%M:%S")
         log(f"[FORCE_POST] ✓ Post succeeded from {source_stage} at {current_time}: {text[:50]}...")
@@ -4462,7 +4158,7 @@ def get_cta_phrase(high_intent=False):
             if phrases:
                 # [STAGE 14] Expand CTA pool and rotate
                 expanded_phrases = phrases + [
-                    "Track it on Polymarket",
+                    "Track it with proper attribution",
                     "See current odds",
                     "Markets say...",
                     "Check the numbers",
@@ -4480,7 +4176,7 @@ def get_cta_phrase(high_intent=False):
         pass
     # [STAGE 14] Fallback with expanded, rotating CTA pool
     fallback_ctas = [
-        "Check Polymarket for live odds:",
+        "Check conversion tracking:",
         "Track this on Polymarket:",
         "See live odds on Polymarket:",
         "Track it on Polymarket",
@@ -4715,7 +4411,7 @@ def append_cta_if_needed(text, link, high_intent=False):
     
     # Don't append if CTA-like phrase already present
     text_lower = text.lower()
-    cta_indicators = ["check polymarket", "track this", "see live", "trade this", "follow this", "get in on", "watch this", "bet here", "trade the odds", "get in now"]
+    cta_indicators = ["check this out", "track this", "see live", "try this", "follow this", "get in on", "watch this", "use this", "check attribution", "get started"]
     if any(indicator in text_lower for indicator in cta_indicators):
         log(f"[CTA] CTA-like phrase already present, skipping")
         return text
@@ -5362,47 +5058,42 @@ def generate_original_tweet() -> str:
             {
                 "structure": "position_take",
                 "has_link": False,  # 60% no-link templates
-                "system": """You are a smart Polymarket trader posting original insights about prediction markets.
+                "system": """You are a SaaS growth strategist and marketing tool expert. You help founders, marketers, and creators optimize their growth stack.
 
 Your goal: Write engaging original X posts that:
-- Sound like an experienced trader sharing insights (not a salesman)
-- Focus on prediction markets, odds, and political betting
+- Sound like an experienced growth expert sharing insights (not a salesman)
+- Focus on SaaS growth, marketing tools, link management, and attribution
 - Are 150-250 characters (concise and scannable)
-- Include specific data, odds, or market movements when relevant
+- Include specific data, metrics, or tool insights when relevant
 - Sound natural and conversational
 - Never sound like a bot (no "As an AI" or "I've analyzed")
 
 Rules:
 - Keep posts under 250 characters (X users scan fast)
 - Use 1-2 line breaks for readability
-- Reference real trading concepts (odds movement, volatility, liquidity)
-- Be contrarian or insightful when appropriate
-- No hashtags (traders hate spam tags)
-- 1-2 emojis max if it fits the vibe (📈 for gains, 🤔 for thinking, etc.)
-- Start with a question to engage readers
-
-Date context (CRITICAL):
-- It is December 2025
-- DO NOT mention "Biden 2024" or "Trump 2024" (those are past)
-- DO mention current 2026 races, current market movements, recent news
+- Reference real marketing concepts (attribution, conversion tracking, CTR, LTV)
+- Be helpful and insightful when appropriate
+- No hashtags (spam tags)
+- 1-2 emojis max if it fits the vibe (📈 for growth, 🤔 for thinking, etc.)
+- Start with a question or insight to engage readers
 
 Output ONLY the tweet text, nothing else.""",
-                "user": """Generate a unique, engaging original tweet about Polymarket prediction markets or political betting odds. 
-REQUIRED: Include at least ONE specific odds percentage or market name (e.g., "Bitcoin at 45%", "Ethereum at 32%", "2026 Senate odds at 62%")
-REQUIRED: Include at least ONE specific outcome or event (e.g., "2026 midterms", "Fed rate cut", "Bitcoin ETF approval")
-Start with a question to hook readers (e.g., "Why are odds moving on X?" or "Is the market pricing this correctly?").
-Focus on current 2026 races, market movements, or contrarian insights about odds.
-Sound like you're betting real money, not just observing.
-Keep it 150-250 characters, conversational, and trader-like.
+                "user": """Generate a unique, engaging original tweet about SaaS growth, marketing tools, or link management. 
+REQUIRED: Include at least ONE specific metric or tool mention (e.g., "CTR increased 34%", "conversion tracking shows", "link attribution reveals").
+REQUIRED: Include at least ONE specific use case or problem (e.g., "tracking which campaigns drive MRR", "measuring affiliate performance", "optimizing link clicks").
+Start with a question or insight to hook readers (e.g., "Why do most SaaS founders ignore attribution?" or "What if you could track every conversion?").
+Focus on practical marketing insights, tool recommendations, or growth strategies.
+Sound like you're sharing real experience, not just observing.
+Keep it 150-250 characters, conversational, and helpful.
 Do NOT include any links (links are handled separately)."""
             },
             {
                 "structure": "hot_take",
-                "system": """You are a smart Polymarket trader posting original insights about prediction markets.
+                "system": """You are a SaaS growth strategist posting original insights about marketing and growth.
 
 Your goal: Write engaging original X posts that:
 - Sound like an experienced trader sharing insights (not a salesman)
-- Focus on prediction markets, odds, and political betting
+- Focus on SaaS growth, marketing attribution, and conversion optimization
 - Are 150-250 characters (concise and scannable)
 - Include specific data, odds, or market movements when relevant
 - Sound natural and conversational
@@ -5420,10 +5111,10 @@ Rules:
 Date context (CRITICAL):
 - It is December 2025
 - DO NOT mention "Biden 2024" or "Trump 2024" (those are past)
-- DO mention current 2026 races, current market movements, recent news
+- DO mention current SaaS trends, marketing insights, recent tools
 
 Output ONLY the tweet text, nothing else.""",
-                "user": """Generate a unique, engaging original tweet about Polymarket prediction markets or political betting odds. 
+                "user": """Generate a unique, engaging original tweet about SaaS growth, marketing tools, or link management. 
 REQUIRED: Include at least ONE specific odds percentage or market name (e.g., "Bitcoin at 45%", "Ethereum at 32%", "2026 Senate odds at 62%")
 REQUIRED: Include at least ONE specific outcome or event (e.g., "2026 midterms", "Fed rate cut", "Bitcoin ETF approval")
 Lead with a bold take or observation (e.g., "The odds are wrong here" or "This market is mispriced").
@@ -5434,11 +5125,11 @@ Do NOT include any links (links are handled separately)."""
             },
             {
                 "structure": "observation",
-                "system": """You are a smart Polymarket trader posting original insights about prediction markets.
+                "system": """You are a SaaS growth strategist posting original insights about marketing and growth.
 
 Your goal: Write engaging original X posts that:
 - Sound like an experienced trader sharing insights (not a salesman)
-- Focus on prediction markets, odds, and political betting
+- Focus on SaaS growth, marketing attribution, and conversion optimization
 - Are 150-250 characters (concise and scannable)
 - Include specific data, odds, or market movements when relevant
 - Sound natural and conversational
@@ -5456,10 +5147,10 @@ Rules:
 Date context (CRITICAL):
 - It is December 2025
 - DO NOT mention "Biden 2024" or "Trump 2024" (those are past)
-- DO mention current 2026 races, current market movements, recent news
+- DO mention current SaaS trends, marketing insights, recent tools
 
 Output ONLY the tweet text, nothing else.""",
-                "user": """Generate a unique, engaging original tweet about Polymarket prediction markets or political betting odds. 
+                "user": """Generate a unique, engaging original tweet about SaaS growth, marketing tools, or link management. 
 REQUIRED: Include at least ONE specific odds percentage or market name (e.g., "Bitcoin at 45%", "Ethereum at 32%", "2026 Senate odds at 62%")
 REQUIRED: Include at least ONE specific outcome or event (e.g., "2026 midterms", "Fed rate cut", "Bitcoin ETF approval")
 Share an interesting observation or data point (e.g., "Odds shifted 5% in the last hour" or "This market is seeing unusual volume").
@@ -5470,12 +5161,12 @@ Do NOT include any links (links are handled separately)."""
             },
             {
                 "structure": "contrarian",
-                "system": """You are a smart Polymarket trader posting spicy, contrarian takes about prediction markets.
+                "system": """You are a SaaS growth strategist posting spicy, contrarian takes about marketing and growth.
 
 Your goal: Write viral-style original X posts that:
 - Challenge conventional wisdom or crowd sentiment
-- Sound like an experienced trader with a bold, confident take
-- Focus on prediction markets, odds, and political betting
+- Sound like an experienced growth expert with a bold, confident take
+- Focus on SaaS growth, marketing attribution, and conversion optimization
 - Are 150-250 characters (concise and scannable)
 - Sound natural and conversational, never like a bot
 - Use contrarian framing like "Everyone is wrong about X" or "The market has this backwards"
@@ -5492,31 +5183,31 @@ Rules:
 Date context (CRITICAL):
 - It is December 2025
 - DO NOT mention "Biden 2024" or "Trump 2024" (those are past)
-- DO mention current 2026 races, current market movements, recent news
+- DO mention current SaaS trends, marketing insights, recent tools
 
 Output ONLY the tweet text, nothing else.""",
-                "user": """Generate a unique, spicy contrarian tweet about Polymarket prediction markets or political betting odds. 
+                "user": """Generate a unique, spicy contrarian tweet about SaaS growth and marketing attribution. 
 REQUIRED: Include at least ONE specific odds percentage or market name (e.g., "Bitcoin at 45%", "Ethereum at 32%", "2026 Senate odds at 62%")
 REQUIRED: Include at least ONE specific outcome or event (e.g., "2026 midterms", "Fed rate cut", "Bitcoin ETF approval")
-Use insider trader hooks like:
-- "The smart money is moving on {market} right now. Retail is asleep at the wheel."
-- "Everyone chasing {trend} is missing the real alpha on {market}."
-- "If you're not hedging {event} on Polymarket, you're doing it wrong."
-- "This {market} price is a gift. Don't say I didn't warn you."
-- "Watching {market} melt up. The crowd is totally offside here."
+Use insider growth hooks like:
+- "The smart money is using {tool} right now. Most founders are asleep at the wheel."
+- "Everyone chasing {trend} is missing the real growth hack with {tool}."
+- "If you're not tracking {metric} properly, you're doing it wrong."
+- "This {tool} setup is a gift. Don't say I didn't warn you."
+- "Watching {metric} improve. The crowd is totally missing this."
 
 Sound confident, slightly arrogant, like you have insider knowledge. Make it feel urgent and exclusive.
-Sound like you're betting real money, not just observing.
+Sound like you're sharing real experience, not just observing.
 Keep it 150-250 characters, conversational, and bold.
 Do NOT include any links (links are handled separately)."""
             },
             {
                 "structure": "data_drop",
-                "system": """You are a smart Polymarket trader posting original insights about prediction markets.
+                "system": """You are a SaaS growth strategist posting original insights about marketing and growth.
 
 Your goal: Write engaging original X posts that:
 - Sound like an experienced trader sharing insights (not a salesman)
-- Focus on prediction markets, odds, and political betting
+- Focus on SaaS growth, marketing attribution, and conversion optimization
 - Are 150-250 characters (concise and scannable)
 - Lead with a numbered list or structured format (e.g., "3 reasons...", "5 data points...")
 - Include specific data, odds, or market movements when relevant
@@ -5535,10 +5226,10 @@ Rules:
 Date context (CRITICAL):
 - It is December 2025
 - DO NOT mention "Biden 2024" or "Trump 2024" (those are past)
-- DO mention current 2026 races, current market movements, recent news
+- DO mention current SaaS trends, marketing insights, recent tools
 
 Output ONLY the tweet text, nothing else.""",
-                "user": """Generate a unique, engaging original tweet about Polymarket prediction markets or political betting odds. 
+                "user": """Generate a unique, engaging original tweet about SaaS growth, marketing tools, or link management. 
 REQUIRED: Include at least ONE specific odds percentage or market name (e.g., "Bitcoin at 45%", "Ethereum at 32%", "2026 Senate odds at 62%")
 REQUIRED: Include at least ONE specific outcome or event (e.g., "2026 midterms", "Fed rate cut", "Bitcoin ETF approval")
 Use a structured format like "3 reasons this odds shift changes everything:" or "5 data points everyone missed:".
@@ -5549,12 +5240,12 @@ Do NOT include any links (links are handled separately)."""
             },
             {
                 "structure": "fomo_status",
-                "system": """You are a high-status Polymarket trader posting exclusive, FOMO-inducing content.
+                "system": """You are a high-status SaaS growth expert posting exclusive, FOMO-inducing content.
 
 Your goal: Write posts that create status anxiety and drive curiosity:
 - Sound like an insider who's already winning
 - Create FOMO (fear of missing out) and status anxiety
-- Position Polymarket as the exclusive truth machine
+- Position proper attribution as the exclusive advantage
 - Sound confident, slightly arrogant, like you're ahead of the curve
 - Are 150-250 characters (concise and scannable)
 - Sound natural and conversational, never like a bot
@@ -5571,30 +5262,30 @@ Rules:
 Date context (CRITICAL):
 - It is December 2025
 - DO NOT mention "Biden 2024" or "Trump 2024" (those are past)
-- DO mention current 2026 races, current market movements, recent news
+- DO mention current SaaS trends, marketing insights, recent tools
 
 Output ONLY the tweet text, nothing else.""",
-                "user": """Generate a unique, FOMO-inducing tweet about Polymarket prediction markets.
+                "user": """Generate a unique, FOMO-inducing tweet about SaaS growth and marketing attribution.
 REQUIRED: Include at least ONE specific odds percentage or market name (e.g., "Bitcoin at 45%", "Ethereum at 32%", "2026 Senate odds at 62%")
 REQUIRED: Include at least ONE specific outcome or event (e.g., "2026 midterms", "Fed rate cut", "Bitcoin ETF approval")
 Use status hooks like:
-- "While you were arguing about {topic}, I just made {return}% on the outcome."
-- "Prediction markets are the only truth machine left. The rest is noise."
-- "Imagine not using Polymarket in 2025. Couldn't be me."
+- "While you were arguing about {topic}, I just increased {metric} by {return}%."
+- "Proper attribution is the only truth machine left. The rest is noise."
+- "Imagine not tracking conversions properly in 2025. Couldn't be me."
 - "The smart money already moved. You're still watching from the sidelines."
 
 Make it feel urgent, exclusive, and high-status. Create FOMO.
-Sound like you're betting real money, not just observing.
+Sound like you're sharing real experience, not just observing.
 Keep it 150-250 characters, conversational, and confident.
 Do NOT include any links (links are handled separately)."""
             },
             {
                 "structure": "casual_observation",
-                "system": """You are a smart Polymarket trader posting original insights about prediction markets.
+                "system": """You are a SaaS growth strategist posting original insights about marketing and growth.
 
 Your goal: Write engaging original X posts that:
 - Sound like an experienced trader sharing insights (not a salesman)
-- Focus on prediction markets, odds, and political betting
+- Focus on SaaS growth, marketing attribution, and conversion optimization
 - Are 150-250 characters (concise and scannable)
 - Start with "I just noticed..." or similar casual observation
 - Include specific data, odds, or market movements when relevant
@@ -5612,10 +5303,10 @@ Rules:
 Date context (CRITICAL):
 - It is December 2025
 - DO NOT mention "Biden 2024" or "Trump 2024" (those are past)
-- DO mention current 2026 races, current market movements, recent news
+- DO mention current SaaS trends, marketing insights, recent tools
 
 Output ONLY the tweet text, nothing else.""",
-                "user": """Generate a unique, engaging original tweet about Polymarket prediction markets or political betting odds. 
+                "user": """Generate a unique, engaging original tweet about SaaS growth, marketing tools, or link management. 
 REQUIRED: Include at least ONE specific odds percentage or market name (e.g., "Bitcoin at 45%", "Ethereum at 32%", "2026 Senate odds at 62%")
 REQUIRED: Include at least ONE specific outcome or event (e.g., "2026 midterms", "Fed rate cut", "Bitcoin ETF approval")
 Start with "I just noticed [data point]. Here's what it means..." or similar casual observation.
@@ -5626,11 +5317,11 @@ Do NOT include any links (links are handled separately)."""
             },
             {
                 "structure": "mispricing_claim",
-                "system": """You are a smart Polymarket trader posting original insights about prediction markets.
+                "system": """You are a SaaS growth strategist posting original insights about marketing and growth.
 
 Your goal: Write engaging original X posts that:
 - Sound like an experienced trader sharing insights (not a salesman)
-- Focus on prediction markets, odds, and political betting
+- Focus on SaaS growth, marketing attribution, and conversion optimization
 - Are 150-250 characters (concise and scannable)
 - Claim that a market is mispriced and explain why
 - Include specific data, odds, or market movements when relevant
@@ -5648,10 +5339,10 @@ Rules:
 Date context (CRITICAL):
 - It is December 2025
 - DO NOT mention "Biden 2024" or "Trump 2024" (those are past)
-- DO mention current 2026 races, current market movements, recent news
+- DO mention current SaaS trends, marketing insights, recent tools
 
 Output ONLY the tweet text, nothing else.""",
-                "user": """Generate a unique, engaging original tweet about Polymarket prediction markets or political betting odds. 
+                "user": """Generate a unique, engaging original tweet about SaaS growth, marketing tools, or link management. 
 REQUIRED: Include at least ONE specific odds percentage or market name (e.g., "Bitcoin at 45%", "Ethereum at 32%", "2026 Senate odds at 62%")
 REQUIRED: Include at least ONE specific outcome or event (e.g., "2026 midterms", "Fed rate cut", "Bitcoin ETF approval")
 Start with "Everyone is mispricing [market]. Here's what the data actually shows..." or similar mispricing claim.
@@ -5662,11 +5353,11 @@ Do NOT include any links (links are handled separately)."""
             },
             {
                 "structure": "contrarian_humble",
-                "system": """You are a smart Polymarket trader posting original insights about prediction markets.
+                "system": """You are a SaaS growth strategist posting original insights about marketing and growth.
 
 Your goal: Write engaging original X posts that:
 - Sound like an experienced trader sharing insights (not a salesman)
-- Focus on prediction markets, odds, and political betting
+- Focus on SaaS growth, marketing attribution, and conversion optimization
 - Are 150-250 characters (concise and scannable)
 - Use humble contrarian framing ("I'm probably wrong, but...")
 - Include specific data, odds, or market movements when relevant
@@ -5684,10 +5375,10 @@ Rules:
 Date context (CRITICAL):
 - It is December 2025
 - DO NOT mention "Biden 2024" or "Trump 2024" (those are past)
-- DO mention current 2026 races, current market movements, recent news
+- DO mention current SaaS trends, marketing insights, recent tools
 
 Output ONLY the tweet text, nothing else.""",
-                "user": """Generate a unique, engaging original tweet about Polymarket prediction markets or political betting odds. 
+                "user": """Generate a unique, engaging original tweet about SaaS growth, marketing tools, or link management. 
 REQUIRED: Include at least ONE specific odds percentage or market name (e.g., "Bitcoin at 45%", "Ethereum at 32%", "2026 Senate odds at 62%")
 REQUIRED: Include at least ONE specific outcome or event (e.g., "2026 midterms", "Fed rate cut", "Bitcoin ETF approval")
 Start with "I'm probably wrong, but [contrarian take]. The odds suggest..." or similar humble contrarian framing.
@@ -5698,11 +5389,11 @@ Do NOT include any links (links are handled separately)."""
             },
             {
                 "structure": "betting_analysis",
-                "system": """You are a smart Polymarket trader posting original insights about prediction markets.
+                "system": """You are a SaaS growth strategist posting original insights about marketing and growth.
 
 Your goal: Write engaging original X posts that:
 - Sound like an experienced trader sharing insights (not a salesman)
-- Focus on prediction markets, odds, and political betting
+- Focus on SaaS growth, marketing attribution, and conversion optimization
 - Are 150-250 characters (concise and scannable)
 - Frame as betting analysis ("Here's how I'd bet this...")
 - Include specific data, odds, or market movements when relevant
@@ -5720,10 +5411,10 @@ Rules:
 Date context (CRITICAL):
 - It is December 2025
 - DO NOT mention "Biden 2024" or "Trump 2024" (those are past)
-- DO mention current 2026 races, current market movements, recent news
+- DO mention current SaaS trends, marketing insights, recent tools
 
 Output ONLY the tweet text, nothing else.""",
-                "user": """Generate a unique, engaging original tweet about Polymarket prediction markets or political betting odds. 
+                "user": """Generate a unique, engaging original tweet about SaaS growth, marketing tools, or link management. 
 REQUIRED: Include at least ONE specific odds percentage or market name (e.g., "Bitcoin at 45%", "Ethereum at 32%", "2026 Senate odds at 62%")
 REQUIRED: Include at least ONE specific outcome or event (e.g., "2026 midterms", "Fed rate cut", "Bitcoin ETF approval")
 Start with "Here's how I'd bet this: [analysis]. The numbers show..." or similar betting analysis framing.
@@ -5742,7 +5433,7 @@ Your goal: Write viral-style original X posts that:
 - Challenge conventional wisdom with high conviction
 - Sound confident and slightly arrogant (like an insider)
 - Create controversy and debate (drive shares/engagement)
-- Focus on prediction markets, odds, and political betting
+- Focus on SaaS growth, marketing attribution, and conversion optimization
 - Are 150-250 characters (concise and scannable)
 - Include specific data, odds, or market movements
 - Sound natural and conversational, never like a bot
@@ -5759,15 +5450,15 @@ Rules:
 Date context (CRITICAL):
 - It is December 2025
 - DO NOT mention "Biden 2024" or "Trump 2024" (those are past)
-- DO mention current 2026 races, current market movements, recent news
+- DO mention current SaaS trends, marketing insights, recent tools
 
 Output ONLY the tweet text, nothing else.""",
-                "user": """Generate a high-conviction, controversial tweet about Polymarket prediction markets. 
-REQUIRED: Include at least ONE specific odds percentage or market name
-REQUIRED: Include at least ONE specific outcome or event
-Use framing like: "Everyone is betting {MARKET} will {OUTCOME}. I think they're all wrong. Here's why: {CONTRARIAN_TAKE}"
+                "user": """Generate a high-conviction, controversial tweet about SaaS growth and marketing attribution. 
+REQUIRED: Include at least ONE specific metric or tool mention
+REQUIRED: Include at least ONE specific use case or problem
+Use framing like: "Everyone is using {TOOL} for {USE_CASE}. I think they're all wrong. Here's why: {CONTRARIAN_TAKE}"
 Sound confident, slightly arrogant, like you have insider knowledge. Make it feel urgent and exclusive.
-Keep it 150-250 characters, bold, and trader-like.
+Keep it 150-250 characters, bold, and growth-focused.
 Do NOT include any links (links are handled separately)."""
             },
             {
@@ -5779,7 +5470,7 @@ Your goal: Write viral-style original X posts that:
 - Highlight odds that seem "insane" or mispriced
 - Create FOMO and urgency ("free money" or "trade of the year")
 - Sound confident and slightly arrogant (like an insider)
-- Focus on prediction markets, odds, and political betting
+- Focus on SaaS growth, marketing attribution, and conversion optimization
 - Are 150-250 characters (concise and scannable)
 - Include specific data, odds, or market movements
 - Sound natural and conversational, never like a bot
@@ -5796,10 +5487,10 @@ Rules:
 Date context (CRITICAL):
 - It is December 2025
 - DO NOT mention "Biden 2024" or "Trump 2024" (those are past)
-- DO mention current 2026 races, current market movements, recent news
+- DO mention current SaaS trends, marketing insights, recent tools
 
 Output ONLY the tweet text, nothing else.""",
-                "user": """Generate a high-conviction, controversial tweet about Polymarket prediction markets. 
+                "user": """Generate a high-conviction, controversial tweet about SaaS growth and marketing attribution. 
 REQUIRED: Include at least ONE specific odds percentage or market name
 REQUIRED: Include at least ONE specific outcome or event
 Use framing like: "The crowd has {MARKET} at {ODDS}%. That's insane. This is either the trade of the year or I'm about to lose money publicly."
@@ -5816,7 +5507,7 @@ Your goal: Write viral-style original X posts that:
 - Make bold, controversial predictions that will "age poorly" or get people talking
 - Challenge conventional wisdom with high conviction
 - Sound confident and slightly arrogant (like an insider)
-- Focus on prediction markets, odds, and political betting
+- Focus on SaaS growth, marketing attribution, and conversion optimization
 - Are 150-250 characters (concise and scannable)
 - Include specific data, odds, or market movements
 - Sound natural and conversational, never like a bot
@@ -5833,10 +5524,10 @@ Rules:
 Date context (CRITICAL):
 - It is December 2025
 - DO NOT mention "Biden 2024" or "Trump 2024" (those are past)
-- DO mention current 2026 races, current market movements, recent news
+- DO mention current SaaS trends, marketing insights, recent tools
 
 Output ONLY the tweet text, nothing else.""",
-                "user": """Generate a high-conviction, controversial tweet about Polymarket prediction markets. 
+                "user": """Generate a high-conviction, controversial tweet about SaaS growth and marketing attribution. 
 REQUIRED: Include at least ONE specific odds percentage or market name
 REQUIRED: Include at least ONE specific outcome or event
 Use framing like: "Hot take that will age poorly: {MARKET} is mispriced by at least 15%. The market is ignoring {FACTOR}."
@@ -5853,7 +5544,7 @@ Your goal: Write viral-style original X posts that:
 - Claim a market is "free money" or an obvious trade
 - Create FOMO and urgency (people missing out)
 - Sound confident and slightly arrogant (like an insider)
-- Focus on prediction markets, odds, and political betting
+- Focus on SaaS growth, marketing attribution, and conversion optimization
 - Are 150-250 characters (concise and scannable)
 - Include specific data, odds, or market movements
 - Sound natural and conversational, never like a bot
@@ -5870,10 +5561,10 @@ Rules:
 Date context (CRITICAL):
 - It is December 2025
 - DO NOT mention "Biden 2024" or "Trump 2024" (those are past)
-- DO mention current 2026 races, current market movements, recent news
+- DO mention current SaaS trends, marketing insights, recent tools
 
 Output ONLY the tweet text, nothing else.""",
-                "user": """Generate a high-conviction, controversial tweet about Polymarket prediction markets. 
+                "user": """Generate a high-conviction, controversial tweet about SaaS growth and marketing attribution. 
 REQUIRED: Include at least ONE specific odds percentage or market name
 REQUIRED: Include at least ONE specific outcome or event
 Use framing like: "If you're not watching {MARKET}, you're missing the most obvious trade right now. {ODDS}% is free money."
@@ -5890,7 +5581,7 @@ Your goal: Write viral-style original X posts that:
 - Make bold, controversial predictions about popular sides getting "wrecked"
 - Challenge conventional wisdom with high conviction
 - Sound confident and slightly arrogant (like an insider)
-- Focus on prediction markets, odds, and political betting
+- Focus on SaaS growth, marketing attribution, and conversion optimization
 - Are 150-250 characters (concise and scannable)
 - Include specific data, odds, or market movements
 - Sound natural and conversational, never like a bot
@@ -5907,10 +5598,10 @@ Rules:
 Date context (CRITICAL):
 - It is December 2025
 - DO NOT mention "Biden 2024" or "Trump 2024" (those are past)
-- DO mention current 2026 races, current market movements, recent news
+- DO mention current SaaS trends, marketing insights, recent tools
 
 Output ONLY the tweet text, nothing else.""",
-                "user": """Generate a high-conviction, controversial tweet about Polymarket prediction markets. 
+                "user": """Generate a high-conviction, controversial tweet about SaaS growth and marketing attribution. 
 REQUIRED: Include at least ONE specific odds percentage or market name
 REQUIRED: Include at least ONE specific outcome or event
 Use framing like: "Unpopular opinion: everyone betting on {POPULAR_SIDE} is going to get wrecked. The data says {CONTRARIAN_SIDE} and I'm all in."
@@ -6383,7 +6074,7 @@ def post_original_content(page) -> bool:
         
         # Log analytics
         if ANALYTICS:
-            ANALYTICS.log_action("post", "polymarket", REFERRAL_LINK in tweet_text, "post_" + str(int(time.time())))
+            ANALYTICS.log_action("post", "saas_growth", REFERRAL_LINK in tweet_text, "post_" + str(int(time.time())))
         
         current_time = datetime.now().strftime("%H:%M:%S")
         post_id = f"post_{int(time.time())}"
@@ -6595,7 +6286,7 @@ def post_trend_take(page, trending_keyword=None):
         log(f"[STAGE 11E] Processing trending keyword: {trending_keyword}")
         
         # Detect if keyword is relevant
-        detected_topic = monitor.detect_trending_polymarket_keyword([trending_keyword])
+        detected_topic = None  # Removed Polymarket-specific detection
         if not detected_topic:
             log(f"[STAGE 11E] Keyword '{trending_keyword}' not relevant to Polymarket, skipping")
             return False
@@ -6805,15 +6496,11 @@ def post_news_jacker_take(page, news_headline):
     if not STAGE_11B_ENABLED or not news_jacker:
         return False
     
-    if not poly_intel:
-        log("[STAGE 11B] PolymarketIntelligence not available, skipping")
-        return False
-    
     try:
         log(f"[STAGE 11B] Processing breaking news: {news_headline[:80]}...")
         
         # Get instant thesis from news jacker
-        result = news_jacker.get_instant_thesis(news_headline, poly_intel=poly_intel)
+        result = news_jacker.get_instant_thesis(news_headline, poly_intel=None)
         
         if not result:
             log("[STAGE 11B] Could not generate news take (rate limit or generation failed)")
@@ -7214,9 +6901,9 @@ def post_daily_contrarian_thread(page):
             
             # Pick highest-volume topic related to Politics, Sports, or Crypto
             selected_trend = None
-            trend_keywords = ["politics", "political", "election", "president", "trump", "biden", 
-                            "sport", "football", "nfl", "nba", "soccer",
-                            "crypto", "bitcoin", "btc", "ethereum", "eth", "defi"]
+            trend_keywords = ["SaaS", "marketing", "growth", "attribution", "conversion", "tracking", 
+                            "tools", "analytics", "links", "affiliate",
+                            "startup", "founder", "creator", "indie", "hacker", "growth"]
             
             for trend in trends:
                 trend_name_lower = trend.get("name", "").lower() if isinstance(trend, dict) else str(trend).lower()
@@ -7233,7 +6920,7 @@ def post_daily_contrarian_thread(page):
             # Generate viral thread using OpenAI
             # [STAGE 14] Template rotation to avoid Myth/Reality spam
             try:
-                system_prompt = """You are a top institutional trader writing contrarian X threads on prediction markets. 
+                system_prompt = """You are a top SaaS growth expert writing contrarian X threads on marketing and growth. 
 
 Your goal: Write 3-4 part viral threads that:
 - Sound OPINIONATED, not neutral (you have a take, not questions)
@@ -7263,7 +6950,7 @@ Output ONLY a JSON array of tweet strings. No preamble. Tweets must be ≤280 ch
                 use_myth_reality = False  # Disabled to prevent spam
                 
                 if False:  # [DISABLED] Myth/Reality disabled
-                    # user_prompt = f"Generate a 3-tweet 'Myth vs. Reality' thread on the topic '{trend_name}'. Tweet 1 must be a strong hook. Tweet 2 must provide a data point from prediction markets. Tweet 3 must have a conclusion and the URL '{REFERRAL_LINK}'. Make it spicy and opinionated."
+                    # user_prompt = f"Generate a 3-tweet 'Myth vs. Reality' thread on the topic '{trend_name}'. Tweet 1 must be a strong hook. Tweet 2 must provide a data point from marketing attribution. Tweet 3 must have a conclusion and the URL '{REFERRAL_LINK}'. Make it spicy and opinionated."
                     # log(f"[11A] [THREAD] Generating Myth vs Reality thread for topic: {trend_name}")
                     pass
                 else:
@@ -7273,17 +6960,17 @@ Output ONLY a JSON array of tweet strings. No preamble. Tweets must be ≤280 ch
                     
                     if thread_template_type == "trade_breakdown":
                         # Thread A: Trade Breakdown - VIRAL VERSION
-                        user_prompt = f"""Generate a 3-tweet thread on '{trend_name}' (most recent market moves in prediction markets). Use this structure:
+                        user_prompt = f"""Generate a 3-tweet thread on '{trend_name}' (most recent trends in SaaS growth). Use this structure:
 
 Tweet 1: "Market position: [SPECIFIC MARKET] is mispriced at [ODDS]%. Here's why the crowd is wrong. 🧵"
 Tweet 2: "Real talk: If [BULLISH_SCENARIO] happens, this reprices to [TARGET_ODDS]%. If [BEARISH_SCENARIO] hits, I'm wrong and cutting. But the odds today don't reflect that volatility."
 Tweet 3: "This is the early mover advantage. By the time everyone sees [KEY_FACTOR], the best price is gone. That's why smart money is already positioned."
 
-Make it sound like you're explaining a real position to a fellow trader. Use specific markets (Trump 2026, election odds, crypto events, etc.) and real percentages. No generic fluff. Sound bullish and contrarian."""
+Make it sound like you're explaining a real strategy to a fellow founder. Use specific tools, metrics (CTR, conversion rates, etc.) and real percentages. No generic fluff. Sound helpful and contrarian."""
                         log(f"[11A] [THREAD] Generating Trade Breakdown thread for topic: {trend_name}")
                     else:
                         # Thread B: Lesson / Insight (4 tweets) - VIRAL VERSION
-                        user_prompt = f"""Generate a 4-tweet thread on '{trend_name}' (prediction market insights). Use this structure:
+                        user_prompt = f"""Generate a 4-tweet thread on '{trend_name}' (SaaS growth insights). Use this structure:
 
 Tweet 1: "Prediction markets are showing something most traders miss. Here's what I'm seeing. 🧵"
 Tweet 2: "The crowd is pricing [SCENARIO_A] at [ODDS]%, but the data actually suggests [SCENARIO_B]. That gap is free edge if you see it first."
@@ -7947,7 +7634,7 @@ def bot_loop(page):
         
         # Ensure term is not empty
         if not term or not term.strip():
-            term = "Polymarket"  # Ultimate fallback
+            term = "SaaS"  # Ultimate fallback
         
         search_live(page, term)
         
@@ -8419,7 +8106,7 @@ def bot_loop(page):
         # STAGE 12B: Trending Quote-Tweet Stage
         # ============================================================
         # TEMPORARILY DISABLED - Stage 12B search broken, causes navigation issues
-        # Quote-tweet high-engagement tweets (especially videos) with Polymarket angle
+        # Quote-tweet high-engagement tweets (especially videos) with growth/marketing angle
         # Frequency: 2-4 times per day max
         if False:  # DISABLED - STAGE_12_QUOTE_ENABLED and trending_quote_tweet and trending_quote_tweet.can_quote_tweet():
             # Check global action cap
@@ -8428,7 +8115,7 @@ def bot_loop(page):
             else:
                 try:
                     # Use viral keywords for search
-                    quote_keyword = random.choice(VIRAL_SEARCH_KEYWORDS) if VIRAL_SEARCH_KEYWORDS else "polymarket"
+                    quote_keyword = random.choice(VIRAL_SEARCH_KEYWORDS) if VIRAL_SEARCH_KEYWORDS else "SaaS growth"
                     log(f"[STAGE 12B] Searching for high-engagement tweets: {quote_keyword}")
                     
                     # SEARCH DISABLED - Do not navigate to search URLs
@@ -8622,7 +8309,7 @@ def bot_loop(page):
                         trends=stage11b_trends,
                         state=stage11b_state,
                         openai_client=openai_client,
-                        polymarket_base_url=POLYMARKET_BASE_URL,
+                        referral_base_url=REFERRAL_LINK,
                         now_ts=now_ts,
                         force_original_post_fn=lambda state, text, source_stage: force_original_post_immediately(state, text, source_stage, page),
                         config_dict=news_config
@@ -8697,7 +8384,7 @@ def bot_loop(page):
             #     # Stage 6: Log analytics for video
             #     if ANALYTICS:
             #         # Videos typically include link in caption
-            #         video_topic = "polymarket"  # Default, could be extracted from video search
+            #         video_topic = "SaaS growth"  # Default, could be extracted from video search
             #         ANALYTICS.log_action("video", video_topic, True, "video_" + str(int(time.time())))
             # else:
             #     log("[POST_SKIP] Reason: video_posting_failed_or_no_suitable_videos")
@@ -8859,7 +8546,7 @@ STAGE 16: CATAPULT MODE - Setup Instructions
          },
          {
            "filename": "video2.mp4",
-           "tags": ["election", "politics"]
+           "tags": ["growth", "marketing"]
          }
        ]
      }

@@ -17,7 +17,7 @@ class AuthorityTargeter:
     
     def find_crypto_influencers(self, min_followers=1000, max_results=10):
         """
-        Find crypto personalities posting about Polymarket using Playwright.
+        Find SaaS founders posting about marketing tools using Playwright.
         
         Args:
             min_followers: Minimum follower count (extracted from page)
@@ -27,16 +27,16 @@ class AuthorityTargeter:
             List of influencer dicts with username, followers, tweet_id, relevance_keyword
         """
         keywords = [
-            "polymarket",
-            "prediction markets",
-            "betting markets",
-            "crypto",
-            "finance",
-            "odds",
-            "bitcoin prediction",
-            "election odds",
-            "crypto trading",
-            "market analysis"
+            "SaaS",
+            "marketing attribution",
+            "conversion tracking",
+            "growth",
+            "tools",
+            "links",
+            "analytics",
+            "affiliate marketing",
+            "link management",
+            "marketing stack"
         ]
         
         influencers = []

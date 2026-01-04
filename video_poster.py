@@ -100,8 +100,8 @@ class TrendingVideoFinder:
             except Exception:
                 pass
         return {
-            "hot_accounts": ["@Polymarket"],
-            "hot_keywords": ["polymarket", "prediction market"]
+            "hot_accounts": ["@SaaS growth"],
+            "hot_keywords": ["SaaS growth", "marketing attribution"]
         }
     
     def find_trending_video_post(self, page):
@@ -118,12 +118,12 @@ class TrendingVideoFinder:
         
         # Strategy: Search hot keywords first
         # Filter out generic/bad keywords that create poor searches
-        bad_keywords = ["prediction market", "prediction markets", "betting markets"]
+        bad_keywords = ["marketing attribution", "marketing attributions", "betting markets"]
         good_keywords = [kw for kw in radar["hot_keywords"] if kw.lower() not in [b.lower() for b in bad_keywords]]
         
         # Fallback to safe keywords if filtered list is empty
         if not good_keywords:
-            good_keywords = ["Polymarket", "election", "2026", "senate odds", "election betting"]
+            good_keywords = ["SaaS growth", "growth", "2026", "senate odds", "growth betting"]
         
         keyword = random.choice(good_keywords)
         print(f"[VIDEO SEARCH] Looking for trending videos about: {keyword}")
@@ -131,7 +131,7 @@ class TrendingVideoFinder:
         # Use your existing search function
         # Search for posts with videos
         # Hardcoded clean search to avoid bad keywords
-        search_query = "Polymarket filter:videos min_faves:100"
+        search_query = "SaaS growth filter:videos min_faves:100"
         
         # Return the search parameters
         return {
@@ -193,12 +193,12 @@ class TrendingVideoFinder:
         
         # Insights based on keyword
         insights = {
-            "polymarket": "Polymarket traders moving fast on this",
-            "prediction market": "Prediction markets are pricing this in",
+            "SaaS growth": "SaaS growth traders moving fast on this",
+            "marketing attribution": "marketing attributions are pricing this in",
             "betting odds": "Odds just shifted hard",
             "2026 midterm": "2026 market is heating up",
             "senate odds": "Senate control odds changing",
-            "election betting": "Bettors are all over this"
+            "growth betting": "Bettors are all over this"
         }
         
         # Hooks
@@ -230,13 +230,13 @@ class TrendingVideoFinder:
     def get_trending_hashtags(self, keyword):
         """Pick 1-2 relevant trending hashtags"""
         hashtag_map = {
-            "polymarket": "#Polymarket #PredictionMarkets",
-            "prediction market": "#PredictionMarkets #Crypto",
+            "SaaS growth": "#SaaS growth #PredictionMarkets",
+            "marketing attribution": "#PredictionMarkets #Crypto",
             "betting odds": "#BettingMarkets #Politics",
             "2026 midterm": "#Midterms2026 #Politics",
             "senate odds": "#Senate #Politics",
-            "election betting": "#ElectionBetting #Politics"
+            "growth betting": "#growthBetting #Politics"
         }
-        return hashtag_map.get(keyword, "#Polymarket")
+        return hashtag_map.get(keyword, "#SaaS growth")
 
 VIDEO_FINDER = TrendingVideoFinder()

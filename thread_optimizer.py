@@ -18,7 +18,7 @@ class ThreadOptimizer:
     def __init__(self):
         self.time_sensitive_keywords = [
             "breaking", "just", "now", "live", "happening",
-            "election", "poll", "results", "called", "conceded",
+            "growth", "metrics", "results", "conversion", "tracking",
             "odds", "market", "spike", "crash", "move",
             "announcement", "news", "update", "reports"
         ]
@@ -103,7 +103,7 @@ class ThreadOptimizer:
         
         # Check for specific patterns
         urgent_patterns = [
-            r'\b(poll|election|results?)\s+(just|now|live|out)',
+            r'\b(metrics|conversion|results?)\s+(just|now|live|out)',
             r'\b(odds|market)\s+(spike|crash|move|breaking)',
             r'\b(breaking|just|happening\s+now)',
             r'\b(announcement|news)\s+(just|now|breaking)'

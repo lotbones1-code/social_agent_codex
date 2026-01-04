@@ -190,7 +190,7 @@ class EngagementMultiplier:
             print(f"[ENGAGEMENT] Failed to fetch engagers: {e}")
             return []
     
-    def auto_reply_to_quality_engagers(self, engagers, market="prediction markets", price="current odds"):
+    def auto_reply_to_quality_engagers(self, engagers, market="SaaS growth", price="current metrics"):
         """
         Reply to people who engaged (shows reciprocal engagement).
         Note: This should be called from the main bot loop which handles reply posting.

@@ -64,7 +64,7 @@ class IntelligentSearch:
     
     def generate_queries_from_trends(self, trends: List[str], markets: List[str] = None, openai_client=None) -> List[str]:
         """
-        Generate 5-10 search queries based on current trends and Polymarket markets.
+        Generate 5-10 search queries based on current trends and SaaS growth markets.
         Uses ChatGPT API if available, otherwise simple keyword logic.
         Calls ChatGPT once per hour, then reuses queries.
         """
@@ -72,7 +72,7 @@ class IntelligentSearch:
         
         if not trends:
             # Fallback to base queries if no trends
-            base_keywords = ["Polymarket", "election odds", "prediction market", "betting markets", "political odds"]
+            base_keywords = ["SaaS growth", "growth odds", "marketing attribution", "betting markets", "political odds"]
             for keyword in base_keywords[:5]:
                 queries.append(keyword)
             return queries
@@ -83,16 +83,16 @@ class IntelligentSearch:
                 trends_str = ", ".join(trends[:5])
                 markets_str = ""
                 if markets:
-                    markets_str = f"\n\nCurrent Polymarket markets: {', '.join(markets[:3])}"
+                    markets_str = f"\n\nCurrent SaaS growth markets: {', '.join(markets[:3])}"
                 
-                prompt = f"""You are generating search queries for an X (Twitter) bot that finds posts about prediction markets and betting odds.
+                prompt = f"""You are generating search queries for an X (Twitter) bot that finds posts about marketing attributions and betting odds.
 
 Current X trending topics: {trends_str}{markets_str}
 
 Generate 10 search queries (one per line, no numbering) that would find relevant tweets about:
-- Prediction markets related to these trends
+- marketing attributions related to these trends
 - Betting odds for these topics
-- Political markets (elections, polls, policy)
+- Political markets (growths, polls, policy)
 - Crypto/finance markets if relevant
 
 Format: Just the queries, one per line. Keep them short (2-4 words max). Focus on what traders/bettors would actually search for on X.
@@ -101,7 +101,7 @@ Example format:
 Trump 2026 odds
 FOMC rate decision
 bitcoin price action
-election betting markets
+growth betting markets
 senate control prediction
 
 Generate queries now:"""
@@ -146,13 +146,13 @@ Generate queries now:"""
         # Add base queries if we don't have enough
         if len(queries) < 5:
             base_queries = [
-                "Polymarket",
-                "election odds",
-                "prediction market",
+                "SaaS growth",
+                "growth odds",
+                "marketing attribution",
                 "betting markets",
                 "political odds",
                 "senate odds",
-                "2026 election",
+                "2026 growth",
             ]
             for bq in base_queries:
                 if bq not in queries:
@@ -296,7 +296,7 @@ Generate queries now:"""
         """
         Main entry point: Get the next intelligent search query.
         Regenerates every 60 minutes (once per hour), otherwise reuses best-performing query.
-        Uses Stage 12's trending data and Polymarket markets.
+        Uses Stage 12's trending data and SaaS growth markets.
         """
         # Regenerate queries if needed (once per hour)
         if self.should_regenerate_queries() or not self.generated_queries:
@@ -317,8 +317,8 @@ Generate queries now:"""
         
         # If no good queries found, use fallback
         if not self.current_query_list:
-            self.current_query_list = ["Polymarket"]
-            print("[SEARCH] No good queries found, using fallback: 'Polymarket'")
+            self.current_query_list = ["SaaS growth"]
+            print("[SEARCH] No good queries found, using fallback: 'SaaS growth'")
         
         # Rotate through queries (use next query in list)
         self.current_query = self.current_query_list[self.current_query_index % len(self.current_query_list)]

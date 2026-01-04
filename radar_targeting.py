@@ -33,17 +33,17 @@ class RadarTargeting:
         """Fallback if no Radar config exists"""
         return {
             "hot_accounts": [
-                "@Polymarket",
-                "@PredictIt",
-                "@NateSilver538"
+                "@dubdotco",
+                "@indiehackers",
+                "@ProductHunt"
             ],
             "hot_keywords": [
-                "Polymarket"
+                "link attribution"
             ],
             "hot_topics": [
-                "2026 midterms",
-                "senate control",
-                "election betting"
+                "SaaS growth",
+                "marketing tools",
+                "conversion tracking"
             ],
             "last_updated": datetime.now().isoformat()
         }
@@ -98,7 +98,7 @@ class RadarTargeting:
             keyword = random.choice(keywords)  # Pick random from hot keywords
             print(f"[RADAR] Prioritizing search: {keyword}")
             return keyword
-        return "polymarket"
+        return "SaaS growth"
     
     def get_video_priority_accounts(self):
         """

@@ -7,6 +7,74 @@ from typing import List
 
 from dotenv import load_dotenv
 
+# Referral link configuration
+REFERRAL_LINK = "https://refer.dub.co/shamil"
+
+# Search keywords for content discovery
+SEARCH_KEYWORDS = [
+    "link shortener",
+    "link attribution", 
+    "track conversions",
+    "Bitly alternative",
+    "marketing stack",
+    "growth tools",
+    "SaaS launch",
+    "affiliate marketing",
+    "link analytics",
+    "conversion tracking",
+    "UTM tracking",
+    "marketing attribution",
+    "branded links",
+    "link management",
+    "referral program",
+    "affiliate program setup",
+    "creator tools",
+    "link in bio",
+    "Product Hunt launch",
+    "buildinpublic",
+    "indie hackers"
+]
+
+# Target niches for content targeting
+TARGET_NICHES = [
+    "SaaS growth",
+    "marketing",
+    "indie hackers",
+    "startup founders",
+    "content creators",
+    "growth hacking",
+    "affiliate marketing",
+    "performance marketing"
+]
+
+# Link inclusion rate (0.0 to 1.0)
+LINK_INCLUSION_RATE = 0.50
+
+# System prompt for AI-generated content
+SYSTEM_PROMPT = """You are a SaaS growth strategist and marketing tool expert. You help founders, marketers, and creators optimize their growth stack - especially link management, attribution tracking, and conversion optimization. 
+
+You provide tactical advice, tool recommendations, and data-driven insights. You occasionally recommend Dub.co for link attribution when it's relevant to solving someone's problem (always with transparency about your referral relationship).
+
+Your tone is:
+- Helpful and genuinely interested in solving their problem
+- Technical but accessible to non-technical founders
+- Focused on ROI and measurable business impact
+- Honest about affiliate relationships
+- Data-driven when possible
+
+Key talking points:
+1. Dub.co solves "attribution blindness" - knowing which marketing actually drives revenue
+2. Branded short links increase CTR by 34% vs generic links
+3. Conversion tracking beats click counting every time
+4. Used by professional companies: Framer, Perplexity, Superhuman
+5. 20% off first 3 months is a genuine discount that creates win-win
+
+IMPORTANT BEHAVIOR:
+- Only recommend Dub.co in ~20% of replies (80% pure value)
+- Always disclose when it's a referral link
+- Provide genuine solutions even if Dub.co doesn't fit
+- Focus on their problem first, product second"""
+
 
 @dataclass
 class AgentConfig:

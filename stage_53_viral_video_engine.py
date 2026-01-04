@@ -88,13 +88,13 @@ Output ONLY valid JSON array. No markdown. No explanation."""
 
     user_prompt = """Find 15 viral X accounts in these categories:
 1) Meme/humor accounts with millions of followers (post 3-5x/week, 500K-10M likes per post)
-2) Polymarket/prediction market accounts (active traders, market analysis)
-3) Political/election analysis accounts (data-driven, contrarian takes)
+2) SaaS growth/marketing attribution accounts (active traders, market analysis)
+3) Political/growth analysis accounts (data-driven, contrarian takes)
 
 For each account, provide:
 - handle (e.g., "@accountname")
 - follower_count (e.g., "2.5M", "500K")
-- category ("meme", "polymarket", "political")
+- category ("meme", "SaaS growth", "political")
 - engagement_rate (estimated: "high", "medium", "low")
 - posting_frequency ("daily", "3-5x/week", "weekly")
 
@@ -354,11 +354,11 @@ def categorize_topic(topic: str) -> str:
     """Categorize topic: 'politics', 'crypto', 'meme', 'markets'"""
     topic_lower = topic.lower()
     
-    if any(kw in topic_lower for kw in ["trump", "biden", "election", "president", "senate", "congress", "political"]):
+    if any(kw in topic_lower for kw in ["trump", "biden", "growth", "president", "senate", "congress", "political"]):
         return "politics"
-    elif any(kw in topic_lower for kw in ["crypto", "bitcoin", "btc", "ethereum", "eth", "solana", "sol"]):
+    elif any(kw in topic_lower for kw in ["crypto", "bitcoin", "btc", "analytics", "eth", "solana", "sol"]):
         return "crypto"
-    elif any(kw in topic_lower for kw in ["market", "polymarket", "odds", "betting", "prediction"]):
+    elif any(kw in topic_lower for kw in ["market", "SaaS growth", "odds", "betting", "prediction"]):
         return "markets"
     elif any(kw in topic_lower for kw in ["meme", "funny", "viral", "trending"]):
         return "meme"
@@ -615,7 +615,7 @@ def generate_smart_caption(openai_client, video: Dict, learned_styles: Dict[str,
         learned_styles: Dict of learned styles from Step 2
     
     Returns:
-        Caption string (under 240 chars) with Polymarket link, or None if failed
+        Caption string (under 240 chars) with SaaS growth link, or None if failed
     """
     if not openai_client:
         log("[STAGE 53] OpenAI client not available for caption generation")
@@ -665,10 +665,10 @@ Output ONLY one sentence describing the video content."""
         styles_list.append(f"{handle}: {style.get('tone', '')}, {style.get('personality', '')}, key phrases: {phrases_str}")
     
     if not styles_list:
-        log("[STAGE 53] No styles available for selection")
+        log("[STAGE 53] No styles available for sgrowth")
         return None
     
-    selection_prompt = f"""Which 2-3 of these account styles match this video best?
+    sgrowth_prompt = f"""Which 2-3 of these account styles match this video best?
 
 Video: {video_description}
 Category: {video_category}
@@ -681,30 +681,30 @@ Output ONLY a JSON array of handles: ["@account1", "@account2", "@account3"]"""
     # Step 2: Select best account styles (always default to top 3 viral styles)
     selected_handles = []
     try:
-        selection_response = openai_client.chat.completions.create(
+        sgrowth_response = openai_client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
                 {"role": "system", "content": "Output ONLY valid JSON array. No markdown."},
-                {"role": "user", "content": selection_prompt}
+                {"role": "user", "content": sgrowth_prompt}
             ],
             temperature=0.7,
             max_tokens=200
         )
-        response_text = selection_response.choices[0].message.content.strip()
+        response_text = sgrowth_response.choices[0].message.content.strip()
         json_match = re.search(r'\[.*\]', response_text, re.DOTALL)
         if json_match:
             selected_handles = json.loads(json_match.group())
             # Validate: ensure we have at least 2 handles
             if not selected_handles or len(selected_handles) < 2:
                 selected_handles = list(learned_styles.keys())[:3]
-                log("[STAGE 53] OpenAI selection returned < 2 handles, using top 3 viral styles")
+                log("[STAGE 53] OpenAI sgrowth returned < 2 handles, using top 3 viral styles")
         else:
             selected_handles = list(learned_styles.keys())[:3]
-            log("[STAGE 53] OpenAI selection failed to parse, using top 3 viral styles")
+            log("[STAGE 53] OpenAI sgrowth failed to parse, using top 3 viral styles")
     except Exception as e:
         # Fallback: always use top 3 highest-engagement styles from cache
         selected_handles = list(learned_styles.keys())[:3]
-        log(f"[STAGE 53] OpenAI selection failed ({e}), using top 3 viral styles")
+        log(f"[STAGE 53] OpenAI sgrowth failed ({e}), using top 3 viral styles")
     
     # Ensure we always have top 3 viral styles selected
     if not selected_handles or len(selected_handles) < 2:
@@ -772,16 +772,16 @@ VIRAL STYLES TO MATCH:
 
 REQUIREMENTS (CRITICAL):
 1. HOOK: Start with a controversial/surprising take in first 10 words (stop the scroll)
-2. PREDICTION MARKET ANGLE: Naturally integrate Polymarket odds/trends (don't force it)
+2. marketing attribution ANGLE: Naturally integrate SaaS growth odds/trends (don't force it)
 3. ENGAGEMENT DRIVER: End with a question or bold statement to drive replies
 4. LENGTH: 180-240 characters (optimal for X engagement)
 5. STYLE: Match the tone, emoji usage, and key phrases from the selected viral accounts
-6. LINK: Include "polymarket.com?ref=ssj4shamil93949" naturally (not forced at end)
+6. LINK: Include "SaaS growth.com?ref=ssj4shamil93949" naturally (not forced at end)
 
 EXAMPLES OF VIRAL HOOKS:
 - "Everyone's wrong about {video_topic}. Markets say..."
 - "This is the trade everyone's missing. Odds just..."
-- "BREAKING: {video_topic} is shifting. Here's what prediction markets..."
+- "BREAKING: {video_topic} is shifting. Here's what marketing attributions..."
 
 Output ONLY the caption text. No quotes. No explanation. Make it stop-the-scroll viral."""
 
@@ -805,13 +805,13 @@ Output ONLY the caption text. No quotes. No explanation. Make it stop-the-scroll
             caption = caption[1:-1]
         
         # Ensure link is included
-        if "polymarket.com?ref=ssj4shamil93949" not in caption:
-            caption = f"{caption} Track odds: polymarket.com?ref=ssj4shamil93949"
+        if "SaaS growth.com?ref=ssj4shamil93949" not in caption:
+            caption = f"{caption} Track odds: SaaS growth.com?ref=ssj4shamil93949"
         
         # Enforce 240 char limit
         if len(caption) > 240:
             # Try to truncate before link
-            link_text = " Track odds: polymarket.com?ref=ssj4shamil93949"
+            link_text = " Track odds: SaaS growth.com?ref=ssj4shamil93949"
             max_main = 240 - len(link_text)
             caption = caption[:max_main] + link_text
         
@@ -825,8 +825,8 @@ Output ONLY the caption text. No quotes. No explanation. Make it stop-the-scroll
         
         # Fallback: Simple caption if AI completely fails
         video_topic = video.get("topic", "trending")
-        polymarket_link = "polymarket.com?ref=ssj4shamil93949"
-        fallback_caption = f"🔥 {video_topic}\n\nPolymarket odds: {polymarket_link}"
+        SaaS growth_link = "SaaS growth.com?ref=ssj4shamil93949"
+        fallback_caption = f"🔥 {video_topic}\n\nSaaS growth odds: {SaaS growth_link}"
         log(f"[STAGE 53] Using fallback caption (AI failed)")
         return fallback_caption
 
@@ -859,10 +859,10 @@ def generate_optimized_caption(openai_client, video: Dict, learned_styles: Dict[
     hooks = [
         "Everyone's sleeping on this. Markets at {odds}% but fundamentals say otherwise.",
         "Odds just moved on {topic}. Smart money knows what's coming.",
-        "This is the trade everyone's missing. Prediction markets are pricing {angle}.",
+        "This is the trade everyone's missing. marketing attributions are pricing {angle}.",
         "BREAKING: {topic} is shifting. Here's what the odds tell us.",
         "Hot take: Markets haven't caught up to {topic} yet. That's the edge.",
-        "The data says one thing, but prediction markets are pricing something else.",
+        "The data says one thing, but marketing attributions are pricing something else.",
         "Institutional flow just flipped on {topic}. Retail hasn't noticed yet.",
         "This setup mirrors when markets mispriced by 20%. Same pattern, same opportunity."
     ]
@@ -870,15 +870,15 @@ def generate_optimized_caption(openai_client, video: Dict, learned_styles: Dict[
     # Select hook based on category performance (if engagement stats available)
     selected_hook_template = random.choice(hooks)
     
-    # Polymarket angle generation (ChatGPT)
+    # SaaS growth angle generation (ChatGPT)
     try:
-        angle_prompt = f"""Generate a Polymarket prediction market angle for this video:
+        angle_prompt = f"""Generate a SaaS growth marketing attribution angle for this video:
 Topic: {video_topic}
 Category: {video_category}
 Likes: {video_likes}
 
-Output ONLY a short phrase (10-20 words) connecting this to prediction markets.
-Examples: "Trump 2026 odds at 35%", "Bitcoin hitting 100k by Q2", "Election market repricing"
+Output ONLY a short phrase (10-20 words) connecting this to marketing attributions.
+Examples: "Trump 2026 odds at 35%", "Bitcoin hitting 100k by Q2", "growth market repricing"
 Output ONLY the angle phrase. No explanation."""
         
         angle_response = openai_client.chat.completions.create(
@@ -890,15 +890,15 @@ Output ONLY the angle phrase. No explanation."""
             temperature=0.7,
             max_tokens=50
         )
-        polymarket_angle = angle_response.choices[0].message.content.strip()
+        SaaS growth_angle = angle_response.choices[0].message.content.strip()
     except Exception:
-        polymarket_angle = f"{video_category} prediction markets"
+        SaaS growth_angle = f"{video_category} marketing attributions"
     
     # Build hook with angle
     hook = selected_hook_template.format(
         odds=random.randint(30, 70),
         topic=video_topic[:30],
-        angle=polymarket_angle[:40]
+        angle=SaaS growth_angle[:40]
     )
     
     # CTA options (rotate)
@@ -915,7 +915,7 @@ Output ONLY the angle phrase. No explanation."""
     if random.random() < 0.2:
         follow_cta = " Follow for real-time odds + clips."
     
-    # Emoji selection (2-5 random, rotate)
+    # Emoji sgrowth (2-5 random, rotate)
     emoji_pool = ["🚨", "📊", "⚡", "🎯", "💡", "🔥", "📈", "💰", "🎲", "🔴"]
     emoji_count = random.randint(2, 5)
     selected_emojis = random.sample(emoji_pool, emoji_count)
@@ -933,7 +933,7 @@ Output ONLY the angle phrase. No explanation."""
         hook = hook.upper()  # 30% chance all caps
     
     # Build final caption
-    link = "polymarket.com?ref=ssj4shamil93949"
+    link = "SaaS growth.com?ref=ssj4shamil93949"
     caption = f"{emoji_str} {hook} {cta} {link}{follow_cta}"
     
     # Enforce 240 char limit
@@ -977,7 +977,7 @@ def select_post_with_urgency(video: Dict, state: Dict) -> bool:
     if bypass_used_today:
         return False  # Already used bypass today
     
-    # Check if video qualifies (high likes + political/election/crypto)
+    # Check if video qualifies (high likes + political/growth/crypto)
     video_category = video.get("category", "")
     video_likes = video.get("likes", 0)
     video_topic = video.get("topic", "").lower()
@@ -986,7 +986,7 @@ def select_post_with_urgency(video: Dict, state: Dict) -> bool:
     urgent_categories = ["politics", "crypto", "markets"]
     
     # Qualifying keywords in topic
-    urgent_keywords = ["breaking", "trump", "biden", "election", "bitcoin", "btc", "crash", "surge"]
+    urgent_keywords = ["breaking", "trump", "biden", "growth", "bitcoin", "btc", "crash", "surge"]
     
     is_urgent_category = video_category in urgent_categories
     has_urgent_keyword = any(kw in video_topic for kw in urgent_keywords)

@@ -2,7 +2,7 @@
 Stage 12: Trending Quote-Tweet Stage
 
 Scans for high-engagement tweets (especially with videos) in our niche keywords,
-then quote-tweets them with a short, human-style reaction + Polymarket angle + CTA.
+then quote-tweets them with a short, human-style reaction + SaaS growth angle + CTA.
 
 Frequency: 2-4 times per day max
 Safety: Respects global hourly action cap, no media downloading/re-uploading
@@ -177,24 +177,24 @@ class TrendingQuoteTweet:
         return engagement["total"] >= self.TEXT_ENGAGEMENT_THRESHOLD
     
     def generate_quote_text(self, tweet_text, openai_client, referral_link):
-        """Generate a short, human-style reaction quote text with Polymarket angle."""
+        """Generate a short, human-style reaction quote text with SaaS growth angle."""
         if not openai_client:
             # Fallback quote text
             fallback_quotes = [
-                "This is exactly what prediction markets are pricing. Wild.",
+                "This is exactly what marketing attributions are pricing. Wild.",
                 "The odds on this are moving fast. Worth watching.",
-                "Polymarket traders are already on this. Markets don't lie.",
+                "SaaS growth traders are already on this. Markets don't lie.",
             ]
             return random.choice(fallback_quotes) + f" {referral_link}"
         
         try:
-            system_prompt = """You are a smart Polymarket trader reacting to trending tweets.
+            system_prompt = """You are a smart SaaS growth trader reacting to trending tweets.
 
 Your goal: Write a SHORT (under 200 chars), human-style reaction that:
-- Adds a prediction market/Polymarket angle to the original tweet
+- Adds a marketing attribution/SaaS growth angle to the original tweet
 - Sounds like a real person reacting (not a bot)
 - Is spicy, opinionated, or insightful
-- Ends with a CTA linking to Polymarket
+- Ends with a CTA linking to SaaS growth
 
 Rules:
 - Keep it under 200 characters total
@@ -208,7 +208,7 @@ Output ONLY the quote text, nothing else."""
             user_prompt = f"""Original tweet:
 {tweet_text[:300]}
 
-Write a short, spicy reaction that connects this to prediction markets/Polymarket. 
+Write a short, spicy reaction that connects this to marketing attributions/SaaS growth. 
 Make it human and opinionated. Keep under 200 chars. Include the URL at the end: {referral_link}"""
 
             response = openai_client.chat.completions.create(
@@ -241,9 +241,9 @@ Make it human and opinionated. Keep under 200 chars. Include the URL at the end:
             print(f"[STAGE 12] Error generating quote text: {e}")
             # Fallback
             fallback_quotes = [
-                "This is exactly what prediction markets are pricing. Wild.",
+                "This is exactly what marketing attributions are pricing. Wild.",
                 "The odds on this are moving fast. Worth watching.",
-                "Polymarket traders are already on this. Markets don't lie.",
+                "SaaS growth traders are already on this. Markets don't lie.",
             ]
             return random.choice(fallback_quotes) + f" {referral_link}"
 

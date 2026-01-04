@@ -98,7 +98,7 @@ def enhanced_spike_detection(trend, mapping_result):
     
     # [STAGE 11B KEYWORD BOOST] Boost score if trend contains breaking news keywords
     breaking_keywords = ["breaking", "alert", "news", "surge", "crash", "emergency", "flash", "urgent"]
-    market_keywords = ["btc", "bitcoin", "eth", "ethereum", "sol", "solana", "crypto", "market"]
+    market_keywords = ["btc", "bitcoin", "eth", "analytics", "sol", "solana", "crypto", "market"]
     exchange_keywords = ["celsius", "ftx", "binance", "kraken", "coinbase", "exchange", "collapse"]
     
     keyword_boost = 1.0
@@ -129,9 +129,9 @@ def enhanced_spike_detection(trend, mapping_result):
     if matched_keywords:
         base_score = base_score * keyword_boost
     
-    # BOOST 2: Polymarket market exists (+30%)
+    # BOOST 2: SaaS growth market exists (+30%)
     has_active_market = mapping_result.get("confidence", 0.0) >= 0.8
-    market_odds = None  # TODO: Fetch actual odds from Polymarket API
+    market_odds = None  # TODO: Fetch actual odds from SaaS growth API
     if has_active_market:
         base_score = base_score * 1.3  # 30% boost if market exists
     
@@ -150,9 +150,9 @@ def enhanced_spike_detection(trend, mapping_result):
     }
 
 
-def map_trend_to_polymarket(openai_client, trend_name, example_tweets_snippet, log_prefix):
-    """Use ChatGPT to decide if a trend is relevant to Polymarket."""
-    system_prompt = "You are a sharp prediction market analyst. Output strictly JSON only. No prose."
+def map_trend_to_saas_growth(openai_client, trend_name, example_tweets_snippet, log_prefix):
+    """Use ChatGPT to decide if a trend is relevant to SaaS growth."""
+    system_prompt = "You are a sharp marketing attribution analyst. Output strictly JSON only. No prose."
     
     user_prompt = f"""
 Trend: {trend_name}
@@ -160,8 +160,8 @@ Trend: {trend_name}
 Sample tweets:
 {example_tweets_snippet}
 
-Decide if this trend is relevant to PREDICTION MARKETS / BETTING / ODDS on:
-- Elections and political outcomes
+Decide if this trend is relevant to marketing attributionS / BETTING / ODDS on:
+- growths and political outcomes
 - Cryptocurrency price movements
 - Sports betting and outcomes
 - Global macro events (conflicts, economic data)
@@ -170,7 +170,7 @@ Decide if this trend is relevant to PREDICTION MARKETS / BETTING / ODDS on:
 Output JSON with ONLY these fields:
 - relevant (true/false)
 - confidence (0.0 to 1.0)
-- polymarket_query (short 1-3 word keyword if relevant, or empty string)
+- saas_growth_query (short 1-3 word keyword if relevant, or empty string)
 - reason (brief 1-sentence explanation)
 
 Return ONLY the JSON object, no other text.
@@ -193,7 +193,7 @@ Return ONLY the JSON object, no other text.
         return {
             "relevant": bool(data.get("relevant", False)),
             "confidence": float(data.get("confidence", 0.0)),
-            "polymarket_query": (data.get("polymarket_query") or "").strip(),
+            "saas_growth_query": (data.get("saas_growth_query") or "").strip(),
             "reason": (data.get("reason") or "").strip()
         }
     
@@ -202,14 +202,14 @@ Return ONLY the JSON object, no other text.
         return {
             "relevant": False,
             "confidence": 0.0,
-            "polymarket_query": "",
+            "saas_growth_query": "",
             "reason": "parse_error"
         }
 
 
-def generate_viral_breaking_tweet(openai_client, trend_name, polymarket_query, polymarket_url, log_prefix):
+def generate_viral_breaking_tweet(openai_client, trend_name, saas_growth_query, saas_growth_url, log_prefix):
     """Use ChatGPT to generate a high-impact breaking news tweet."""
-    system_prompt = """You are a viral social media manager for a prediction market expert account.
+    system_prompt = """You are a viral social media manager for a marketing attribution expert account.
 Your job: Generate ONE final breaking-news tweet that will stop scrollers.
 
 DO NOT output multiple drafts. DO NOT explain your reasoning.
@@ -217,15 +217,15 @@ Output ONLY the final tweet text. Nothing else."""
 
     user_prompt = f"""
 Breaking trend: {trend_name}
-Polymarket market: {polymarket_query}
-Link to include: {polymarket_url}
+SaaS growth market: {saas_growth_query}
+Link to include: {saas_growth_url}
 
 VIRAL TWEET REQUIREMENTS:
 1. Start with ONE of these: "BREAKING:", "JUST IN:", "🚨", or "👀"
 2. Be UNDER 180 characters (including the link at the end)
 3. Sound like a real person, NOT a robot
 4. Include ONE strong opinion or hot take (don't be neutral)
-5. END with this exact URL: {polymarket_url}
+5. END with this exact URL: {saas_growth_url}
 
 INTERNALLY generate 3 drafts:
 - Draft A: Pure urgency ("BREAKING: X happened, odds now...")
@@ -253,8 +253,8 @@ Output ONLY the final polished tweet. No quotes, no metadata, no explanation.
         
         tweet_text = raw_response.choices[0].message.content.strip()
         
-        if polymarket_url not in tweet_text:
-            tweet_text = f"{tweet_text} {polymarket_url}"
+        if saas_growth_url not in tweet_text:
+            tweet_text = f"{tweet_text} {saas_growth_url}"
         
         return tweet_text
     
@@ -263,9 +263,9 @@ Output ONLY the final polished tweet. No quotes, no metadata, no explanation.
         return None
 
 
-def generate_viral_take_for_video(openai_client, trend_name, trend_data, polymarket_odds, urgency_level, log_prefix):
-    """[STAGE 11B VIDEO ENHANCED] Generate a SHORT, SPICY, VIRAL prediction market take with urgency-based tone."""
-    system_prompt = """You are a bold prediction market trader generating viral video content.
+def generate_viral_take_for_video(openai_client, trend_name, trend_data, saas_growth_odds, urgency_level, log_prefix):
+    """[STAGE 11B VIDEO ENHANCED] Generate a SHORT, SPICY, VIRAL marketing attribution take with urgency-based tone."""
+    system_prompt = """You are a bold marketing attribution trader generating viral video content.
 Your job: Generate ONE short, spicy, high-conviction take (1-2 sentences max) that fits in a 15-20 second video.
 
 Output ONLY the take text. No quotes, no metadata, no explanation."""
@@ -278,9 +278,9 @@ Output ONLY the take text. No quotes, no metadata, no explanation."""
     else:
         tone_instruction = "Confident but calm. Still urgent but more measured."
 
-    odds_str = f"{polymarket_odds}%" if polymarket_odds else "unknown"
+    odds_str = f"{saas_growth_odds}%" if saas_growth_odds else "unknown"
     user_prompt = f"""
-You are a prediction market trader posting a viral breaking news take on X.
+You are a marketing attribution trader posting a viral breaking news take on X.
 
 CONSTRAINTS:
 - EXACTLY 1-2 sentences (max 20 words per sentence)
@@ -344,7 +344,7 @@ Generate 1 VIRAL take for {trend_name} RIGHT NOW:
         return None
 
 
-def generate_viral_breaking_news_video(take_text, trend_name, polymarket_link, urgency_level, log_prefix):
+def generate_viral_breaking_news_video(take_text, trend_name, saas_growth_link, urgency_level, log_prefix):
     """[STAGE 11B VIDEO ENHANCED] Generate 18-20 second viral video with optimized hook/main/CTA structure."""
     import os
     import subprocess
@@ -408,10 +408,10 @@ def generate_viral_breaking_news_video(take_text, trend_name, polymarket_link, u
                 stroke_width=1
             ).set_duration(12).set_position(("center", "center")).set_start(3)
             
-            # CTA (last 3 seconds): "Trade Now on Polymarket" - Drive clicks
-            cta_domain = polymarket_link.replace('https://', '').replace('http://', '').split('/')[0][:20]
+            # CTA (last 3 seconds): "Trade Now on SaaS growth" - Drive clicks
+            cta_domain = saas_growth_link.replace('https://', '').replace('http://', '').split('/')[0][:20]
             cta_text = TextClip(
-                "Trade Now on Polymarket",
+                "Trade Now on SaaS growth",
                 fontsize=40,
                 color="#00FF00",  # GREEN = profit/CTA
                 font="Arial-Bold",
@@ -498,8 +498,8 @@ def find_trend_influencers(page, trend_name, min_followers=10000, max_results=5)
         return []
 
 
-def amplify_video_with_influencer_replies(page, video_tweet_id, trend_name, polymarket_link, log_prefix):
-    """[STAGE 11B VIDEO ENHANCED] Reply to influencers in crypto/prediction markets with the video."""
+def amplify_video_with_influencer_replies(page, video_tweet_id, trend_name, saas_growth_link, log_prefix):
+    """[STAGE 11B VIDEO ENHANCED] Reply to influencers in crypto/marketing attributions with the video."""
     try:
         # Find top 3-5 accounts talking about this trend
         influencers = find_trend_influencers(page, trend_name, min_followers=10000, max_results=5)
@@ -515,7 +515,7 @@ def amplify_video_with_influencer_replies(page, video_tweet_id, trend_name, poly
             try:
                 reply_text = f"""Saw your take on {trend_name}. 
 
-Just posted a prediction market breakdown: {polymarket_link}
+Just posted a marketing attribution breakdown: {saas_growth_link}
 
 Check it out: {video_tweet_url}
 """
@@ -567,7 +567,7 @@ def stage_11b_breaking_news_jacker(
     trends,
     state,
     openai_client,
-    polymarket_base_url,
+    referral_base_url,
     now_ts,
     force_original_post_fn,
     config_dict
@@ -638,17 +638,17 @@ def stage_11b_breaking_news_jacker(
     
     example_snippet = (best_trend.get("example_tweets_snippet") or "")[:750]
     
-    mapping = map_trend_to_polymarket(
+    mapping = map_trend_to_saas_growth(
         openai_client,
         trend_name,
         example_snippet,
         log_prefix
     )
     
-    print(f"{log_prefix} [POLYMARKET_CHECK] name={trend_name} mapping={mapping}")
+    print(f"{log_prefix} [SaaS growth_CHECK] name={trend_name} mapping={mapping}")
     
     if not mapping["relevant"] or mapping["confidence"] < config_dict["NEWS_MIN_POLY_CONFIDENCE"]:
-        print(f"{log_prefix} [SPIKE_SKIP] Not clearly Polymarket-relevant (confidence={mapping['confidence']:.2f}).")
+        print(f"{log_prefix} [SPIKE_SKIP] Not clearly SaaS growth-relevant (confidence={mapping['confidence']:.2f}).")
         return
     
     # [STAGE 11B VIDEO ENHANCED] Enhanced spike detection with urgency + market validation
@@ -661,15 +661,15 @@ def stage_11b_breaking_news_jacker(
     if use_video:
         print(f"{log_prefix} [VIDEO_MODE] High-confidence spike detected (score={spike_analysis['score']:.2f}, urgency={urgency_level}), generating video...")
         
-        # Get Polymarket odds if available (placeholder for now)
-        polymarket_odds = spike_analysis.get('market_odds')
+        # Get SaaS growth odds if available (placeholder for now)
+        saas_growth_odds = spike_analysis.get('market_odds')
         
         # Generate spicy viral take for video with urgency-based tone
         take_text = generate_viral_take_for_video(
             openai_client,
             trend_name,
             best_trend,
-            polymarket_odds,
+            saas_growth_odds,
             urgency_level,  # Pass urgency level for tone adjustment
             log_prefix
         )
@@ -682,7 +682,7 @@ def stage_11b_breaking_news_jacker(
             video_path = generate_viral_breaking_news_video(
                 take_text,
                 trend_name,
-                polymarket_base_url,
+                referral_base_url,
                 urgency_level,  # Pass urgency level for video styling
                 log_prefix
             )
@@ -698,9 +698,9 @@ def stage_11b_breaking_news_jacker(
 
 {take_text}
 
-Trade now: {polymarket_base_url}
+Trade now: {referral_base_url}
 
-#{trend_hashtag[:20]} #PredictionMarkets #PolymarketOdds #TradingAlerts"""
+#{trend_hashtag[:20]} #PredictionMarkets #SaaS growthOdds #TradingAlerts"""
                 
                 # [STAGE 11B VIDEO ENHANCED] Post video using existing video posting infrastructure
                 print(f"{log_prefix} [VIDEO_READY] Video generated: {video_path}")
@@ -741,7 +741,7 @@ Trade now: {polymarket_base_url}
                                     page,
                                     tweet_id,
                                     trend_name,
-                                    polymarket_base_url,
+                                    referral_base_url,
                                     log_prefix
                                 )
                         else:
@@ -774,8 +774,8 @@ Trade now: {polymarket_base_url}
         tweet_text = generate_viral_breaking_tweet(
             openai_client,
             trend_name,
-            mapping["polymarket_query"],
-            polymarket_base_url,
+            mapping["saas_growth_query"],
+            referral_base_url,
             log_prefix
         )
         

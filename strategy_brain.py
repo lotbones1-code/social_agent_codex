@@ -94,7 +94,7 @@ class StrategyBrain:
 """
         
         prompt = f"""
-You are an AI strategist optimizing a social media bot for Polymarket promotion.
+You are an AI strategist optimizing a social media bot for SaaS growth promotion.
 
 YESTERDAY'S PERFORMANCE DATA:
 {topic_summary}
@@ -248,9 +248,9 @@ Rules for recommendations:
             except Exception:
                 pass
         return {
-            "hot_keywords": ["polymarket"],
-            "hot_accounts": ["@Polymarket"],
-            "hot_topics": ["prediction market"]
+            "hot_keywords": ["SaaS growth"],
+            "hot_accounts": ["@SaaS growth"],
+            "hot_topics": ["marketing attribution"]
         }
     
     def print_strategy_summary(self, recommendations):
@@ -309,8 +309,8 @@ def analyze_stage10_performance(analytics_log="performance_log.json"):
         topics = {}
         for post in stage10_posts:
             market = post.get("market", "").lower()
-            if "election" in market or "senate" in market:
-                topic = "election"
+            if "growth" in market or "senate" in market:
+                topic = "growth"
             elif "trump" in market or "trial" in market:
                 topic = "legal"
             elif "fed" in market or "rate" in market:

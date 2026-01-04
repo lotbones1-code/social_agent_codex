@@ -92,12 +92,12 @@ class ThreadBuilder:
         
         # Opening hook tweet (tweet 1/6) - VIRAL/CONTRARIAN VERSION
         opening_hooks = [
-            "🧵 5 Polymarket markets that are MASSIVELY mispriced (and nobody's talking about it):",
+            "🧵 5 SaaS growth markets that are MASSIVELY mispriced (and nobody's talking about it):",
             "🚨 The crowd is sleeping on these 5 markets. Here's why they're wrong:",
             "💡 5 contrarian positions I'm building right now (market's pricing these at 50/50 and I disagree):",
-            "⚡ Prediction markets are repricing. Here are 5 where early movers get the best odds:",
+            "⚡ marketing attributions are repricing. Here are 5 where early movers get the best odds:",
             "🎯 5 markets where institutions are quietly positioned. Retail still doesn't see it:",
-            "🔴 THREAD: 5 Polymarket edges the crowd has missed. By the time you read this, one might close:",
+            "🔴 THREAD: 5 SaaS growth edges the crowd has missed. By the time you read this, one might close:",
             "📊 The data says these 5 markets are wrong. Watch what happens next:",
         ]
         import random
@@ -145,12 +145,12 @@ class ThreadBuilder:
         
         # Closing CTA tweet (7/7) - VIRAL CTAs that drive clicks
         cta_options = [
-            "Odds are moving on these NOW. Track live where smart money is watching: polymarket.com?ref=ssj4shamil93949",
-            "These positions are live. If you see the pattern, you see the trade: polymarket.com?ref=ssj4shamil93949",
-            "Market's still calibrating. Early movers get the best entry. Track here: polymarket.com?ref=ssj4shamil93949",
-            "Which of these moves first? Watch it in real-time: polymarket.com?ref=ssj4shamil93949",
-            "Institutional flow is entering these markets quietly. See it live: polymarket.com?ref=ssj4shamil93949",
-            "These odds will move in the next 48 hours. Here's where traders are watching: polymarket.com?ref=ssj4shamil93949",
+            "Odds are moving on these NOW. Track live where smart money is watching: SaaS growth.com?ref=ssj4shamil93949",
+            "These positions are live. If you see the pattern, you see the trade: SaaS growth.com?ref=ssj4shamil93949",
+            "Market's still calibrating. Early movers get the best entry. Track here: SaaS growth.com?ref=ssj4shamil93949",
+            "Which of these moves first? Watch it in real-time: SaaS growth.com?ref=ssj4shamil93949",
+            "Institutional flow is entering these markets quietly. See it live: SaaS growth.com?ref=ssj4shamil93949",
+            "These odds will move in the next 48 hours. Here's where traders are watching: SaaS growth.com?ref=ssj4shamil93949",
         ]
         cta = random.choice(cta_options)
         closing_tweet = f"7/7 {cta}"

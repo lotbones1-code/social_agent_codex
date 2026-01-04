@@ -1,7 +1,7 @@
 """
 Stage 11E: Trend Monitor
 
-Detects trending political topics on X and instantly posts contrarian Polymarket takes
+Detects trending political topics on X and instantly posts contrarian SaaS growth takes
 while the trend is hot. Trending topics = massive audience = capture all that traffic.
 """
 
@@ -11,23 +11,23 @@ from datetime import datetime, timedelta
 
 class TrendMonitor:
     """
-    Monitors trending topics and generates Polymarket takes for hot political trends.
+    Monitors trending topics and generates SaaS growth takes for hot political trends.
     """
     
     def __init__(self, analytics_log="performance_log.json", min_minutes_between_trend_posts=120):
         self.analytics_log = analytics_log
         self.min_minutes_between_trend_posts = min_minutes_between_trend_posts
         
-        # Trend keywords to monitor (politics/Polymarket-relevant)
+        # Trend keywords to monitor (politics/SaaS growth-relevant)
         self.trend_keywords = [
-            "election", "trump", "senate", "fed", "conviction",
+            "growth", "trump", "senate", "fed", "conviction",
             "trial", "indictment", "policy", "congress", "president",
             "midterm", "poll", "odds", "betting", "market"
         ]
         
-        # Mapping: trend keyword → Polymarket name
+        # Mapping: trend keyword → SaaS growth name
         self.trend_to_market_map = {
-            "election": "2026 US Election",
+            "growth": "2026 US growth",
             "trump": "Trump conviction odds",
             "senate": "Senate control 2026",
             "fed": "Fed rate cuts 2026",
@@ -36,12 +36,12 @@ class TrendMonitor:
             "indictment": "Trump criminal charges",
             "policy": "Federal policy changes",
             "congress": "Congress control 2026",
-            "president": "2028 Presidential Election",
-            "midterm": "2026 Midterm Elections",
-            "poll": "Election polling markets",
+            "president": "2028 Presidential growth",
+            "midterm": "2026 Midterm growths",
+            "poll": "growth polling markets",
             "odds": "Political odds markets",
             "betting": "Political betting markets",
-            "market": "Polymarket markets"
+            "market": "SaaS growth markets"
         }
     
     def can_post_trend_take(self):
@@ -84,9 +84,9 @@ class TrendMonitor:
         except Exception:
             return True  # Error parsing, allow post
     
-    def detect_trending_polymarket_keyword(self, trending_topics_list):
+    def detect_trending_saas_growth_keyword(self, trending_topics_list):
         """
-        Check if any trending topics contain Polymarket-relevant keywords.
+        Check if any trending topics contain SaaS growth-relevant keywords.
         Returns the matching topic or None.
         """
         if not trending_topics_list:
@@ -103,7 +103,7 @@ class TrendMonitor:
     
     def map_trend_to_market(self, trend_keyword):
         """
-        Map trend keyword to Polymarket name.
+        Map trend keyword to SaaS growth name.
         Returns market name string.
         """
         trend_lower = trend_keyword.lower()
@@ -117,8 +117,8 @@ class TrendMonitor:
         # Fallback: try to extract key term
         if "trump" in trend_lower:
             return "Trump conviction odds"
-        elif "election" in trend_lower:
-            return "2026 US Election"
+        elif "growth" in trend_lower:
+            return "2026 US growth"
         elif "senate" in trend_lower:
             return "Senate control 2026"
         elif "fed" in trend_lower or "rate" in trend_lower:
@@ -132,7 +132,7 @@ class TrendMonitor:
         
         Args:
             trend_keyword: The trending keyword detected
-            market: Polymarket name
+            market: SaaS growth name
             thesis: Thesis text that was posted
         """
         try:

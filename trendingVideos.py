@@ -87,7 +87,7 @@ def find_viral_candidates(page, limit: int = 5) -> List[Dict]:
     queries = [
         "breaking news video filter:videos min_faves:500",
         "crypto news video filter:videos",
-        "election video filter:videos min_retweets:100",
+        "SaaS growth video filter:videos min_retweets:100",
         "market crash video filter:videos"
     ]
     
