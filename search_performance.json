@@ -53,13 +53,13 @@
       "successes": 1
     },
     "polymarket": {
-      "attempts": 2,
+      "attempts": 4,
       "successes": 0
     },
     "trending events": {
-      "attempts": 15,
+      "attempts": 23,
       "successes": 0
     }
   },
-  "last_updated": "2026-01-05T12:52:11.328320"
+  "last_updated": "2026-01-05T14:18:46.291421"
 }
