@@ -33,7 +33,7 @@
       "successes": 0
     },
     "betting markets": {
-      "attempts": 24,
+      "attempts": 31,
       "successes": 0
     },
     "political odds": {
@@ -53,7 +53,7 @@
       "successes": 1
     },
     "polymarket": {
-      "attempts": 8,
+      "attempts": 11,
       "successes": 0
     },
     "trending events": {
@@ -61,5 +61,5 @@
       "successes": 0
     }
   },
-  "last_updated": "2026-01-05T22:37:29.708760"
+  "last_updated": "2026-01-06T01:24:56.148084"
 }
