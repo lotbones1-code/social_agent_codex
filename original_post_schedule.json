@@ -1,10 +1,10 @@
 {
   "posts_per_day_min": 3,
   "posts_per_day_max": 3,
-  "posts_posted_today": 2,
-  "last_post_date": "2026-01-06",
-  "last_post_time": 1767759108.902816,
-  "next_post_time": 1767774951.902816,
+  "posts_posted_today": 0,
+  "last_post_date": "2026-01-07",
+  "last_post_time": 1766701021.304041,
+  "next_post_time": 1766713048.304041,
   "interval_hours_min": 4,
   "interval_hours_max": 8
 }
